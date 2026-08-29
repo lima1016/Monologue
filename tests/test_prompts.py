@@ -23,6 +23,23 @@ def test_free_mode_embeds_persona_and_goal():
     assert "assign a seat" in text
 
 
+def test_a_stored_scenario_with_no_goal_falls_back_instead_of_saying_None():
+    """db._scenario_row always materialises `goal`, so a generated scenario
+    with none reads back as {"goal": None} -- the key is present and a default
+    keyed on its absence never fires. The prompt then literally told the model
+    "Scene goal: None". A built-in scenario omits the key entirely, which is
+    why this only ever showed up for generated ones."""
+    stored = {"id": "user-x", "language": "en", "type": "free", "title": "t",
+              "goal": None, "persona_prompt": "You are a barista.",
+              "max_turns": None, "lines": None}
+    text = prompts.build_system_prompt("free", "en", scenario=stored)
+    assert "have a natural conversation" in text
+    assert "Scene goal: None" not in text
+    # max_turns is None here too: the wind-down comparison must not crash, and
+    # a fresh session must not be told to wrap up on its first turn.
+    assert "wrap" not in text.lower()
+
+
 def test_free_mode_asks_the_bot_to_wind_down_near_the_turn_limit():
     scenario = {"persona_prompt": "p", "goal": "g", "max_turns": 8}
     early = prompts.build_system_prompt("free", "en", scenario=scenario, turns_used=1)

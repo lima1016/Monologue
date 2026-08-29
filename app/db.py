@@ -62,6 +62,14 @@ MIGRATIONS = [
     # (Phase 2C). data/scenarios.json stays read-only: it is behind an
     # lru_cache, so mixing writes into it would mean owning cache
     # invalidation and file-write races for no gain.
+    #
+    # used_count below is never written and never read. The counter it was
+    # added for has no reader -- user_scenarios orders by created_at DESC,
+    # which is what the learner actually wants -- so nothing maintains it and
+    # every row stays 0. The column is left in place because this list is
+    # append-only: dropping it would mean editing a step that has already run.
+    # Reuse it if a later phase wants the count, but do not read any existing
+    # row's value as meaning anything.
     ["""
     CREATE TABLE IF NOT EXISTS user_scenarios (
         id             TEXT PRIMARY KEY,
@@ -303,9 +311,14 @@ def resumable_session(language):
     """The session the learner would want to come back to, if any.
 
     Only one is offered even when several are open: a list of half-finished
-    conversations is a chore, not a feature. Sessions with no messages are
-    skipped -- pressing 시작 and closing the tab leaves one of those, and there
-    is nothing in it to resume. Script-mode sessions are excluded outright:
+    conversations is a chore, not a feature. A session the learner never spoke
+    in is skipped, and the speaker filter is the whole point of that clause:
+    POST /sessions writes the bot's opening line before it returns, so *every*
+    real free or lesson session has a message from the moment it is created,
+    and a filter on messages alone would match all of them. Pressing 시작 and
+    closing the tab is exactly the case being excluded -- there is nothing in
+    such a session to come back to, only a greeting nobody answered.
+    Script-mode sessions are excluded outright:
     the learner's position in the script (scriptIndex) lives only in the
     browser and is never persisted, so the app has no way to place them back
     where they left off -- and re-reading a short script from the top is
@@ -318,7 +331,8 @@ def resumable_session(language):
             " FROM sessions s"
             " WHERE s.language = ? AND s.ended_at IS NULL AND s.started_at >= ?"
             "   AND s.mode <> 'script'"
-            "   AND EXISTS (SELECT 1 FROM messages m2 WHERE m2.session_id = s.id)"
+            "   AND EXISTS (SELECT 1 FROM messages m2"
+            "               WHERE m2.session_id = s.id AND m2.speaker = 'user')"
             " ORDER BY s.id DESC LIMIT 1",
             (language, cutoff),
         ).fetchone()
@@ -378,27 +392,13 @@ def end_session(session_id, report, level) -> None:
         )
 
 
-def latest_level(language) -> str:
-    """Level of the most recently finished session in this language.
-
-    Open sessions have a NULL level and are ignored.
-
-    A single session's estimate is noise -- see stable_level, which judges
-    the level over a window of recent sessions instead. Prefer that for
-    anything that changes what the bot does (i+1 pitching, the level shown
-    to the learner); this one stays for callers that already depend on it.
-    """
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT level FROM sessions WHERE language = ? AND level IS NOT NULL"
-            " ORDER BY ended_at DESC, id DESC LIMIT 1",
-            (language,),
-        ).fetchone()
-    return row["level"] if row else "beginner"
-
-
 def stable_level(language, recent=5, min_sessions=3):
     """The learner's level, judged over several sessions rather than one.
+
+    This is the only level query. A `latest_level` -- the most recently
+    finished session's own estimate -- lived here until Phase 2C and is gone:
+    both of its callers moved to this function, and a single session's estimate
+    is noise (see below), so nothing should read one again.
 
     A per-session estimate is noise: the same transcript run three times
     through the model produced beginner, intermediate and advanced, and the
@@ -535,7 +535,6 @@ def _scenario_row(row) -> dict:
     item = {
         "id": row["id"], "language": row["language"], "type": row["type"],
         "title": row["title"], "goal": row["goal"],
-        "used_count": row["used_count"],
     }
     if row["type"] == "free":
         item["persona_prompt"] = row["persona_prompt"]
@@ -580,11 +579,3 @@ def get_user_scenario(scenario_id):
             "SELECT * FROM user_scenarios WHERE id = ?", (scenario_id,)
         ).fetchone()
     return _scenario_row(row) if row else None
-
-
-def touch_user_scenario(scenario_id) -> None:
-    with connect() as conn:
-        conn.execute(
-            "UPDATE user_scenarios SET used_count = used_count + 1 WHERE id = ?",
-            (scenario_id,),
-        )

@@ -201,52 +201,92 @@ export async function resumeSession() {
 export async function loadChips() {
   const box = $('chips');
   box.replaceChildren();
-  if (state.mode === 'lesson') return;   // lesson takes a topic, not a scenario
-  const { scenarios } = await getJSON(`/scenarios?language=${state.language}&mode=${state.mode}`);
-  for (const s of scenarios.slice(0, 8)) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = s.title;
-    b.dataset.id = s.id;
-    box.append(b);
+  // Captured at call time, the same way loadHome does it: two quick language
+  // (or mode) clicks issue two overlapping requests, and if the older one
+  // resolves last it would paint its now-wrong catalogue over the newer,
+  // correct one. These chips are clickable, so a stale chip is not merely
+  // cosmetic -- it hands startFromHome a scenario id from the other language.
+  const lang = state.language;
+  const mode = state.mode;
+  if (mode === 'lesson') return;   // lesson takes a topic, not a scenario
+  try {
+    const { scenarios } = await getJSON(`/scenarios?language=${lang}&mode=${mode}`);
+    if (state.language !== lang || state.mode !== mode) return; // a newer switch already won
+    for (const s of scenarios.slice(0, 8)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = s.title;
+      b.dataset.id = s.id;
+      box.append(b);
+    }
+  } catch {
+    // The catalogue is a convenience, not a required choice -- the learner can
+    // still type what they want. Leaving the box empty (it was cleared above)
+    // is honest; an unhandled rejection here used to empty it anyway, just
+    // without anything having decided to.
   }
 }
+
+/* Starting is a multi-second local-model call, and #wish (Enter) and the chips
+   both reach it while #btn-start is disabled -- so disabling that one button is
+   not a guard. Two Enter presses, or a chip clicked during a generation wait,
+   create *two* sessions; the loser is left open holding only its bot opening
+   line, and would then be offered back as the resume card. Same defect and same
+   shape as the `ending` flag below (and as commit 07caa64 for sendTurn): a flag,
+   not a disabled attribute, because the entry points are not all buttons. */
+let starting = false;
 
 /* Three ways in, one button:
    - a chip, or text that names a scenario we already have -> reuse it
    - text we have never seen -> ask the model to build it
    - nothing typed -> pick one, because "고르세요" is what this screen removed */
 export async function startFromHome(scenarioId = null) {
+  if (starting) return;
   const wish = $('wish').value.trim();
+  // Captured once, here, and used for every request below -- never re-read
+  // from `state` after an await. /scenarios/generate is a local 14b call that
+  // takes seconds, and the language segment and the mode buttons stay live
+  // throughout it: a switch landing mid-generation would otherwise post the
+  // new language with the old language's scenario id, creating a session
+  // stamped `ja` bound to an `en` scenario, whose turns then feed the wrong
+  // language's history forever with nothing on screen to say so.
+  const language = state.language;
+  const mode = state.mode;
+  starting = true;
   $('btn-start').disabled = true;
   try {
     let id = scenarioId;
-    if (!id && state.mode !== 'lesson' && wish) {
-      const { scenarios } = await getJSON(`/scenarios?language=${state.language}&mode=${state.mode}`);
+    if (!id && mode !== 'lesson' && wish) {
+      const { scenarios } = await getJSON(`/scenarios?language=${language}&mode=${mode}`);
       const hit = scenarios.find((s) => s.title.trim() === wish);
       if (hit) id = hit.id;
       else {
         notify('상황을 만드는 중입니다...');
-        const made = await postJSON('/scenarios/generate',
-          { language: state.language, mode: state.mode, wish });
+        const made = await postJSON('/scenarios/generate', { language, mode, wish });
         id = made.id;
         notify('');
       }
     }
-    if (!id && state.mode !== 'lesson') {
-      const { scenarios } = await getJSON(`/scenarios?language=${state.language}&mode=${state.mode}`);
+    if (!id && mode !== 'lesson') {
+      const { scenarios } = await getJSON(`/scenarios?language=${language}&mode=${mode}`);
       if (!scenarios.length) { notify('연습할 상황이 없습니다.'); return; }
       id = scenarios[Math.floor(Math.random() * scenarios.length)].id;
     }
-    await startSession({ scenarioId: id, topic: state.mode === 'lesson' ? wish : null });
+    await startSession({ language, mode, scenarioId: id, topic: mode === 'lesson' ? wish : null });
   } catch (err) {
     notify(`시작하지 못했습니다: ${err.message}`);
   } finally {
+    starting = false;
     $('btn-start').disabled = false;
   }
 }
 
-export async function startSession({ scenarioId, topic } = {}) {
+/* `language` and `mode` are parameters, not reads of `state`, on purpose: the
+   caller resolved a scenario id under a particular language and mode, possibly
+   several seconds ago, and the session must be created under the same pair the
+   id belongs to. Reading `state` here instead is exactly how a session came to
+   be stamped with one language and bound to another language's scenario. */
+export async function startSession({ language, mode, scenarioId, topic } = {}) {
   // startScript resets this for a script session; a free session never went
   // through startScript before, so without this a free session started right
   // after a finished script session would inherit the earlier session's
@@ -255,15 +295,24 @@ export async function startSession({ scenarioId, topic } = {}) {
   // script ones.
   scriptExhausted = false;
   const payload = {
-    language: state.language,
-    mode: state.mode,
-    scenario_id: state.mode === 'lesson' ? null : scenarioId,
+    language,
+    mode,
+    scenario_id: mode === 'lesson' ? null : scenarioId,
     topic: topic || null,
   };
   $('btn-start').disabled = true;
   try {
     const data = await postJSON('/sessions', payload);
     state.sessionId = data.session_id;
+    // The session that was actually created is now the one the app is in, so
+    // its language and mode become the app's -- exactly what resumeSession
+    // does with resumeTarget.mode. In the normal case these are already equal;
+    // they differ only when the learner switched during the generation wait,
+    // and then every later read (handleHeard's script routing, the mic's
+    // BCP47 language, re-speak matching) must follow the session that exists
+    // rather than the button that was pressed after it was requested.
+    state.language = payload.language;
+    state.mode = payload.mode;
     router.show('session');
     $('conversation').innerHTML = '';
     notify('');

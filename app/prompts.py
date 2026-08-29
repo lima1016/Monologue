@@ -202,14 +202,21 @@ def build_system_prompt(mode, language, *, scenario=None, topic=None,
     if mode == "free":
         if not scenario:
             raise ValueError("free mode needs a scenario")
+        # `or`, not a .get default: a built-in scenario omits `goal` entirely,
+        # but a generated one round-trips through db._scenario_row, which
+        # always materialises the key -- so a scenario with no goal reads back
+        # as {"goal": None}, the key is present, and a default keyed on absence
+        # never fires. That put the literal text "Scene goal: None" into the
+        # prompt. Same shape for max_turns, which is only defused today by
+        # validate_item's int check -- luck, not design.
         prompt = FREE_TEMPLATE.format(
             style=style,
             persona=scenario["persona_prompt"],
-            goal=scenario.get("goal", "have a natural conversation"),
+            goal=scenario.get("goal") or "have a natural conversation",
             language=language_name,
             level_pitch=level_pitch,
         )
-        max_turns = scenario.get("max_turns", config.DEFAULT_MAX_TURNS)
+        max_turns = scenario.get("max_turns") or config.DEFAULT_MAX_TURNS
         if turns_used >= max_turns - 2:
             prompt += WIND_DOWN
         return prompt

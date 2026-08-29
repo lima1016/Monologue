@@ -114,29 +114,6 @@ def test_end_session_records_report_and_level(store):
     assert row["ended_at"] is not None
 
 
-def test_latest_level_defaults_to_beginner_then_follows_last_ended_session(store):
-    assert store.latest_level("en") == "beginner"
-    first = store.create_session("en", "free")
-    store.end_session(first, "r", "intermediate")
-    assert store.latest_level("en") == "intermediate"
-    second = store.create_session("en", "lesson")
-    store.end_session(second, "r", "advanced")
-    assert store.latest_level("en") == "advanced"
-
-
-def test_latest_level_is_scoped_per_language(store):
-    sid = store.create_session("en", "free")
-    store.end_session(sid, "r", "advanced")
-    assert store.latest_level("ja") == "beginner"
-
-
-def test_unfinished_sessions_do_not_affect_latest_level(store):
-    done = store.create_session("en", "free")
-    store.end_session(done, "r", "advanced")
-    store.create_session("en", "free")  # still open, level is NULL
-    assert store.latest_level("en") == "advanced"
-
-
 def _finished(store, language, level):
     sid = store.create_session(language, "free")
     store.end_session(sid, "r", level)
@@ -580,7 +557,7 @@ FREE_SCENARIO = {
 def test_user_scenario_round_trips_in_the_catalogue_shape(store):
     store.add_user_scenario(FREE_SCENARIO)
     got = store.get_user_scenario("user-interview-1")
-    assert got == {**FREE_SCENARIO, "lines": None, "used_count": 0}
+    assert got == {**FREE_SCENARIO, "lines": None}
 
 
 def test_user_scenarios_are_filtered_by_language_and_kind(store):
@@ -599,8 +576,9 @@ def test_script_scenario_round_trips_its_lines(store):
     assert store.get_user_scenario("user-standup-1")["lines"] == script["lines"]
 
 
-def test_touch_counts_uses(store):
+def test_a_stored_scenario_reads_back_in_the_catalogue_shape(store):
+    """A generated scenario must be indistinguishable from a built-in one --
+    data/scenarios.json entries carry no used_count, and nothing counts uses,
+    so neither does this."""
     store.add_user_scenario(FREE_SCENARIO)
-    store.touch_user_scenario("user-interview-1")
-    store.touch_user_scenario("user-interview-1")
-    assert store.get_user_scenario("user-interview-1")["used_count"] == 2
+    assert "used_count" not in store.get_user_scenario("user-interview-1")

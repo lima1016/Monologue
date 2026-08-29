@@ -195,6 +195,20 @@ def start_session(payload: SessionStart):
         scenario = scenarios.get_scenario(payload.scenario_id)
         if scenario is None:
             raise HTTPException(404, f"no scenario {payload.scenario_id}")
+        # Defence in depth, and the check whose absence made a frontend race
+        # silent instead of loud: a scenario id resolves here with no reference
+        # to the language asked for, so a session could be stamped `ja` while
+        # bound to an `en` scenario. Nothing downstream ever notices -- the
+        # session's turns simply feed home_stats() and stable_level() for a
+        # language it was not practised in, permanently and invisibly. Any
+        # route to that outcome ends here now, not only the one the browser
+        # has been taught to avoid.
+        if scenario["language"] != payload.language:
+            raise HTTPException(
+                400,
+                f"scenario {payload.scenario_id} is {scenario['language']},"
+                f" not {payload.language}",
+            )
 
     session_id = db.create_session(payload.language, payload.mode,
                                    scenario_id=payload.scenario_id, topic=payload.topic)

@@ -84,6 +84,29 @@ def test_free_session_response_includes_the_scenario_goal(client):
     assert body["goal"]  # airport-checkin-en's goal in data/scenarios.json
 
 
+def test_a_scenario_from_the_other_language_is_rejected(client):
+    """The home screen's language segment stays live while a scenario is being
+    generated, so a switch mid-generation could post the new language with the
+    old language's scenario id. Nothing downstream would notice: the session is
+    stamped with the requested language, and its turns then feed that
+    language's stats and level forever. The browser no longer does this, but a
+    session bound to one language and stamped with another must be impossible
+    by any route, not just avoided by one client."""
+    r = client.post("/api/sessions", json={"language": "ja", "mode": "free",
+                                           "scenario_id": "airport-checkin-en"})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "en" in detail and "ja" in detail  # names both sides of the mismatch
+    assert db.list_sessions() == []           # and nothing was created
+
+
+def test_a_matching_language_still_starts(client):
+    """The guard above must reject only the mismatch, not the ordinary case."""
+    assert client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                              "scenario_id": "airport-checkin-en"}
+                       ).status_code == 200
+
+
 def test_lesson_session_response_has_no_goal(client):
     """Lesson mode has no scenario to draw a goal from -- the frontend falls
     back to the learner's own typed topic instead."""
@@ -401,6 +424,24 @@ def test_resumable_goal_is_none_without_a_scenario(client):
     db.add_message(sid, "user", "hi")
     r = client.get("/api/sessions/resumable?language=en")
     assert r.json()["session"]["goal"] is None
+
+
+def test_a_session_started_and_abandoned_through_the_route_is_not_offered(client):
+    """Pressing 시작 and closing the tab. POST /sessions writes the bot's
+    opening line before it returns, so this session already has a message --
+    which is why resumable_session filters on a *learner* message rather than
+    on any message at all. Built through the real route on purpose: the
+    equivalent db-level test constructs its fixture with create_session, which
+    never writes that opening line, so it would pass either way."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    assert db.get_messages(sid)                      # the bot's opening is there
+    assert db.resumable_session("en") is None
+    assert client.get("/api/sessions/resumable?language=en").json()["session"] is None
+
+    # ...and once the learner actually says something, it is worth resuming.
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+    assert client.get("/api/sessions/resumable?language=en").json()["session"]["id"] == sid
 
 
 def test_resumable_sweep_deletes_a_stale_sessions_recording_before_closing_it(client):
