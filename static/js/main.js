@@ -1,7 +1,7 @@
 import { $, postJSON, notify } from './api.js';
 import { recognition, BCP47, startRecording } from './audio.js';
 import { refreshHealth, loadScenarios, startSession,
-         sendTurn, nextScriptLine, endSession } from './session.js';
+         sendTurn, nextScriptLine, endSession, undoLastTurn, setTurnState } from './session.js';
 import { renderVoiceList, previewVoice } from './settings.js';
 import * as router from './router.js';
 
@@ -32,12 +32,19 @@ $('text-input').addEventListener('keydown', (e) => {
   }
 });
 $('btn-mic').addEventListener('click', () => {
-  if (!recognition) return;
+  if (!recognition) {
+    notify('이 브라우저는 음성 인식을 지원하지 않습니다. 아래 입력창에 직접 입력하세요.');
+    return;
+  }
   notify('');
-  $('btn-mic').textContent = '● 듣는 중...';
+  setTurnState('MIC');
   startRecording();
   recognition.lang = BCP47[$('language').value];
   recognition.start();
+});
+$('conversation').addEventListener('click', (e) => {
+  const bubble = e.target.closest('.msg.user.undoable');
+  if (bubble) undoLastTurn(bubble);
 });
 
 loadScenarios();

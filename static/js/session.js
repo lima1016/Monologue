@@ -1,6 +1,50 @@
 import { $, api, getJSON, postJSON, state, notify } from './api.js';
-import { play } from './audio.js';
+import { play, setHeardHandler } from './audio.js';
 import * as router from './router.js';
+import * as turn from './turnstate.js';
+
+/* ---------- turn state ---------- */
+
+let turnState = turn.INITIAL;
+
+/* The one place that knows what is in flight. Callers ask it rather than
+   keeping their own copy -- two sources of truth about "is a turn running"
+   is exactly the bug the old re-entrancy flag produced. */
+export function canDo(control) {
+  return turn.controls(turnState)[control];
+}
+
+export function setTurnState(event) {
+  turnState = turn.next(turnState, event);
+  const c = turn.controls(turnState);
+  $('btn-mic').disabled = !c.mic;
+  $('btn-send').disabled = !c.send;
+  $('btn-next').disabled = !c.next;
+  $('btn-end').disabled = !c.end;
+  const listening = turnState === 'listening' || turnState === 'respeaking';
+  $('btn-mic').classList.toggle('listening', listening);
+  // The mic's glyph is a CSS ::after pseudo-element, not a DOM child, so it
+  // cannot carry status text itself -- this hint line is what actually tells
+  // the learner what's happening (carried from Task 4/5's ruling).
+  $('mic-hint').textContent = listening
+    ? '듣고 있습니다...'
+    : '누르고 말하면 자동으로 전송됩니다';
+  $('thinking').hidden = turnState !== 'sending';
+  return turnState;
+}
+
+/* A recognised sentence becomes a turn automatically. Hearing nothing just
+   returns control to the learner. Re-speak (Task 8) takes priority over this
+   handler via audio.js's `deliver` and never reaches it. */
+function handleHeard(transcript) {
+  if (transcript) {
+    setTurnState('HEARD');
+    sendText(transcript);
+  } else {
+    setTurnState('HEARD_NOTHING');
+  }
+}
+setHeardHandler(handleHeard);
 
 /* ---------- status ---------- */
 
@@ -76,33 +120,71 @@ export function addMessage(who, text) {
   div.textContent = text;
   $('conversation').appendChild(div);
   div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  return div;
 }
 
 export function addFeedback(said, correction, suggestion) {
   // Task 7 renders correction chips under the speech bubble. Left as a
-  // no-op (rather than deleted) because sendTurn/nextScriptLine still call it.
+  // no-op (rather than deleted) because sendText/nextScriptLine still call it.
   return;
 }
 
-export async function sendTurn() {
-  const text = $('text-input').value.trim();
-  if (!text || !state.sessionId || state.busy) return;
-  state.busy = true;
+export async function sendText(text) {
+  // Only the most recent learner bubble is undoable -- deleting a middle turn
+  // would leave the conversation after it referring to something gone.
+  const prev = $('conversation').querySelector('.msg.user.undoable');
+  if (prev) { prev.classList.remove('undoable'); prev.removeAttribute('title'); }
+
   $('text-input').value = '';
-  addMessage('user', text);
-  $('btn-send').disabled = true;
+  const bubble = addMessage('user', text);
+  bubble.classList.add('undoable');
+  bubble.title = '잘못 인식됐다면 눌러서 고치세요';
+  bubble.dataset.turnText = text;
   try {
     const data = await postJSON('/chat', { session_id: state.sessionId, text });
+    setTurnState('REPLY');
     addMessage('bot', data.bot_reply);
     addFeedback(text, data.correction, data.suggestion);
-    play(data.audio_key, data.bot_reply);
+    // AUDIO_DONE returns the turn to `idle` once the bot's clip actually
+    // finishes -- until then `speaking` still permits starting a new turn
+    // (barge-in) but blocks undo/next/respeak (see turnstate.js).
+    play(data.audio_key, data.bot_reply, () => setTurnState('AUDIO_DONE'));
     await uploadPendingRecording();
   } catch (err) {
     notify(`전송 실패: ${err.message}`);
+    setTurnState('SEND_FAILED');
   } finally {
     state.chunks = []; // a failed turn has no message to attach a recording to
-    state.busy = false;
-    $('btn-send').disabled = false;
+  }
+}
+
+export async function sendTurn() {
+  if (!canDo('send')) return;
+  const text = $('text-input').value.trim();
+  if (!text || !state.sessionId) return;
+  setTurnState('SEND');
+  await sendText(text);
+}
+
+/* ---------- undo ---------- */
+
+export async function undoLastTurn(bubble) {
+  if (!canDo('undo')) return;
+  setTurnState('UNDO');
+  try {
+    await api(`/sessions/${state.sessionId}/last-turn`, { method: 'DELETE' });
+    // Drop the learner bubble, its chip, and the bot reply that followed.
+    let node = bubble.nextSibling;
+    while (node) { const gone = node; node = node.nextSibling; gone.remove(); }
+    const text = bubble.dataset.turnText;
+    bubble.remove();
+    // The learner almost always wants to fix and re-say the same sentence.
+    $('text-input').value = text || '';
+    $('text-input').focus();
+  } catch (err) {
+    notify(`되돌리지 못했습니다: ${err.message}`);
+  } finally {
+    setTurnState('UNDO_DONE');
   }
 }
 
@@ -136,25 +218,29 @@ function advanceScript() {
 }
 
 export async function nextScriptLine() {
-  if (state.busy) return;
   const line = state.scriptLines[state.scriptIndex];
   if (line && line.speaker === 'user') {
-    state.busy = true;
+    if (!canDo('send')) return;
+    setTurnState('SEND');
     const spoken = $('text-input').value.trim() || line.text;
     $('text-input').value = '';
     addMessage('user', spoken);
-    $('btn-next').disabled = true;
     try {
       const data = await postJSON('/chat', { session_id: state.sessionId, text: spoken });
+      setTurnState('REPLY');
       addFeedback(spoken, data.correction, data.suggestion);
       await uploadPendingRecording();
       state.scriptIndex += 1; // only advance past a turn that was actually recorded
+      // Unlike sendText, nothing from this /chat reply is played as audio --
+      // the script's own pre-recorded line audio plays via advanceScript()
+      // below, uncoupled from turn state. So there is no clip to wait on:
+      // return to idle immediately or `next`/`undo` would stay disabled.
+      setTurnState('AUDIO_DONE');
     } catch (err) {
       notify(`저장 실패: ${err.message}`);
+      setTurnState('SEND_FAILED');
     } finally {
       state.chunks = []; // a failed turn has no message to attach a recording to
-      state.busy = false;
-      $('btn-next').disabled = false;
     }
   } else if (line) {
     addMessage('bot', line.text);

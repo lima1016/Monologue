@@ -23,7 +23,6 @@ export const state = {
   scriptIndex: 0,
   recorder: null,
   chunks: [],
-  busy: false, // re-entrancy guard: blocks a second sendTurn/nextScriptLine while one is in flight
 };
 
 export function notify(message) {

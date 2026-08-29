@@ -44,7 +44,6 @@
   /* Session-screen layout dimensions -- these don't vary with the colour
      scheme, so they live only in the light block. */
   --panel-w: 300px;
-  --dock-h: 92px;
 }
 
 @media (prefers-color-scheme: dark) {
