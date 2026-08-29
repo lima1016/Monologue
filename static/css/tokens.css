@@ -7,7 +7,12 @@
 
   --bg: #fbfbfe;
   --surface: #ffffff;
-  --surface-sunken: #f6f7fb;
+  /* Must stay visibly distinct from --bg, not merely different from it: the
+     previous #f6f7fb sat at 1.04:1 against --bg, and the two things painted
+     with it that carry no border of their own -- .chips button (which sets
+     border-color: transparent) and .msg.bot -- rendered as bare text on the
+     page. The dark value has no such problem and is not touched. */
+  --surface-sunken: #eceef6;
   --line: #e6e7ef;
   --text: #1c1d26;
   --text-dim: #8a8c9e;

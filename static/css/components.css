@@ -240,6 +240,11 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    itself (the router hides whole screens) and on #resume-card/#home-stats. */
 #home {
   max-width: 620px;
+  /* Centred, not left-aligned. The argument for hugging the left edge was that
+     it lines up with the logo -- but `header` is a sibling of `main`, not a
+     child of it, so the two never share a left edge once the viewport is wider
+     than this column (about 948px), and the column just drifts off-centre. */
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
