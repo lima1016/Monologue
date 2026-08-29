@@ -54,6 +54,20 @@ Follow these rules without exception:
 - Never add parenthetical asides or stage directions.
 - Ask a question back when it keeps the conversation going naturally."""
 
+# i+1: comprehensible input works when the bot's own speech sits a step beyond
+# what the learner can already produce, not level with it -- pitching exactly
+# to their level gives them nothing new to pick up. Shared between free and
+# lesson mode so both actually use the level they are handed, rather than
+# free mode taking a level argument and silently ignoring it. Script mode is
+# excluded on purpose: its lines are fixed dialogue, not generated speech, so
+# there is nothing here for a level to pitch.
+LEVEL_PITCH = (
+    "The student's current level is {level}. Pitch your own speech a small step "
+    "above it -- a little longer, a little richer -- so there is something new to "
+    "pick up, while staying comprehensible. Do not drop to their level, and do not "
+    "leap past it."
+)
+
 FREE_TEMPLATE = """\
 {style}
 
@@ -61,6 +75,8 @@ You are role-playing a scene with a language learner.
 
 Your character: {persona}
 Scene goal: {goal}
+
+{level_pitch}
 
 Stay fully in character. Never break role to comment on the learner's {language}
 — corrections are handled elsewhere. If the learner says something unclear, react
@@ -77,7 +93,7 @@ LESSON_TEMPLATE = """\
 {style}
 
 You are a warm, patient {language} teacher in a one-to-one spoken lesson.
-The student's current level is {level}. Pitch everything to that level.
+{level_pitch}
 {language_rule}
 
 {topic_line}
@@ -172,6 +188,8 @@ def build_system_prompt(mode, language, *, scenario=None, topic=None,
     if language == "ja":
         style += "\n- " + JAPANESE_SCRIPT_ONLY_RULE
 
+    level_pitch = LEVEL_PITCH.format(level=level)
+
     if mode == "free":
         if not scenario:
             raise ValueError("free mode needs a scenario")
@@ -180,6 +198,7 @@ def build_system_prompt(mode, language, *, scenario=None, topic=None,
             persona=scenario["persona_prompt"],
             goal=scenario.get("goal", "have a natural conversation"),
             language=language_name,
+            level_pitch=level_pitch,
         )
         max_turns = scenario.get("max_turns", config.DEFAULT_MAX_TURNS)
         if turns_used >= max_turns - 2:
@@ -198,8 +217,8 @@ def build_system_prompt(mode, language, *, scenario=None, topic=None,
     language_rule = LESSON_LANGUAGE_RULE.get(level, LESSON_LANGUAGE_RULE["beginner"])
     language_rule_text = language_rule.format(language=language_name)
     prompt = LESSON_TEMPLATE.format(
-        style=style, language=language_name, level=level, topic_line=topic_line,
-        language_rule=language_rule_text
+        style=style, language=language_name, level_pitch=level_pitch,
+        topic_line=topic_line, language_rule=language_rule_text
     )
     if turns_used >= config.DEFAULT_MAX_TURNS - 2:
         prompt += WIND_DOWN

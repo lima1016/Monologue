@@ -122,6 +122,41 @@ def test_unfinished_sessions_do_not_affect_latest_level(store):
     assert store.latest_level("en") == "advanced"
 
 
+def _finished(store, language, level):
+    sid = store.create_session(language, "free")
+    store.end_session(sid, "r", level)
+    return sid
+
+
+def test_stable_level_needs_a_minimum_sample(store):
+    """A single session of a few sentences cannot support a verdict. The real
+    database showed four consecutive one-turn sessions on the same scenario
+    recorded beginner, intermediate, intermediate, beginner."""
+    _finished(store, "en", "advanced")
+    _finished(store, "en", "advanced")
+    assert store.stable_level("en") is None
+
+
+def test_stable_level_is_the_mode_of_recent_sessions(store):
+    for level in ["beginner", "intermediate", "beginner", "beginner"]:
+        _finished(store, "en", level)
+    assert store.stable_level("en") == "beginner"
+
+
+def test_stable_level_only_looks_at_the_recent_window(store):
+    for level in ["beginner", "beginner", "beginner"]:
+        _finished(store, "en", level)
+    for level in ["advanced", "advanced", "advanced", "advanced", "advanced"]:
+        _finished(store, "en", level)
+    assert store.stable_level("en", recent=5) == "advanced"
+
+
+def test_stable_level_ignores_the_other_language(store):
+    for level in ["advanced", "advanced", "advanced"]:
+        _finished(store, "ja", level)
+    assert store.stable_level("en") is None
+
+
 def test_settings_get_set_and_default(store):
     assert store.get_setting("voice_en") is None
     assert store.get_setting("voice_en", "am_adam") == "am_adam"

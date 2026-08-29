@@ -36,6 +36,16 @@ def test_lesson_mode_injects_the_estimated_level():
     assert "advanced" in text
 
 
+def test_the_bot_is_told_to_pitch_slightly_above_the_learner():
+    """i+1: comprehensible input works when it sits a step beyond what the
+    learner can already produce, not level with it."""
+    text = prompts.build_system_prompt("free", "en", level="intermediate",
+                                       scenario={"persona_prompt": "p", "goal": "g",
+                                                 "max_turns": 8})
+    assert "intermediate" in text
+    assert "step above" in text.lower()
+
+
 def test_lesson_mode_uses_the_topic_when_given():
     text = prompts.build_system_prompt("lesson", "ja", topic="て form", level="beginner")
     assert "て form" in text

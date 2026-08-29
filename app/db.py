@@ -335,6 +335,11 @@ def latest_level(language) -> str:
     """Level of the most recently finished session in this language.
 
     Open sessions have a NULL level and are ignored.
+
+    A single session's estimate is noise -- see stable_level, which judges
+    the level over a window of recent sessions instead. Prefer that for
+    anything that changes what the bot does (i+1 pitching, the level shown
+    to the learner); this one stays for callers that already depend on it.
     """
     with connect() as conn:
         row = conn.execute(
@@ -343,6 +348,40 @@ def latest_level(language) -> str:
             (language,),
         ).fetchone()
     return row["level"] if row else "beginner"
+
+
+def stable_level(language, recent=5, min_sessions=3):
+    """The learner's level, judged over several sessions rather than one.
+
+    A per-session estimate is noise: the same transcript run three times
+    through the model produced beginner, intermediate and advanced, and the
+    real database holds four consecutive one-turn sessions on one scenario
+    recorded beginner, intermediate, intermediate, beginner. Anything that
+    changes how the bot teaches -- i+1 pitching, and the level Phase D shows --
+    has to read a stable value or it swings at random.
+
+    The mode of the recent window, not the newest value and not an average:
+    levels are an ordered set of three labels, and averaging labels is
+    meaningless, so "usually" is the mode. Ties fall to whichever level
+    max() meets first among the tied candidates, which is the most recent
+    occurrence order returned by the query -- not something callers should
+    rely on, since a genuine tie means the sample does not clearly say one
+    thing anyway.
+
+    Returns None when the sample is too thin to say anything, which callers
+    must handle rather than defaulting silently.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT level FROM sessions"
+            " WHERE language = ? AND ended_at IS NOT NULL AND level IS NOT NULL"
+            " ORDER BY ended_at DESC LIMIT ?",
+            (language, recent),
+        ).fetchall()
+    levels = [r["level"] for r in rows]
+    if len(levels) < min_sessions:
+        return None
+    return max(set(levels), key=levels.count)
 
 
 def list_sessions(limit=20) -> list[dict]:

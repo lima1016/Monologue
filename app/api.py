@@ -208,7 +208,7 @@ def start_session(payload: SessionStart):
 
     system = prompts.build_system_prompt(
         payload.mode, payload.language, scenario=scenario, topic=payload.topic,
-        level=db.latest_level(payload.language),
+        level=db.stable_level(payload.language) or "beginner",
     )
     opening = llm.chat([
         {"role": "system", "content": system},
@@ -250,7 +250,7 @@ def chat_turn(payload: ChatTurn):
 
     system = prompts.build_system_prompt(
         session["mode"], language, scenario=scenario, topic=session["topic"],
-        level=db.latest_level(language), turns_used=turns_used + 1,
+        level=db.stable_level(language) or "beginner", turns_used=turns_used + 1,
     )
     reply = llm.chat([{"role": "system", "content": system}] + _history(payload.session_id))
     db.add_message(payload.session_id, "bot", reply)
