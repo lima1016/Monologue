@@ -1,0 +1,73 @@
+"""Feedback quality against the real model. Runs only under `-m engine`.
+
+These are threshold tests, not exact-match tests: the model is sampled, so a
+single wrong tag is not a regression. The thresholds are set below what the
+spike measured (en 10/10 Korean, 8/10 tag; ja 8/8 both) so normal variance
+does not fail the build, but a prompt regression does.
+"""
+import re
+
+import pytest
+
+from app import llm, prompts
+
+pytestmark = pytest.mark.engine
+
+CASES = [
+    ("en", "I go store yesterday.", False, "시제"),
+    ("en", "She have two cat.", False, "단복수"),
+    ("en", "I am interested on music.", False, "전치사"),
+    ("en", "Yesterday I to the park went.", False, "어순"),
+    ("en", "I want to buy car.", False, "관사"),
+    ("en", "My father is a doctor.", True, "없음"),
+    ("en", "Could you tell me where the station is?", True, "없음"),
+    ("ja", "きのう、レストランに行きます。", False, "시제"),
+    ("ja", "わたしは学校で行きます。", False, "조사"),
+    ("ja", "毎日ジムに行くします。", False, "활용"),
+    ("ja", "友達と映画を見ました。", True, "없음"),
+    ("ja", "すみません、駅はどこですか。", True, "없음"),
+]
+
+
+def _hangul(text):
+    return len(re.findall(r"[가-힣]", text or ""))
+
+
+def _ask(language, sentence):
+    return llm.chat_json(prompts.build_feedback_messages(language, sentence),
+                         prompts.feedback_schema(language))
+
+
+@pytest.fixture(scope="module")
+def results():
+    return [(lang, text, exp_ok, exp_tag, _ask(lang, text))
+            for lang, text, exp_ok, exp_tag in CASES]
+
+
+def test_explanations_are_written_in_korean(results):
+    """The bug that motivated this file: English corrections in the database.
+    Quoted target-language examples inflate the Latin count, so count Hangul
+    rather than comparing alphabets."""
+    bad = [text for _, text, _, _, out in results
+           if _hangul(out["correction"]) < 8 or _hangul(out["suggestion"]) < 8]
+    assert len(bad) <= 1, f"not Korean: {bad}"
+
+
+def test_ok_flag_matches_whether_the_sentence_was_correct(results):
+    wrong = [text for _, text, exp_ok, _, out in results if out["ok"] != exp_ok]
+    assert len(wrong) <= 1, f"wrong ok: {wrong}"
+
+
+def test_tags_are_mostly_right(results):
+    wrong = [(text, out["tag"], exp) for _, text, _, exp, out in results
+             if out["tag"] != exp]
+    assert len(wrong) <= 3, f"wrong tags: {wrong}"
+
+
+def test_fixed_is_a_real_sentence_not_an_explanation(results):
+    """`fixed` feeds the re-speak button, so it must be the target-language
+    sentence alone -- Korean prose in this field would be read aloud as the
+    thing to repeat."""
+    for _, text, _, _, out in results:
+        assert out["fixed"], f"empty fixed for {text}"
+        assert _hangul(out["fixed"]) == 0, f"Korean leaked into fixed for {text}"
