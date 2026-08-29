@@ -176,3 +176,26 @@ def test_a_phase1_database_is_stamped_and_then_migrated(tmp_path, monkeypatch):
         cols = {r[1] for r in c.execute("PRAGMA table_info(messages)")}
         assert {"ok", "fixed", "tag"} <= cols
         assert c.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 1
+
+
+def test_stamp_phase1_database_marks_existing_schema_as_v1():
+    """Exercises _stamp_phase1_database directly. Deleting the stamp entirely
+    would not fail the end-to-end legacy test above, because MIGRATIONS[0] is
+    idempotent CREATE ... IF NOT EXISTS today — so this test checks the stamp's
+    actual effect on user_version rather than an outcome that survives without it."""
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(db.SCHEMA)
+
+    db._stamp_phase1_database(conn)
+
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_stamp_phase1_database_leaves_a_fresh_database_at_zero():
+    """A brand-new database has no sessions table yet, so there is nothing to
+    stamp: it must stay at 0 and go through MIGRATIONS[0] like any other new DB."""
+    conn = sqlite3.connect(":memory:")
+
+    db._stamp_phase1_database(conn)
+
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 0

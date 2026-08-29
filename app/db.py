@@ -89,8 +89,13 @@ def schema_version() -> int:
 
 def _stamp_phase1_database(conn) -> None:
     """A database created before migrations existed sits at user_version 0 with
-    the v1 schema already applied. Stamp it as v1 so the runner resumes at the
-    right step instead of replaying migration 0."""
+    the v1 schema already applied. Replaying MIGRATIONS[0] against it today would
+    be harmless, since every statement in SCHEMA is CREATE ... IF NOT EXISTS — but
+    that harmlessness is an accident of what SCHEMA happens to contain, and this
+    repo's old habit was exactly "add a column to SCHEMA" (the bug this task
+    exists to prevent). Stamping the database as v1 means the legacy path never
+    executes MIGRATIONS[0] at all, so it stops depending on SCHEMA staying
+    idempotent forever."""
     if conn.execute("PRAGMA user_version").fetchone()[0] != 0:
         return
     already = conn.execute(
