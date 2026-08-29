@@ -74,3 +74,35 @@ def test_preview_reports_failure_clearly(client, monkeypatch):
     r = client.post("/api/tts/preview", json={"language": "en", "voice": "am_adam"})
     assert r.status_code == 503
     assert "engine down" in r.json()["detail"]
+
+
+def test_generating_a_scenario_stores_it_and_returns_it(client, monkeypatch):
+    monkeypatch.setattr("app.api.llm.chat_json", lambda messages, schema, **kw: {
+        "title": "구직 면접", "goal": "경력을 설명하고 질문에 답한다",
+        "persona_prompt": "You are a hiring manager interviewing a candidate.",
+    })
+    r = client.post("/api/scenarios/generate",
+                    json={"language": "en", "mode": "free", "wish": "구직 면접"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["title"] == "구직 면접"
+    assert body["id"].startswith("user-")
+
+    listed = client.get("/api/scenarios?language=en&mode=free").json()["scenarios"]
+    assert body["id"] in [s["id"] for s in listed]
+
+
+def test_a_generated_scenario_that_fails_validation_is_rejected(client, monkeypatch):
+    """A local 14b will sometimes return something unusable. Better a clear
+    error than a row that explodes when the learner presses 시작."""
+    monkeypatch.setattr("app.api.llm.chat_json",
+                        lambda messages, schema, **kw: {"title": "", "goal": "", "persona_prompt": ""})
+    r = client.post("/api/scenarios/generate",
+                    json={"language": "en", "mode": "free", "wish": "구직 면접"})
+    assert r.status_code == 422
+
+
+def test_lesson_mode_cannot_generate_a_scenario(client):
+    r = client.post("/api/scenarios/generate",
+                    json={"language": "en", "mode": "lesson", "wish": "past tense"})
+    assert r.status_code == 422

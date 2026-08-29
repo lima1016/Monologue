@@ -1,5 +1,6 @@
 """HTTP routes. Thin — every route delegates to a module and shapes the response."""
 import json
+import uuid
 from pathlib import Path
 from typing import Literal
 
@@ -43,6 +44,60 @@ def list_scenarios(language: Language, mode: Mode | None = Query(default=None)):
             for s in items
         ]
     }
+
+
+class ScenarioWish(BaseModel):
+    language: Language
+    mode: Mode
+    wish: str
+
+
+@router.post("/scenarios/generate")
+def generate_scenario(payload: ScenarioWish):
+    """Turn one line from the learner into a scenario they can practise.
+
+    Lesson mode has no scenario -- its `topic` goes straight into the system
+    prompt -- so asking for one is a mistake worth naming rather than silently
+    producing something unused.
+    """
+    if payload.mode not in ("free", "script"):
+        raise HTTPException(422, "only free and script modes have scenarios")
+    wish = payload.wish.strip()
+    if not wish:
+        raise HTTPException(422, "wish is empty")
+
+    try:
+        result = llm.chat_json(
+            prompts.build_scenario_messages(payload.language, payload.mode, wish),
+            prompts.scenario_schema(payload.mode),
+        )
+    except Exception:
+        raise HTTPException(503, "상황을 만들지 못했습니다. 잠시 뒤에 다시 시도해 주세요.")
+
+    item = {
+        "id": f"user-{uuid.uuid4().hex[:12]}",
+        "language": payload.language,
+        "type": payload.mode,
+        "title": (result.get("title") or wish).strip(),
+        "goal": (result.get("goal") or "").strip() or None,
+    }
+    if payload.mode == "free":
+        item["persona_prompt"] = (result.get("persona_prompt") or "").strip()
+        item["max_turns"] = config.DEFAULT_MAX_TURNS
+    else:
+        item["lines"] = result.get("lines") or []
+
+    # A local 14b will sometimes return something unusable. Validating here means
+    # a bad generation is a clear error now, not a crash when the learner
+    # presses 시작.
+    try:
+        scenarios.validate_item(item)
+    except scenarios.ScenarioError as exc:
+        raise HTTPException(422, f"만들어진 상황이 올바르지 않습니다: {exc}")
+
+    db.add_user_scenario(item)
+    return {"id": item["id"], "title": item["title"], "type": item["type"],
+            "goal": item.get("goal")}
 
 
 @router.get("/voices")

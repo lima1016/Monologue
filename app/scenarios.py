@@ -13,7 +13,7 @@ class ScenarioError(Exception):
     """A scenario file is malformed."""
 
 
-def _validate(item) -> None:
+def validate_item(item) -> None:
     if not item.get("id"):
         raise ScenarioError("scenario is missing an id")
     where = f"scenario {item['id']}"
@@ -51,7 +51,7 @@ def _read(path) -> list[dict]:
         raise ScenarioError(f"{path} is not valid JSON: {exc}") from exc
     seen = set()
     for item in items:
-        _validate(item)
+        validate_item(item)
         if item["id"] in seen:
             raise ScenarioError(f"duplicate scenario id: {item['id']}")
         seen.add(item["id"])

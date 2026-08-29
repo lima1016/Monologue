@@ -388,3 +388,84 @@ def build_report_messages(language, transcript, stats) -> list[dict]:
         {"role": "system", "content": system},
         {"role": "user", "content": "\n".join(lines) + f"\n\n전체 대화록\n{transcript}"},
     ]
+
+
+def scenario_schema(kind) -> dict:
+    """What a generated scenario must contain. Ollama constrains generation to
+    this shape, so the JSON always parses -- what it cannot enforce is that the
+    persona is usable or the lines alternate, which is why scenarios.validate_item
+    still runs before anything is stored."""
+    if kind == "free":
+        return {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "goal": {"type": "string"},
+                "persona_prompt": {"type": "string"},
+            },
+            "required": ["title", "goal", "persona_prompt"],
+        }
+    return {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "lines": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "speaker": {"type": "string", "enum": ["bot", "user"]},
+                        "text": {"type": "string"},
+                    },
+                    "required": ["speaker", "text"],
+                },
+            },
+        },
+        "required": ["title", "lines"],
+    }
+
+
+SCENARIO_SYSTEM_FREE = """당신은 한국인 학습자를 위한 {lang} 회화 연습 상황을 만드는 사람입니다.
+당신이 쓰는 언어는 한국어입니다. {lang}은(는) 만들어 낼 대사와 페르소나에만 씁니다.
+
+학습자가 연습하고 싶은 상황을 한 줄로 말했습니다. 그 상황을 실제로 굴러가게 할
+설정을 만드세요.
+
+- title: 학습자가 목록에서 알아볼 수 있는 짧은 한국어 제목
+- goal: 이 대화에서 학습자가 해내야 할 일. 한국어 한 문장.
+        "영어를 연습한다" 같은 막연한 것 말고, "창가 자리를 요청하고 안내받는다"처럼
+        끝났는지 아닌지 판별할 수 있는 것으로 씁니다
+- persona_prompt: 봇이 연기할 상대의 지시문. **{lang}으로 씁니다.** 누구인지, 어떤
+        태도인지, 대화를 어떻게 시작하는지를 담습니다. 학습자가 아니라 상대를
+        묘사합니다
+
+상대는 학습자를 가르치지 않습니다. 그 상황에 실제로 있을 법한 사람으로 행동합니다."""
+
+
+SCENARIO_SYSTEM_SCRIPT = """당신은 한국인 학습자를 위한 {lang} 회화 대본을 만드는 사람입니다.
+당신이 쓰는 언어는 한국어입니다. 대본의 대사는 {lang}으로 씁니다.
+
+학습자가 연습하고 싶은 상황을 한 줄로 말했습니다. 그 상황의 짧은 대본을 만드세요.
+
+- title: 학습자가 목록에서 알아볼 수 있는 짧은 한국어 제목
+- lines: 대사 8줄. speaker는 "bot"과 "user"가 번갈아 나오고 **bot으로 시작합니다.**
+        text는 {lang}으로, 실제 대화에서 쓰는 짧은 구어체로 씁니다.
+        교과서 문장이 아니라 사람이 실제로 하는 말이어야 합니다"""
+
+
+def build_scenario_messages(language, kind, wish) -> list[dict]:
+    """Ask the model for a scenario the learner asked for by name.
+
+    Korean system prompt for the same reason every other prompt here is: asking
+    for Korean in English produced English, twice, and moving the instruction
+    itself into Korean is what fixed it.
+    """
+    language_name = KOREAN_LANGUAGE_NAMES[language]
+    template = SCENARIO_SYSTEM_FREE if kind == "free" else SCENARIO_SYSTEM_SCRIPT
+    system = template.format(lang=language_name)
+    if language == "ja":
+        system += "\n" + JAPANESE_SCRIPT_ONLY_RULE
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": f"학습자가 연습하고 싶다고 한 것: {wish}"},
+    ]

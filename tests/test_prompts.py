@@ -193,3 +193,19 @@ def test_unknown_level_falls_back_to_beginner_rule_without_raising():
 def test_lesson_prompt_instructs_one_step_per_reply():
     prompt = prompts.build_system_prompt("lesson", "en", level="beginner")
     assert "one of these four steps per reply, then stop and wait" in prompt
+
+
+def test_scenario_prompt_is_written_in_korean_and_carries_the_wish():
+    msgs = prompts.build_scenario_messages("en", "free", "구직 면접")
+    system, user = msgs[0]["content"], msgs[-1]["content"]
+    hangul = sum(1 for ch in system if "가" <= ch <= "힣")
+    assert hangul > 100, "scenario prompt is not Korean"
+    assert "구직 면접" in user
+
+
+def test_scenario_schema_differs_by_kind():
+    free = prompts.scenario_schema("free")
+    assert set(free["required"]) == {"title", "goal", "persona_prompt"}
+    script = prompts.scenario_schema("script")
+    assert "lines" in script["required"]
+    assert script["properties"]["lines"]["type"] == "array"
