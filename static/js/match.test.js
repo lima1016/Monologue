@@ -18,9 +18,21 @@ test('the punctuation and casing STT drops does not fail the learner', () => {
   assert.ok(matches('i went to the store yesterday', 'I went to the store yesterday.', 'en'));
 });
 
-test('one wrong word in a long sentence still passes', () => {
-  assert.ok(matches('I went to a store yesterday morning before work',
-                    'I went to the store yesterday morning before work', 'en'));
+test('one wrong word passes only once the sentence is long enough', () => {
+  // similarity for a single wrong word is 1 - 1/n, so clearing 0.9 needs
+  // n >= 10. Ten words is where one slip stops failing -- worth stating,
+  // because it is the practical meaning of the threshold: for the short
+  // sentences a correction usually produces, the learner must get every
+  // word right.
+  const ten     = 'I went to the store yesterday morning before work again';
+  const tenSaid = 'I went to a store yesterday morning before work again';
+  assert.equal(ten.split(' ').length, 10);
+  assert.ok(matches(tenSaid, ten, 'en'));
+
+  const nine     = 'I went to the store yesterday morning before work';
+  const nineSaid = 'I went to a store yesterday morning before work';
+  assert.equal(nine.split(' ').length, 9);
+  assert.ok(!matches(nineSaid, nine, 'en'));
 });
 
 test('saying something different fails', () => {
