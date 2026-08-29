@@ -76,6 +76,22 @@ def test_lesson_session_stores_topic_and_needs_no_scenario(client):
     assert body["opening"]
 
 
+def test_free_session_response_includes_the_scenario_goal(client):
+    """The side panel's only content in free mode -- without this it renders a
+    labelled heading over nothing."""
+    body = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                              "scenario_id": "airport-checkin-en"}).json()
+    assert body["goal"]  # airport-checkin-en's goal in data/scenarios.json
+
+
+def test_lesson_session_response_has_no_goal(client):
+    """Lesson mode has no scenario to draw a goal from -- the frontend falls
+    back to the learner's own typed topic instead."""
+    body = client.post("/api/sessions", json={"language": "ja", "mode": "lesson",
+                                              "topic": "て form"}).json()
+    assert body.get("goal") is None
+
+
 def test_free_session_without_scenario_is_rejected(client):
     assert client.post("/api/sessions", json={"language": "en", "mode": "free"}).status_code == 400
 

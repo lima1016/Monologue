@@ -165,6 +165,10 @@ def start_session(payload: SessionStart):
         "mode": payload.mode,
         "opening": opening,
         "opening_audio": _speak(opening, payload.language),
+        # The side panel's only content in free mode -- lesson mode has no
+        # scenario, so this is None there and the frontend falls back to the
+        # learner's own typed topic.
+        "goal": scenario.get("goal") if scenario else None,
     }
 
 

@@ -126,10 +126,14 @@ export async function startSession() {
 
     if (data.mode === 'script') startScript(data.lines);
     else {
-      // Scenario goal isn't in this response yet (Task 6 wires that up) --
-      // fall back to the topic the learner typed, or leave the panel blank.
+      // The scenario's goal (free mode) or the topic the learner typed
+      // (lesson mode) is what the panel shows. Lesson mode with no topic has
+      // nothing to show -- hide the panel rather than leave a labelled void,
+      // which is what a free-standing "목표" heading over nothing read as.
+      const goal = data.goal || payload.topic || '';
       $('panel-title').textContent = '목표';
-      $('panel-body').textContent = payload.topic || '';
+      $('panel-body').textContent = goal;
+      $('side-panel').hidden = !goal;
       $('btn-next').hidden = true;
       $('btn-send').hidden = false;
       addMessage('bot', data.opening);
@@ -338,6 +342,9 @@ function startScript(lines) {
   scriptExhausted = false;
   $('btn-next').hidden = false;
   $('btn-send').hidden = true;
+  // A prior free/lesson session with no goal or topic hides the panel (see
+  // startSession) -- a script always has content, so restore it here.
+  $('side-panel').hidden = false;
   $('panel-title').textContent = '대본';
   $('panel-body').innerHTML = `<ol>${lines
     .map((l, i) => `<li data-i="${i}"><b>${l.speaker === 'bot' ? '봇' : '나'}</b> ${l.text}</li>`)
