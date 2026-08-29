@@ -226,7 +226,7 @@ def test_delete_last_turn_removes_the_user_line_and_its_bot_reply(store):
     store.add_message(sid, "user", "I go store yesterday.", ok=False, tag="시제")
     store.add_message(sid, "bot", "Nice, what did you buy?")
 
-    assert store.delete_last_turn(sid) == 2
+    assert store.delete_last_turn(sid) == (2, [])
     remaining = store.get_messages(sid)
     assert [m["speaker"] for m in remaining] == ["bot"]
     assert remaining[0]["text"] == "Good evening!"
@@ -237,8 +237,21 @@ def test_delete_last_turn_leaves_the_opening_line_alone(store):
     not the learner's mistake to erase."""
     sid = store.create_session("en", "free")
     store.add_message(sid, "bot", "Good evening!")
-    assert store.delete_last_turn(sid) == 0
+    assert store.delete_last_turn(sid) == (0, [])
     assert len(store.get_messages(sid)) == 1
+
+
+def test_delete_last_turn_returns_the_deleted_turns_audio_paths(store):
+    """Undo runs exactly when recognition mishears, which is often -- the
+    caller needs these paths back to unlink the files, or a normal session
+    leaves permanently orphaned recordings on disk (db.py does no file
+    operations itself)."""
+    sid = store.create_session("en", "free")
+    mid = store.add_message(sid, "user", "I go store yesterday.")
+    store.set_message_audio(mid, "audio/s1_m1.webm")
+    store.add_message(sid, "bot", "Nice, what did you buy?")
+
+    assert store.delete_last_turn(sid) == (2, ["audio/s1_m1.webm"])
 
 
 def test_delete_last_turn_frees_the_turn_numbers_for_reuse(store):

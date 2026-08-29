@@ -212,7 +212,14 @@ def undo_last_turn(session_id: int):
         raise HTTPException(404, "no such session")
     if session["ended_at"] is not None:
         raise HTTPException(409, "this session has already ended")
-    return {"deleted": db.delete_last_turn(session_id)}
+    deleted, paths = db.delete_last_turn(session_id)
+    # Undo is used exactly when recognition mishears, which is often -- without
+    # this the deleted turn's recording becomes a file no row ever points to
+    # again: clear_session_audio can't see it once the row is gone, and
+    # stale_open_sessions' EXISTS clause means the end-of-session sweep never
+    # will either.
+    _unlink_audio(paths)
+    return {"deleted": deleted}
 
 
 @router.get("/audio/{key}.wav")
@@ -280,22 +287,32 @@ def _transcript(session_id: int) -> str:
     return "\n".join(lines)
 
 
-def _forget_recordings(session_id: int) -> None:
-    """Delete one session's clips from disk.
+def _unlink_audio(paths) -> None:
+    """Delete recording files given their stored paths.
 
-    db.clear_session_audio only nulls the audio_path column -- app/db.py never
-    touches the filesystem -- so the actual unlink happens here. Only the
-    basename of the stored path is used, so this can never reach outside
-    AUDIO_DIR even if a stored value were ever unexpected.
+    app/db.py never touches the filesystem, so this is where every caller
+    that has audio_path values in hand -- from a full session sweep or from a
+    single undone turn -- actually unlinks them. Only the basename of the
+    stored path is used, so this can never reach outside AUDIO_DIR even if a
+    stored value were ever unexpected.
 
-    Never raises: losing a recording is not worth failing a report the
-    learner is waiting for.
+    Never raises: losing a recording is not worth failing the request it was
+    incidental to.
     """
-    for stored in db.clear_session_audio(session_id):
+    for stored in paths:
         try:
             (config.AUDIO_DIR / Path(stored).name).unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def _forget_recordings(session_id: int) -> None:
+    """Delete one session's clips from disk.
+
+    db.clear_session_audio only nulls the audio_path column and hands back
+    the paths it cleared -- the actual unlink is _unlink_audio's job.
+    """
+    _unlink_audio(db.clear_session_audio(session_id))
 
 
 @router.post("/sessions/{session_id}/end")

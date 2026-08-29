@@ -276,6 +276,25 @@ def test_undo_on_an_unknown_session_is_a_404(client):
     assert client.delete("/api/sessions/9999/last-turn").status_code == 404
 
 
+def test_undo_last_turn_deletes_the_recording_from_disk(client):
+    """Undo is used exactly when recognition mishears, which is often -- if
+    the file survives, a normal session leaves permanently orphaned
+    recordings on disk, the one outcome the learner traded recordings away
+    to avoid."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+    msg = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+    client.post(f"/api/sessions/{sid}/audio", data={"message_id": msg["id"]},
+                files={"file": ("clip.webm", io.BytesIO(b"bytes"), "audio/webm")})
+    stored_path = config.AUDIO_DIR / f"s{sid}_m{msg['id']}.webm"
+    assert stored_path.exists()
+
+    client.delete(f"/api/sessions/{sid}/last-turn")
+
+    assert not stored_path.exists()
+
+
 def test_recorded_audio_upload_attaches_to_the_message(client):
     sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
                                              "scenario_id": "airport-checkin-en"}).json()["session_id"]

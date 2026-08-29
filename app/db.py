@@ -168,7 +168,7 @@ def get_messages(session_id) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def delete_last_turn(session_id) -> int:
+def delete_last_turn(session_id) -> tuple[int, list[str]]:
     """Drop the most recent learner turn and the bot reply that followed it.
 
     Undo exists because speech recognition mishears: a turn built on a sentence
@@ -177,8 +177,17 @@ def delete_last_turn(session_id) -> int:
     also frees their turn numbers, which matters because messages carries
     UNIQUE(session_id, turn) and add_message derives the next turn from MAX.
 
-    Returns the number of rows removed: 2 for a normal turn, 1 if the bot reply
-    never landed, 0 if the learner has not spoken yet.
+    Undo is used exactly when recognition mishears, which is often -- so the
+    deleted turn's recording (if any) must not become an orphaned file nobody
+    can ever find again. The rows carrying it are about to be deleted, which
+    is the only chance to read audio_path back: after this, clear_session_audio
+    can no longer see them, and stale_open_sessions' EXISTS clause means the
+    sweep never will either. This module does no file operations, so the
+    caller unlinks them.
+
+    Returns (rows removed, audio paths of the deleted rows that had one). Rows
+    removed is 2 for a normal turn, 1 if the bot reply never landed, 0 if the
+    learner has not spoken yet.
     """
     with connect() as conn:
         last_user = conn.execute(
@@ -187,12 +196,17 @@ def delete_last_turn(session_id) -> int:
             (session_id,),
         ).fetchone()
         if last_user is None:
-            return 0
+            return 0, []
+        paths = conn.execute(
+            "SELECT audio_path FROM messages"
+            " WHERE session_id = ? AND turn >= ? AND audio_path IS NOT NULL",
+            (session_id, last_user["turn"]),
+        ).fetchall()
         cur = conn.execute(
             "DELETE FROM messages WHERE session_id = ? AND turn >= ?",
             (session_id, last_user["turn"]),
         )
-        return cur.rowcount
+        return cur.rowcount, [r["audio_path"] for r in paths]
 
 
 def set_message_audio(message_id, audio_path) -> None:
