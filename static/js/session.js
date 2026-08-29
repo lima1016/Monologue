@@ -1,5 +1,5 @@
-import { $, api, getJSON, postJSON, state } from './api.js';
-import { play, startRecording, stopRecording } from './audio.js';
+import { $, api, getJSON, postJSON, state, notify } from './api.js';
+import { play } from './audio.js';
 
 /* ---------- status ---------- */
 
@@ -15,12 +15,6 @@ export async function refreshHealth() {
   } catch {
     notify('서버에 연결할 수 없습니다.');
   }
-}
-
-export function notify(message) {
-  const el = $('notice');
-  el.textContent = message;
-  el.hidden = !message;
 }
 
 /* ---------- setup ---------- */

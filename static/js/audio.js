@@ -1,4 +1,4 @@
-import { $, state } from './api.js';
+import { $, state, notify } from './api.js';
 
 export const BCP47 = { en: 'en-US', ja: 'ja-JP' };
 

@@ -1,5 +1,4 @@
-import { $, api, getJSON, postJSON } from './api.js';
-import { notify } from './session.js';
+import { $, api, getJSON, notify } from './api.js';
 
 let currentPreviewAudio = null;
 let currentPreviewUrl = null;

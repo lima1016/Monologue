@@ -1,6 +1,6 @@
-import { $, state, postJSON } from './api.js';
+import { $, postJSON, notify } from './api.js';
 import { recognition, BCP47, startRecording } from './audio.js';
-import { notify, refreshHealth, loadScenarios, startSession,
+import { refreshHealth, loadScenarios, startSession,
          sendTurn, nextScriptLine, endSession } from './session.js';
 import { renderVoiceList, previewVoice } from './settings.js';
 

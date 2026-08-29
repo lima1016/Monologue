@@ -25,3 +25,9 @@ export const state = {
   chunks: [],
   busy: false, // re-entrancy guard: blocks a second sendTurn/nextScriptLine while one is in flight
 };
+
+export function notify(message) {
+  const el = $('notice');
+  el.textContent = message;
+  el.hidden = !message;
+}
