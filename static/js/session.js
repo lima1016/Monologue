@@ -1,5 +1,6 @@
 import { $, api, getJSON, postJSON, state, notify } from './api.js';
 import { play } from './audio.js';
+import * as router from './router.js';
 
 /* ---------- status ---------- */
 
@@ -45,8 +46,7 @@ export async function startSession() {
     state.sessionId = data.session_id;
     state.language = payload.language;
     state.mode = payload.mode;
-    $('setup').hidden = true;
-    $('session').hidden = false;
+    router.show('session');
     $('feedback').hidden = false;
     $('conversation').innerHTML = '';
     $('feedback-list').innerHTML = '';
@@ -190,8 +190,7 @@ export async function endSession() {
   $('btn-end').disabled = true;
   try {
     const data = await postJSON(`/sessions/${state.sessionId}/end`);
-    $('session').hidden = true;
-    $('report').hidden = false;
+    router.show('report');
     $('report-level').textContent = `추정 수준: ${data.level}`;
     $('report-body').textContent = data.report;
   } catch (err) {

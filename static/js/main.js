@@ -3,6 +3,14 @@ import { recognition, BCP47, startRecording } from './audio.js';
 import { refreshHealth, loadScenarios, startSession,
          sendTurn, nextScriptLine, endSession } from './session.js';
 import { renderVoiceList, previewVoice } from './settings.js';
+import * as router from './router.js';
+
+/* ---------- screens ---------- */
+
+router.register('setup', 'setup');
+router.register('session', 'session');
+router.register('report', 'report');
+router.show('setup');
 
 /* ---------- wiring ---------- */
 
