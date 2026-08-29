@@ -473,6 +473,11 @@ def resumable(language: Language):
     }}
 
 
+@router.get("/stats/home")
+def home_stats(language: Language):
+    return db.home_stats(language)
+
+
 @router.get("/sessions/{session_id}")
 def session_detail(session_id: int):
     session = db.get_session(session_id)

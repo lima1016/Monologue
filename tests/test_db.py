@@ -1,8 +1,23 @@
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from app import db
+
+
+def _local_stamp(local_date, hour, minute=0):
+    """A UTC ISO timestamp, in the same format db._now() writes, for a given
+    wall-clock time on `local_date` in this machine's real local timezone.
+
+    Built from the OS's actual UTC offset (not a hardcoded +9) so the test
+    stays correct under whatever timezone the machine is set to -- which is
+    also what home_stats' SQL ('localtime') and Python (datetime.now()) both
+    read from, so this helper and the implementation always agree.
+    """
+    local_dt = datetime(local_date.year, local_date.month, local_date.day, hour, minute)
+    offset = datetime.now().astimezone().utcoffset()
+    return (local_dt - offset).replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
 
 
 @pytest.fixture()
@@ -472,6 +487,87 @@ def test_session_stats_counts_ungraded_separately_from_wrong(store):
     assert stats["turns"] == 3
     assert stats["wrong"] == 1
     assert stats["ungraded"] == 1
+
+
+def test_home_stats_counts_this_weeks_turns_and_total_fixes(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "a", ok=False, fixed="A", tag="시제")
+    store.add_message(sid, "user", "b", ok=True, tag="없음")
+    store.add_message(sid, "bot", "reply")
+    stats = store.home_stats("en")
+    assert stats["week_turns"] == 2      # bot lines are not the learner speaking
+    assert stats["fixed_total"] == 1
+
+
+def test_home_stats_has_no_top_tag_before_there_is_evidence(store):
+    """A weakness ranked off one or two mistakes is a guess dressed as a fact."""
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "a", ok=False, fixed="A", tag="시제")
+    assert store.home_stats("en")["top_tag"] is None
+
+
+def test_home_stats_reports_a_tag_once_it_has_appeared_three_times(store):
+    sid = store.create_session("en", "free")
+    for text in ("a", "b", "c"):
+        store.add_message(sid, "user", text, ok=False, fixed=text.upper(), tag="시제")
+    assert store.home_stats("en")["top_tag"] == "시제"
+
+
+def test_home_stats_streak_counts_consecutive_days_ending_today(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "today")
+    assert store.home_stats("en")["streak"] == 1
+
+
+def test_home_stats_streak_survives_an_unfinished_today_if_yesterday_was_practised(store):
+    """A ten-day streak must not read as zero just because the learner has not
+    spoken yet today -- that number sits on the screen where they decide
+    whether to practise at all, so it has to survive an unfinished day."""
+    sid = store.create_session("en", "free")
+    yesterday = datetime.now().date() - timedelta(days=1)
+    mid = store.add_message(sid, "user", "yesterday")
+    with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
+                     (_local_stamp(yesterday, 12), mid))
+    assert store.home_stats("en")["streak"] == 1
+
+
+def test_home_stats_streak_is_zero_when_last_practice_was_two_days_ago(store):
+    sid = store.create_session("en", "free")
+    two_days_ago = datetime.now().date() - timedelta(days=2)
+    mid = store.add_message(sid, "user", "old")
+    with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
+                     (_local_stamp(two_days_ago, 12), mid))
+    assert store.home_stats("en")["streak"] == 0
+
+
+def test_home_stats_streak_counts_a_consecutive_run_ending_yesterday(store):
+    sid = store.create_session("en", "free")
+    today = datetime.now().date()
+    for days_back in (1, 2, 3):
+        mid = store.add_message(sid, "user", f"day-{days_back}")
+        with store.connect() as conn:
+            conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
+                         (_local_stamp(today - timedelta(days=days_back), 12), mid))
+    assert store.home_stats("en")["streak"] == 3
+
+
+def test_home_stats_streak_counts_one_korean_day_across_a_utc_midnight(store):
+    """One practice day that straddles UTC midnight (e.g. 00:30 and 23:30 KST,
+    which fall on two different UTC calendar dates) must count as a single
+    streak day, not two -- otherwise the streak snaps or inflates at 9am KST
+    every day, since that is UTC midnight."""
+    sid = store.create_session("en", "free")
+    today = datetime.now().date()
+    early = store.add_message(sid, "user", "early")
+    late = store.add_message(sid, "user", "late")
+    with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
+                     (_local_stamp(today, 0, 30), early))
+        conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
+                     (_local_stamp(today, 23, 30), late))
+    assert store.home_stats("en")["streak"] == 1
 
 
 FREE_SCENARIO = {

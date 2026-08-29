@@ -429,6 +429,77 @@ def stable_level(language, recent=5, min_sessions=3):
     return max(levels, key=levels.count)
 
 
+def home_stats(language) -> dict:
+    """Numbers for the home screen. All computed, none estimated.
+
+    `top_tag` is withheld until a tag has appeared at least three times: a
+    weakness ranked off one mistake is a guess wearing the costume of a fact,
+    and the home screen is where the learner decides what to practise.
+
+    `streak` walks backwards from the most recent practice day, but that walk
+    starts at *yesterday* when today has no messages yet, rather than always
+    starting at today. Starting at today unconditionally would report 0 for a
+    learner with a real ten-day streak who simply has not practised yet this
+    morning -- and this number sits on the screen where they decide whether
+    to open the app at all, so it must not die before the day is over. It
+    only forgives one day: if the last practice was the day before yesterday
+    or earlier, the streak is 0, full stop.
+
+    Both the day list (SQL) and "today" (Python) are computed in local time,
+    not UTC. created_at is stored as a UTC ISO string, and this app has
+    exactly one learner, in Korea (UTC+9) -- comparing it against UTC dates
+    would move the streak's day boundary to 9am KST instead of midnight,
+    so a session at 08:00 and another at 20:00 the same Korean day would
+    count as two different streak days, and the streak would silently reset
+    every morning before the learner has had a chance to practise.
+    """
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat(timespec="seconds")
+    with connect() as conn:
+        week_turns = conn.execute(
+            "SELECT COUNT(*) FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user' AND m.created_at >= ?",
+            (language, week_ago),
+        ).fetchone()[0]
+        fixed_total = conn.execute(
+            "SELECT COUNT(*) FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0",
+            (language,),
+        ).fetchone()[0]
+        tag_row = conn.execute(
+            "SELECT m.tag, COUNT(*) n FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0"
+            "   AND m.tag IS NOT NULL AND m.tag <> '없음'"
+            " GROUP BY m.tag ORDER BY n DESC LIMIT 1",
+            (language,),
+        ).fetchone()
+        days = [r[0] for r in conn.execute(
+            "SELECT DISTINCT substr(datetime(m.created_at, 'localtime'), 1, 10) d"
+            " FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user'"
+            " ORDER BY d DESC", (language,))]
+
+    top_tag = tag_row["tag"] if tag_row and tag_row["n"] >= 3 else None
+
+    streak = 0
+    if days:
+        today = datetime.now().date()
+        if days[0] == today.isoformat():
+            day = today
+        elif days[0] == (today - timedelta(days=1)).isoformat():
+            day = today - timedelta(days=1)
+        else:
+            day = None
+        if day is not None:
+            for stamp in days:
+                if stamp != day.isoformat():
+                    break
+                streak += 1
+                day -= timedelta(days=1)
+
+    return {"streak": streak, "week_turns": week_turns,
+            "fixed_total": fixed_total, "top_tag": top_tag}
+
+
 def list_sessions(limit=20) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(

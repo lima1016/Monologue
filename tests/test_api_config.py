@@ -106,3 +106,10 @@ def test_lesson_mode_cannot_generate_a_scenario(client):
     r = client.post("/api/scenarios/generate",
                     json={"language": "en", "mode": "lesson", "wish": "past tense"})
     assert r.status_code == 422
+
+
+def test_home_stats_route_returns_the_computed_counters(client):
+    sid = db.create_session("en", "free")
+    db.add_message(sid, "user", "hello")
+    body = client.get("/api/stats/home", params={"language": "en"}).json()
+    assert body == {"streak": 1, "week_turns": 1, "fixed_total": 0, "top_tag": None}
