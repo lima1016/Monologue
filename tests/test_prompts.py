@@ -71,21 +71,55 @@ def test_feedback_messages_carry_the_learner_text_and_two_sentence_cap():
     msgs = prompts.build_feedback_messages("en", "I go store yesterday")
     joined = " ".join(m["content"] for m in msgs)
     assert "I go store yesterday" in joined
-    assert "two sentences" in joined.lower()
+    assert "두 문장" in joined
 
 
 def test_feedback_system_prompt_states_korean_up_front():
-    # The Korean requirement must be in the opening sentence, not buried mid-paragraph,
-    # or local models ignore it and answer in the target language instead.
+    # The Korean identity anchor must be in the opening sentence, not buried
+    # mid-paragraph, or local models ignore it and answer in the target
+    # language instead.
     msgs = prompts.build_feedback_messages("en", "I go store yesterday")
     system = msgs[0]["content"]
-    assert "Korean" in system[:120]
+    assert "한국어" in system[:60]
 
 
-def test_feedback_schema_requires_correction_and_suggestion():
-    props = prompts.FEEDBACK_SCHEMA["properties"]
-    assert set(props) == {"correction", "suggestion"}
-    assert set(prompts.FEEDBACK_SCHEMA["required"]) == {"correction", "suggestion"}
+def test_feedback_schema_requires_five_fields_and_language_specific_tags():
+    en = prompts.feedback_schema("en")
+    assert set(en["required"]) == {"ok", "fixed", "tag", "correction", "suggestion"}
+    assert en["properties"]["ok"]["type"] == "boolean"
+    assert "전치사" in en["properties"]["tag"]["enum"]
+    assert "조사" not in en["properties"]["tag"]["enum"]
+
+    ja = prompts.feedback_schema("ja")
+    assert "조사" in ja["properties"]["tag"]["enum"]
+    assert "전치사" not in ja["properties"]["tag"]["enum"]
+
+
+def test_every_tag_has_a_definition_line():
+    for language, tags in prompts.FEEDBACK_TAGS.items():
+        defs = prompts.FEEDBACK_TAG_DEFINITIONS[language]
+        for tag in tags:
+            assert f"{tag} -" in defs, f"{language}/{tag} has no definition"
+
+
+def test_feedback_system_prompt_is_written_in_korean():
+    """The bug this fixes: the prompt asked for Korean *in English*, and the
+    model followed the language it was addressed in rather than the request."""
+    for language in ("en", "ja"):
+        system = prompts.build_feedback_messages(language, "test")[0]["content"]
+        hangul = sum(1 for ch in system if "가" <= ch <= "힣")
+        assert hangul > 100, f"{language} system prompt is not Korean"
+
+
+def test_feedback_examples_carry_the_full_five_field_shape():
+    import json
+    for language in ("en", "ja"):
+        msgs = prompts.build_feedback_messages(language, "test")
+        answers = [json.loads(m["content"]) for m in msgs if m["role"] == "assistant"]
+        assert answers, "few-shot examples are missing"
+        for answer in answers:
+            assert set(answer) == {"ok", "fixed", "tag", "correction", "suggestion"}
+            assert answer["tag"] in prompts.FEEDBACK_TAGS[language]
 
 
 def test_report_schema_constrains_level_to_the_three_values():

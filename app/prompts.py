@@ -95,14 +95,57 @@ WIND_DOWN = """
 You are near the end of this session. Start steering it to a natural close and
 wrap it up within the next couple of exchanges."""
 
-FEEDBACK_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "correction": {"type": "string"},
-        "suggestion": {"type": "string"},
-    },
-    "required": ["correction", "suggestion"],
+# Tag vocabularies are per language on purpose. Giving Japanese a "전치사" slot
+# leaves particle errors with nowhere to go and they get filed as "어순"; the
+# spike measured 6/8 with a shared list and 8/8 once split.
+FEEDBACK_TAGS = {
+    "en": ("시제", "관사", "전치사", "어순", "어휘", "단복수", "없음"),
+    "ja": ("시제", "조사", "활용", "어순", "어휘", "경어", "없음"),
 }
+
+# Naming the tags is not enough -- the model guesses. One defining line each,
+# plus the consistency rule in the system prompt, is what made tagging reliable.
+FEEDBACK_TAG_DEFINITIONS = {
+    "en": (
+        "시제 - 동사의 과거/현재/미래 형태가 틀림\n"
+        "관사 - a, an, the를 빠뜨렸거나 잘못 씀\n"
+        "전치사 - in, on, at, to 같은 전치사를 잘못 고름\n"
+        "어순 - 단어 순서 자체가 틀림\n"
+        "어휘 - 단어 선택이 틀렸거나 부자연스러움\n"
+        "단복수 - 단수/복수 형태나 주어-동사 수 일치가 틀림 (He don't -> He doesn't)\n"
+        "없음 - 틀린 곳이 없음"
+    ),
+    "ja": (
+        "시제 - 과거/현재/미래 형태가 틀림\n"
+        "조사 - は, が, に, で, を, の 같은 조사를 잘못 골랐음\n"
+        "활용 - 동사/형용사 활용형이 틀림 (て형, ない형, 명사수식 등)\n"
+        "어순 - 단어 순서 자체가 틀림\n"
+        "어휘 - 단어 선택이 틀렸거나 부자연스러움\n"
+        "경어 - 존댓말/반말 수준이 안 맞음\n"
+        "없음 - 틀린 곳이 없음"
+    ),
+}
+
+KOREAN_LANGUAGE_NAMES = {"en": "영어", "ja": "일본어"}
+
+
+def feedback_schema(language) -> dict:
+    """Ollama constrains generation to this shape, so the JSON always parses.
+    What it cannot enforce is the *content*: that the prose is Korean and that
+    the chosen tag matches what the explanation actually says. Those are the
+    system prompt's job."""
+    return {
+        "type": "object",
+        "properties": {
+            "ok": {"type": "boolean"},
+            "fixed": {"type": "string"},
+            "tag": {"type": "string", "enum": list(FEEDBACK_TAGS[language])},
+            "correction": {"type": "string"},
+            "suggestion": {"type": "string"},
+        },
+        "required": ["ok", "fixed", "tag", "correction", "suggestion"],
+    }
+
 
 REPORT_SCHEMA = {
     "type": "object",
@@ -164,12 +207,15 @@ def build_system_prompt(mode, language, *, scenario=None, topic=None,
 # model actually produced: an erroneous line (where the fix should land) and
 # an already-correct line (where the model tended to give up on Korean and
 # answer with a short formulaic line in the target language instead). Each
-# assistant turn is exactly the JSON shape FEEDBACK_SCHEMA expects -- nothing
+# assistant turn is exactly the JSON shape feedback_schema() expects -- nothing
 # more -- so the model isn't taught to wrap it in extra prose.
 FEEDBACK_EXAMPLES = {
     "en": [
         {
             "learner": "I go store yesterday.",
+            "ok": False,
+            "fixed": "I went to the store yesterday.",
+            "tag": "시제",
             "correction": (
                 "'go'는 과거형이 아니라서 틀렸습니다. 'went'로 바꾸고 'to the'를 "
                 "추가해야 합니다. 올바른 문장은 'I went to the store yesterday.'입니다."
@@ -181,6 +227,9 @@ FEEDBACK_EXAMPLES = {
         },
         {
             "learner": "I have two brothers and one sister.",
+            "ok": True,
+            "fixed": "I have two brothers and one sister.",
+            "tag": "없음",
             "correction": "이 문장은 문법적으로 이미 맞습니다. 고칠 부분이 없습니다.",
             "suggestion": (
                 "좀 더 자연스럽게 말하고 싶다면 'I've got two brothers and a "
@@ -191,6 +240,9 @@ FEEDBACK_EXAMPLES = {
     "ja": [
         {
             "learner": "きのう、レストランに行きます。",
+            "ok": False,
+            "fixed": "きのう、レストランに行きました。",
+            "tag": "시제",
             "correction": (
                 "'行きます'는 현재형이라서 어제 있었던 일에는 맞지 않습니다. 과거형인 "
                 "'行きました'로 바꿔야 합니다. 올바른 문장은 'きのう、レストランに"
@@ -200,6 +252,9 @@ FEEDBACK_EXAMPLES = {
         },
         {
             "learner": "わたしは毎朝コーヒーを飲みます。",
+            "ok": True,
+            "fixed": "わたしは毎朝コーヒーを飲みます。",
+            "tag": "없음",
             "correction": "이 문장은 문법적으로 이미 맞습니다. 고칠 부분이 없습니다.",
             "suggestion": (
                 "좀 더 자연스럽게 말하고 싶다면 '毎朝コーヒーを飲んでいます。'처럼 "
@@ -209,52 +264,55 @@ FEEDBACK_EXAMPLES = {
     ],
 }
 
+FEEDBACK_SYSTEM = """당신은 한국인 학생을 가르치는 한국어 원어민 교사입니다.
+당신이 말하고 쓰는 언어는 오직 한국어입니다. {lang}은(는) 당신이 설명하는 '대상'일 뿐,
+당신이 사용하는 언어가 아닙니다.
+
+학생이 {lang} 문장을 한 줄 말했습니다. 아래 다섯 항목을 채우세요.
+
+- ok: 문법적으로 맞으면 true, 틀린 곳이 있으면 false
+- fixed: 고친 문장 하나만. 이미 맞으면 원문 그대로. {lang}으로 씁니다
+- tag: 틀린 부분의 종류. 아래 정의를 보고 정확히 하나만 고릅니다
+{defs}
+- correction: 무엇이 왜 틀렸는지. 한국어로 두 문장 이내
+- suggestion: 원어민이라면 어떻게 말할지. 한국어로 두 문장 이내
+
+tag는 correction에서 실제로 지적한 내용과 일치해야 합니다.
+
+correction과 suggestion은 반드시 한국어로 씁니다. 인용하는 {lang} 예문만 {lang}으로 둡니다.
+마크다운과 이모지는 쓰지 않습니다."""
+
 
 def build_feedback_messages(language, user_text) -> list[dict]:
-    """Ask for a grammar correction and a more natural phrasing, 2 sentences each.
+    """Ask for structured grammar feedback on one learner line.
 
-    Few-shot examples are included as prior turns: a stated rule alone
-    ("writing your feedback in Korean") was not enough to hold the local
-    model, which kept dropping into the target language, especially on
-    already-correct lines. Showing both failure shapes worked in Korean is
-    the next rung up, not more emphasis on the same instruction.
+    The system prompt is written in Korean, and that is the fix, not a style
+    choice. The previous version asked for Korean output *in English*; the model
+    answered in the language it was addressed in, and English corrections are
+    still sitting in the messages table from that period. Moving the instruction
+    itself into Korean took the spike from unreliable to 10/10 (en) and 8/8 (ja).
 
-    The opening clause deliberately anchors identity in Korean rather than in
-    the target language. "You are a Japanese teacher" plus a Japanese learner
-    sentence pulls the whole context toward Japanese output; one clause asking
-    for Korean cannot win that pull. Framing the speaker as a Korean tutor for
-    whom the target language is the subject under discussion, not the
-    language they speak, fixed this for English -- worth trying for Japanese
-    too.
+    Few-shot examples stay -- a stated rule alone was not enough to hold the
+    local model, especially on already-correct lines.
     """
-    language_name = LANGUAGE_NAMES[language]
-    system = (
-        f"You are a Korean tutor: you think and write in Korean. A Korean "
-        f"student just spoke one line of {language_name}, and your job is to "
-        f"explain it to them in Korean -- {language_name} is the subject you "
-        "are discussing, not the language you speak.\n"
-        "Return two things, both written in Korean:\n"
-        "- correction: what was grammatically wrong and the fixed sentence. "
-        "If it was already correct, say so briefly -- still in Korean.\n"
-        "- suggestion: a more natural way a native speaker would say it.\n"
-        "Write each in at most two sentences. Keep the "
-        f"{language_name} example sentences themselves in {language_name}. "
-        "No markdown, no emoji."
+    language_name = KOREAN_LANGUAGE_NAMES[language]
+    system = FEEDBACK_SYSTEM.format(
+        lang=language_name, defs=FEEDBACK_TAG_DEFINITIONS[language]
     )
     if language == "ja":
-        system += " " + JAPANESE_SCRIPT_ONLY_RULE
+        system += "\n" + JAPANESE_SCRIPT_ONLY_RULE
 
     messages = [{"role": "system", "content": system}]
     for example in FEEDBACK_EXAMPLES[language]:
-        messages.append({"role": "user", "content": f"The learner said: {example['learner']}"})
+        messages.append({"role": "user", "content": f"학생이 말한 문장: {example['learner']}"})
         messages.append({
             "role": "assistant",
             "content": json.dumps(
-                {"correction": example["correction"], "suggestion": example["suggestion"]},
+                {k: example[k] for k in ("ok", "fixed", "tag", "correction", "suggestion")},
                 ensure_ascii=False,
             ),
         })
-    messages.append({"role": "user", "content": f"The learner said: {user_text}"})
+    messages.append({"role": "user", "content": f"학생이 말한 문장: {user_text}"})
     return messages
 
 

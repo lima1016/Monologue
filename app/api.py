@@ -103,7 +103,7 @@ def _speak(text: str, language: str) -> str | None:
 def _feedback(language: str, text: str) -> tuple[str | None, str | None]:
     try:
         result = llm.chat_json(prompts.build_feedback_messages(language, text),
-                               prompts.FEEDBACK_SCHEMA)
+                               prompts.feedback_schema(language))
         return result.get("correction"), result.get("suggestion")
     except Exception:
         return None, None
