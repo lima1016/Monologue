@@ -30,8 +30,13 @@ def fake_engines(monkeypatch):
 
     monkeypatch.setattr("app.api.llm.chat", fake_chat)
     monkeypatch.setattr("app.api.llm.chat_json",
-                        lambda messages, schema, **kw: {"correction": "Use the past tense.",
-                                                        "suggestion": "Try: I went there."})
+                        lambda messages, schema, **kw: {
+                            "ok": False,
+                            "fixed": "I went there.",
+                            "tag": "시제",
+                            "correction": "'go'는 과거형이 아닙니다.",
+                            "suggestion": "'I went there.'라고 말하세요.",
+                        })
     monkeypatch.setattr(tts, "synthesize", lambda t, l, v: b"RIFFfake")
 
 
@@ -77,14 +82,14 @@ def test_chat_stores_both_turns_with_feedback_on_the_user_turn(client):
     body = client.post("/api/chat", json={"session_id": sid, "text": "I go there yesterday"}).json()
 
     assert body["bot_reply"] == "Sure, right this way!"
-    assert body["correction"] == "Use the past tense."
-    assert body["suggestion"] == "Try: I went there."
+    assert body["correction"] == "'go'는 과거형이 아닙니다."
+    assert body["suggestion"] == "'I went there.'라고 말하세요."
     assert body["audio_key"]
 
     msgs = db.get_messages(sid)
     user_turn = [m for m in msgs if m["speaker"] == "user"][0]
     assert user_turn["text"] == "I go there yesterday"
-    assert user_turn["correction"] == "Use the past tense."
+    assert user_turn["correction"] == "'go'는 과거형이 아닙니다."
     assert msgs[-1]["speaker"] == "bot"
     assert msgs[-1]["correction"] is None
 
@@ -162,17 +167,35 @@ def test_repeated_reply_text_reuses_cached_audio(client, monkeypatch):
     assert len(calls) == 1
 
 
+def test_chat_returns_and_stores_structured_feedback(client):
+    r = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                           "scenario_id": "airport-checkin-en"})
+    sid = r.json()["session_id"]
+    body = client.post("/api/chat", json={"session_id": sid, "text": "I go there."}).json()
+
+    assert body["ok"] is False
+    assert body["fixed"] == "I went there."
+    assert body["tag"] == "시제"
+
+    stored = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+    assert stored["ok"] == 0
+    assert stored["tag"] == "시제"
+
+
 def test_chat_survives_a_feedback_failure(client, monkeypatch):
-    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
-                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
-
+    """A feedback failure must never cost the learner their turn -- the bot
+    still replies and the message is still recorded, just without feedback."""
     def boom(messages, schema, **kw):
-        raise Exception("bad json")
-
+        raise RuntimeError("model is down")
     monkeypatch.setattr("app.api.llm.chat_json", boom)
-    body = client.post("/api/chat", json={"session_id": sid, "text": "hello"}).json()
+
+    r = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                           "scenario_id": "airport-checkin-en"})
+    sid = r.json()["session_id"]
+    body = client.post("/api/chat", json={"session_id": sid, "text": "I go there."}).json()
+
     assert body["bot_reply"]
-    assert body["correction"] is None
+    assert body["ok"] is None and body["tag"] is None
 
 
 def test_audio_endpoint_serves_cached_wav(client):

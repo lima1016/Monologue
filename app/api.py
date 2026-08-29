@@ -100,13 +100,29 @@ def _speak(text: str, language: str) -> str | None:
         return None
 
 
-def _feedback(language: str, text: str) -> tuple[str | None, str | None]:
+_NO_FEEDBACK = {"ok": None, "fixed": None, "tag": None,
+                "correction": None, "suggestion": None}
+
+
+def _feedback(language: str, text: str) -> dict:
+    """Structured grammar feedback for one learner line.
+
+    Never raises. A model hiccup must not cost the learner their turn -- the
+    conversation continues and the message is stored without feedback.
+    """
     try:
         result = llm.chat_json(prompts.build_feedback_messages(language, text),
                                prompts.feedback_schema(language))
-        return result.get("correction"), result.get("suggestion")
     except Exception:
-        return None, None
+        return dict(_NO_FEEDBACK)
+    ok = result.get("ok")
+    return {
+        "ok": None if ok is None else bool(ok),
+        "fixed": result.get("fixed"),
+        "tag": result.get("tag"),
+        "correction": result.get("correction"),
+        "suggestion": result.get("suggestion"),
+    }
 
 
 @router.post("/sessions")
@@ -161,8 +177,11 @@ def chat_turn(payload: ChatTurn):
     scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
     turns_used = sum(1 for m in db.get_messages(payload.session_id) if m["speaker"] == "user")
 
-    correction, suggestion = _feedback(language, text)
-    db.add_message(payload.session_id, "user", text, correction, suggestion)
+    feedback = _feedback(language, text)
+    db.add_message(payload.session_id, "user", text,
+                   correction=feedback["correction"],
+                   suggestion=feedback["suggestion"],
+                   ok=feedback["ok"], fixed=feedback["fixed"], tag=feedback["tag"])
 
     system = prompts.build_system_prompt(
         session["mode"], language, scenario=scenario, topic=session["topic"],
@@ -175,8 +194,7 @@ def chat_turn(payload: ChatTurn):
         "turn": turns_used + 1,
         "bot_reply": reply,
         "audio_key": _speak(reply, language),
-        "correction": correction,
-        "suggestion": suggestion,
+        **feedback,
     }
 
 
