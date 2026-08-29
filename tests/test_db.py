@@ -199,3 +199,22 @@ def test_stamp_phase1_database_leaves_a_fresh_database_at_zero():
     db._stamp_phase1_database(conn)
 
     assert conn.execute("PRAGMA user_version").fetchone()[0] == 0
+
+
+def test_add_message_persists_structured_feedback(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "I go store yesterday.",
+                      correction="'go'는 과거형이 아닙니다.",
+                      suggestion="'I went to the store yesterday.'라고 말하세요.",
+                      ok=False, fixed="I went to the store yesterday.", tag="시제")
+    row = store.get_messages(sid)[0]
+    assert row["ok"] == 0
+    assert row["fixed"] == "I went to the store yesterday."
+    assert row["tag"] == "시제"
+
+
+def test_add_message_leaves_feedback_fields_null_when_not_given(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "bot", "Good evening!")
+    row = store.get_messages(sid)[0]
+    assert row["ok"] is None and row["fixed"] is None and row["tag"] is None

@@ -135,22 +135,27 @@ def get_session(session_id):
     return dict(row) if row else None
 
 
-def add_message(session_id, speaker, text, correction=None, suggestion=None) -> int:
+def add_message(session_id, speaker, text, correction=None, suggestion=None,
+                ok=None, fixed=None, tag=None) -> int:
     """Insert a message and auto-increment its turn within the session.
 
     Turn is computed inside the INSERT subquery to ensure atomicity: two concurrent
     calls for the same session will not both read MAX(turn) before either acquires
     the write lock, which would produce duplicate turn values. The UNIQUE constraint
     on (session_id, turn) catches any violation as a loud error.
+
+    ok/fixed/tag are the structured half of the feedback; correction/suggestion
+    stay as the prose explanation shown when the learner expands a chip.
     """
     with connect() as conn:
         cur = conn.execute(
             "INSERT INTO messages (session_id, turn, speaker, text, correction,"
-            " suggestion, created_at)"
+            " suggestion, ok, fixed, tag, created_at)"
             " SELECT ?,"
             "        (SELECT COALESCE(MAX(turn), 0) + 1 FROM messages WHERE session_id = ?),"
-            "        ?, ?, ?, ?, ?",
-            (session_id, session_id, speaker, text, correction, suggestion, _now()),
+            "        ?, ?, ?, ?, ?, ?, ?, ?",
+            (session_id, session_id, speaker, text, correction, suggestion,
+             ok, fixed, tag, _now()),
         )
         return cur.lastrowid
 
