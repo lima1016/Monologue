@@ -1,5 +1,5 @@
 import { $, postJSON, notify } from './api.js';
-import { recognition, BCP47, startRecording } from './audio.js';
+import { recognition, BCP47, startRecording, stopRecording } from './audio.js';
 import { refreshHealth, loadScenarios, startSession,
          sendTurn, nextScriptLine, endSession, undoLastTurn, setTurnState, canDo } from './session.js';
 import { renderVoiceList, previewVoice } from './settings.js';
@@ -47,7 +47,11 @@ $('btn-mic').addEventListener('click', () => {
     // e.g. an InvalidStateError from a recognition that's already running.
     // onend never fires when start() itself throws, so nothing would
     // otherwise return the machine from `listening` -- HEARD_NOTHING does
-    // the same thing a real "heard nothing" result would.
+    // the same thing a real "heard nothing" result would. startRecording()
+    // above already opened the microphone; without stopping it here, it
+    // would stay open (with nothing ever reading from it) until the next
+    // startRecording() call replaced it.
+    stopRecording();
     notify(`음성 인식을 시작하지 못했습니다: ${err.message}`);
     setTurnState('HEARD_NOTHING');
   }

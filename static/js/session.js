@@ -1,5 +1,6 @@
 import { $, api, getJSON, postJSON, state, notify } from './api.js';
-import { play, setHeardHandler } from './audio.js';
+import { play, setHeardHandler, recognition, BCP47, setRespeakHandler } from './audio.js';
+import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
 
@@ -162,14 +163,80 @@ export function addChip(bubble, fb) {
   const detail = document.createElement('div');
   detail.className = 'chip-detail';
   detail.hidden = true;
+  summary.setAttribute('aria-expanded', 'false');
   if (fb.correction) detail.appendChild(block('교정', fb.correction, 'corr'));
   if (fb.suggestion) detail.appendChild(block('이렇게도', fb.suggestion, 'sug'));
 
-  summary.addEventListener('click', () => { detail.hidden = !detail.hidden; });
+  if (!fb.ok && fb.fixed) {
+    const row = document.createElement('div');
+    row.className = 'respeak-row';
+    const btn = document.createElement('button');
+    btn.className = 'respeak';
+    btn.textContent = '🎤 고쳐서 다시 말해보기';
+    const target = document.createElement('div');
+    target.className = 'respeak-target';
+    target.textContent = fb.fixed;
+    const result = document.createElement('p');
+    result.className = 'respeak-result';
+    result.hidden = true;
+    btn.addEventListener('click', () => startRespeak(fb.fixed, result));
+    row.append(target, btn, result);
+    detail.appendChild(row);
+  }
+
+  summary.addEventListener('click', () => {
+    detail.hidden = !detail.hidden;
+    summary.setAttribute('aria-expanded', String(!detail.hidden));
+  });
 
   wrap.append(summary, detail);
   bubble.after(wrap);
   return wrap;
+}
+
+/* Re-speaking is deliberately a different state from a normal turn: the
+   recognised text is compared against `target` and never sent to the bot.
+
+   `respeak` is only allowed from `idle` (turnstate.js) -- a turn already in
+   flight, the bot still speaking, or another re-speak already listening all
+   say no here, silently, the same way sendTurn/undoLastTurn guard themselves.
+   The chip's re-speak buttons are not wired into syncControls (they belong to
+   whichever turn produced them, not to "the current turn"), so this guard is
+   the only thing standing between a stray click and two recognitions
+   overlapping. */
+export function startRespeak(target, resultEl) {
+  if (!canDo('respeak')) return;
+  if (!recognition) { notify('이 브라우저는 음성 인식을 지원하지 않습니다.'); return; }
+  setTurnState('RESPEAK');
+  resultEl.hidden = false;
+  resultEl.className = 'respeak-result';
+  resultEl.textContent = '듣는 중...';
+
+  setRespeakHandler((spoken) => {
+    if (spoken === null) {
+      setTurnState('HEARD_NOTHING');
+      resultEl.textContent = '못 알아들었습니다. 다시 해보세요.';
+      return;
+    }
+    setTurnState('HEARD');
+    const good = matches(spoken, target, state.language);
+    resultEl.classList.add(good ? 'good' : 'bad');
+    resultEl.textContent = good ? `좋습니다 — "${spoken}"` : `"${spoken}" — 조금 다릅니다. 다시 해보세요.`;
+  });
+  recognition.lang = BCP47[state.language];
+  try {
+    recognition.start();
+  } catch (err) {
+    // Mirrors main.js's mic handler: onend never fires when start() itself
+    // throws, so nothing else would return the machine from `respeaking`.
+    // The handler just staged above never gets promoted (onstart never runs
+    // for a start() that threw) -- clear the stage itself too, or it would
+    // wrongly promote into the *next* recognition that does start.
+    setRespeakHandler(null);
+    notify(`음성 인식을 시작하지 못했습니다: ${err.message}`);
+    resultEl.textContent = '음성 인식을 시작하지 못했습니다. 다시 눌러보세요.';
+    setTurnState('HEARD_NOTHING');
+  }
 }
 
 function block(label, text, kind) {

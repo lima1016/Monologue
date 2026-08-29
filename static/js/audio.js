@@ -56,12 +56,27 @@ export function speakInBrowser(text, onDone) {
    Two handlers, not one: a recognised sentence normally becomes a turn, but
    during re-speak it must be compared against the correction instead and never
    reach the bot. Whoever set `respeakHandler` last owns the next result, and
-   it is cleared after one use so a stray later result cannot be misrouted. */
+   it is cleared after one use so a stray later result cannot be misrouted.
+
+   `respeakHandler` itself is only armed once a session actually begins: a
+   caller stages its handler in `pendingRespeakHandler`, and `onstart` -- which
+   fires only when `recognition.start()` did not throw -- promotes it into
+   `respeakHandler`, overwriting whatever was there before (null, for an
+   ordinary listen). This is what protects the *next* recognition, not this
+   one: if a re-speak's `start()` throws, `onstart` never runs and
+   `respeakHandler` is never touched, so nothing leaks from that attempt. But
+   if a re-speak session starts fine and then never reaches a terminal event
+   (the tab gets suspended mid-recognition), `respeakHandler` stays armed with
+   no delivery ever coming -- until the *next* recognition.start() succeeds,
+   at which point this promotion step overwrites it (with the new pending
+   value, or null for a plain listen), so a later ordinary sentence can no
+   longer be swallowed by that stale handler. */
 let heardHandler = null;
 let respeakHandler = null;
+let pendingRespeakHandler = null;
 
 export function setHeardHandler(fn) { heardHandler = fn; }
-export function setRespeakHandler(fn) { respeakHandler = fn; }
+export function setRespeakHandler(fn) { pendingRespeakHandler = fn; }
 
 function deliver(transcript) {
   const handler = respeakHandler || heardHandler;
@@ -79,7 +94,14 @@ function setupRecognition() {
   recognition.continuous = false;
   recognition.interimResults = false;
   let heard = false;
-  recognition.onstart = () => { heard = false; };
+  recognition.onstart = () => {
+    heard = false;
+    // A new session has genuinely begun: whatever was staged for it (or
+    // nothing, for a plain listen) is now the truth, and anything left over
+    // from an earlier attempt that never delivered is discarded here.
+    respeakHandler = pendingRespeakHandler;
+    pendingRespeakHandler = null;
+  };
   recognition.onresult = (e) => { heard = true; deliver(e.results[0][0].transcript); };
   recognition.onerror = (e) => notify(`음성 인식 실패(${e.error}). 입력창에 직접 입력하세요.`);
   // onend fires whether or not anything was recognised, and it is the only
