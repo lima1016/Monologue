@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from app import db
@@ -140,3 +142,37 @@ def test_wal_mode_is_enabled(store):
     with store.connect() as conn:
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
     assert mode.lower() == "wal"
+
+
+def test_fresh_database_lands_on_the_latest_schema_version(store):
+    assert store.schema_version() == len(store.MIGRATIONS)
+
+
+def test_init_db_is_idempotent(store):
+    before = store.schema_version()
+    store.init_db()
+    store.init_db()
+    assert store.schema_version() == before
+
+
+def test_a_phase1_database_is_stamped_and_then_migrated(tmp_path, monkeypatch):
+    """The real monologue.db predates user_version: it sits at 0 with the v1
+    schema already applied. Running migrations from 0 must not try to recreate
+    what is already there, and must still add the new columns."""
+    path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(db.SCHEMA)          # Phase 1 schema, no user_version
+    conn.execute(
+        "INSERT INTO sessions (language, mode, started_at) VALUES ('en','free','t0')"
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(db.config, "DB_PATH", path)
+    db.init_db()
+
+    assert db.schema_version() == len(db.MIGRATIONS)
+    with db.connect() as c:
+        cols = {r[1] for r in c.execute("PRAGMA table_info(messages)")}
+        assert {"ok", "fixed", "tag"} <= cols
+        assert c.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 1

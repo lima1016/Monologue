@@ -45,6 +45,20 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 """
 
+# Each entry migrates the database from version i to version i+1. Entries are
+# append-only: editing one that has already run would leave databases with
+# different shapes depending on when they were created.
+MIGRATIONS = [
+    # v0 -> v1: the Phase 1 schema
+    [SCHEMA],
+    # v1 -> v2: structured feedback fields (Phase 2A)
+    [
+        "ALTER TABLE messages ADD COLUMN ok INTEGER",
+        "ALTER TABLE messages ADD COLUMN fixed TEXT",
+        "ALTER TABLE messages ADD COLUMN tag TEXT",
+    ],
+]
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -68,10 +82,36 @@ def connect():
         conn.close()
 
 
+def schema_version() -> int:
+    with connect() as conn:
+        return conn.execute("PRAGMA user_version").fetchone()[0]
+
+
+def _stamp_phase1_database(conn) -> None:
+    """A database created before migrations existed sits at user_version 0 with
+    the v1 schema already applied. Stamp it as v1 so the runner resumes at the
+    right step instead of replaying migration 0."""
+    if conn.execute("PRAGMA user_version").fetchone()[0] != 0:
+        return
+    already = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sessions'"
+    ).fetchone()
+    if already:
+        conn.execute("PRAGMA user_version = 1")
+
+
 def init_db() -> None:
     config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
-        conn.executescript(SCHEMA)
+        _stamp_phase1_database(conn)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        for step in MIGRATIONS[version:]:
+            for statement in step:
+                conn.executescript(statement)
+            version += 1
+            # PRAGMA does not accept bound parameters; version is an int we
+            # computed ourselves, never user input.
+            conn.execute(f"PRAGMA user_version = {version}")
 
 
 def create_session(language, mode, scenario_id=None, topic=None) -> int:
