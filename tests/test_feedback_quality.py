@@ -59,9 +59,17 @@ def test_ok_flag_matches_whether_the_sentence_was_correct(results):
 
 
 def test_tags_are_mostly_right(results):
-    wrong = [(text, out["tag"], exp) for _, text, _, exp, out in results
-             if out["tag"] != exp]
-    assert len(wrong) <= 3, f"wrong tags: {wrong}"
+    """Pooling both languages here would hide the exact regression this file
+    exists to catch: a shared tag list (see FEEDBACK_TAGS in app/prompts.py)
+    drops Japanese from 8/8 to 6/8 because particle errors have nowhere to go
+    but 어순. A pooled threshold of <=3 wrong out of 12 (75%) tolerates that
+    drop; splitting per language does not."""
+    wrong_en = [(text, out["tag"], exp) for lang, text, _, exp, out in results
+                if lang == "en" and out["tag"] != exp]
+    wrong_ja = [(text, out["tag"], exp) for lang, text, _, exp, out in results
+                if lang == "ja" and out["tag"] != exp]
+    assert len(wrong_en) <= 2, f"wrong tags (en): {wrong_en}"
+    assert len(wrong_ja) <= 1, f"wrong tags (ja): {wrong_ja}"
 
 
 def test_fixed_is_a_real_sentence_not_an_explanation(results):

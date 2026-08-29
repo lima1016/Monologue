@@ -19,6 +19,12 @@ def client(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def fake_engines(monkeypatch):
+    # Captures the schema each call to chat_json received, so tests can check
+    # that the session's language actually reached feedback_schema() -- a
+    # hardcoded feedback_schema("en") in app/api.py would pass every other
+    # test here while silently disabling the Japanese tag vocabulary.
+    calls = {}
+
     def fake_chat(messages, **kw):
         # The opening line and a mid-conversation reply must differ, or the TTS cache
         # dedupes them by content hash and the reply never reaches the engine — which
@@ -28,16 +34,20 @@ def fake_engines(monkeypatch):
             return "Good morning! Checking in today?"
         return "Sure, right this way!"
 
+    def fake_chat_json(messages, schema, **kw):
+        calls["schema"] = schema
+        return {
+            "ok": False,
+            "fixed": "I went there.",
+            "tag": "시제",
+            "correction": "'go'는 과거형이 아닙니다.",
+            "suggestion": "'I went there.'라고 말하세요.",
+        }
+
     monkeypatch.setattr("app.api.llm.chat", fake_chat)
-    monkeypatch.setattr("app.api.llm.chat_json",
-                        lambda messages, schema, **kw: {
-                            "ok": False,
-                            "fixed": "I went there.",
-                            "tag": "시제",
-                            "correction": "'go'는 과거형이 아닙니다.",
-                            "suggestion": "'I went there.'라고 말하세요.",
-                        })
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
     monkeypatch.setattr(tts, "synthesize", lambda t, l, v: b"RIFFfake")
+    return calls
 
 
 def test_free_session_starts_and_returns_an_opening_line(client):
@@ -180,6 +190,21 @@ def test_chat_returns_and_stores_structured_feedback(client):
     stored = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
     assert stored["ok"] == 0
     assert stored["tag"] == "시제"
+
+
+def test_chat_for_a_japanese_session_uses_the_japanese_tag_vocabulary(client, fake_engines):
+    """Guards the single most valuable thing Phase 2A added: per-language tag
+    vocabularies. A hardcoded feedback_schema("en") in app/api.py would pass
+    every other test in this file while silently sending English-only tags
+    (with no 조사 slot) for Japanese sessions too."""
+    sid = client.post("/api/sessions", json={"language": "ja", "mode": "lesson",
+                                              "topic": "て form"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "きのう、レストランに行きます。"})
+
+    schema = fake_engines["schema"]
+    tag_enum = schema["properties"]["tag"]["enum"]
+    assert "조사" in tag_enum
+    assert "전치사" not in tag_enum
 
 
 def test_chat_survives_a_feedback_failure(client, monkeypatch):
