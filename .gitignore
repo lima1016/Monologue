@@ -9,7 +9,7 @@ __pycache__/
 .pytest_cache/
 
 # Runtime data — personal practice history and recordings, never commit
-monologue.db
+monologue.db*
 audio/
 tts_cache/
 
