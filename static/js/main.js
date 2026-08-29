@@ -1,6 +1,6 @@
-import { $, postJSON, notify } from './api.js';
+import { $, postJSON, notify, state } from './api.js';
 import { recognition, BCP47, startRecording, stopRecording, setRespeakHandler } from './audio.js';
-import { refreshHealth, loadScenarios, startSession,
+import { refreshHealth, loadChips, startFromHome,
          sendTurn, nextScriptLine, endSession, undoLastTurn, setTurnState, canDo } from './session.js';
 import { renderVoiceList, previewVoice } from './settings.js';
 import * as router from './router.js';
@@ -14,9 +14,33 @@ router.show('home');
 
 /* ---------- wiring ---------- */
 
-$('language').addEventListener('change', () => { loadScenarios(); refreshHealth(); });
-$('mode').addEventListener('change', loadScenarios);
-$('btn-start').addEventListener('click', startSession);
+$('language-seg').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-language]');
+  if (!btn) return;
+  state.language = btn.dataset.language;
+  [...$('language-seg').children].forEach((b) => b.classList.toggle('on', b === btn));
+  loadChips();
+  refreshHealth();
+});
+
+$('modes').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-mode]');
+  if (!btn) return;
+  state.mode = btn.dataset.mode;
+  [...$('modes').children].forEach((b) => b.classList.toggle('on', b === btn));
+  $('wish').placeholder = state.mode === 'lesson'
+    ? '예: 과거형, 식당에서 쓰는 표현'
+    : '예: 구직 면접, 병원 접수, 길 묻기';
+  loadChips();
+});
+
+$('chips').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-id]');
+  if (btn) startFromHome(btn.dataset.id);
+});
+
+$('btn-start').addEventListener('click', () => startFromHome());
+$('wish').addEventListener('keydown', (e) => { if (e.key === 'Enter') startFromHome(); });
 $('btn-send').addEventListener('click', sendTurn);
 $('btn-next').addEventListener('click', nextScriptLine);
 $('btn-end').addEventListener('click', endSession);
@@ -48,7 +72,7 @@ $('btn-mic').addEventListener('click', () => {
   // never in onend, so a click landing between a previous session's end and
   // its queued onend can't wipe a handler this call is about to stage.
   setRespeakHandler(null);
-  recognition.lang = BCP47[$('language').value];
+  recognition.lang = BCP47[state.language];
   try {
     recognition.start();
   } catch (err) {
@@ -69,13 +93,13 @@ $('conversation').addEventListener('click', (e) => {
   if (bubble) undoLastTurn(bubble);
 });
 
-loadScenarios();
+loadChips();
 refreshHealth();
 
 /* ---------- settings ---------- */
 
 $('btn-settings').addEventListener('click', async () => {
-  $('settings-language').value = $('language').value;
+  $('settings-language').value = state.language;
   await renderVoiceList();
   $('settings').showModal();
 });

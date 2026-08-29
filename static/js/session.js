@@ -85,7 +85,7 @@ export async function refreshHealth() {
     $('status-ollama').className = `dot ${h.ollama ? 'up' : 'down'}`;
     $('status-voicevox').className = `dot ${h.voicevox ? 'up' : 'down'}`;
     if (!h.ollama) notify('Ollama가 실행 중이 아닙니다. 터미널에서 ollama serve를 실행하세요.');
-    else if (!h.voicevox && $('language').value === 'ja')
+    else if (!h.voicevox && state.language === 'ja')
       notify('VOICEVOX가 꺼져 있습니다. docker compose up -d 를 실행하세요.');
     else notify('');
   } catch {
@@ -93,22 +93,66 @@ export async function refreshHealth() {
   }
 }
 
-/* ---------- setup ---------- */
+/* ---------- home ---------- */
 
-export async function loadScenarios() {
-  const language = $('language').value;
-  const mode = $('mode').value;
-  $('scenario-row').hidden = mode === 'lesson';
-  $('topic-row').hidden = mode !== 'lesson';
-  if (mode === 'lesson') return;
+// Filled by loadHome (Task 8) once a resumable session is found; read by
+// resumeSession (Task 8). Declared here, ahead of either function, so a
+// module that only defines one of the two never references an identifier
+// the other half hasn't declared yet.
+let resumeTarget = null;
 
-  const { scenarios } = await getJSON(`/scenarios?language=${language}&mode=${mode}`);
-  $('scenario').innerHTML = scenarios
-    .map((s) => `<option value="${s.id}">${s.title}</option>`)
-    .join('');
+/* The chips are the catalogue, not a required choice. A learner who knows what
+   they want types it; the chips are for the ones they have used before and for
+   the days they have no idea. */
+export async function loadChips() {
+  const box = $('chips');
+  box.replaceChildren();
+  if (state.mode === 'lesson') return;   // lesson takes a topic, not a scenario
+  const { scenarios } = await getJSON(`/scenarios?language=${state.language}&mode=${state.mode}`);
+  for (const s of scenarios.slice(0, 8)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = s.title;
+    b.dataset.id = s.id;
+    box.append(b);
+  }
 }
 
-export async function startSession() {
+/* Three ways in, one button:
+   - a chip, or text that names a scenario we already have -> reuse it
+   - text we have never seen -> ask the model to build it
+   - nothing typed -> pick one, because "고르세요" is what this screen removed */
+export async function startFromHome(scenarioId = null) {
+  const wish = $('wish').value.trim();
+  $('btn-start').disabled = true;
+  try {
+    let id = scenarioId;
+    if (!id && state.mode !== 'lesson' && wish) {
+      const { scenarios } = await getJSON(`/scenarios?language=${state.language}&mode=${state.mode}`);
+      const hit = scenarios.find((s) => s.title.trim() === wish);
+      if (hit) id = hit.id;
+      else {
+        notify('상황을 만드는 중입니다...');
+        const made = await postJSON('/scenarios/generate',
+          { language: state.language, mode: state.mode, wish });
+        id = made.id;
+        notify('');
+      }
+    }
+    if (!id && state.mode !== 'lesson') {
+      const { scenarios } = await getJSON(`/scenarios?language=${state.language}&mode=${state.mode}`);
+      if (!scenarios.length) { notify('연습할 상황이 없습니다.'); return; }
+      id = scenarios[Math.floor(Math.random() * scenarios.length)].id;
+    }
+    await startSession({ scenarioId: id, topic: state.mode === 'lesson' ? wish : null });
+  } catch (err) {
+    notify(`시작하지 못했습니다: ${err.message}`);
+  } finally {
+    $('btn-start').disabled = false;
+  }
+}
+
+export async function startSession({ scenarioId, topic } = {}) {
   // startScript resets this for a script session; a free session never went
   // through startScript before, so without this a free session started right
   // after a finished script session would inherit the earlier session's
@@ -117,17 +161,15 @@ export async function startSession() {
   // script ones.
   scriptExhausted = false;
   const payload = {
-    language: $('language').value,
-    mode: $('mode').value,
-    scenario_id: $('mode').value === 'lesson' ? null : $('scenario').value,
-    topic: $('topic').value.trim() || null,
+    language: state.language,
+    mode: state.mode,
+    scenario_id: state.mode === 'lesson' ? null : scenarioId,
+    topic: topic || null,
   };
   $('btn-start').disabled = true;
   try {
     const data = await postJSON('/sessions', payload);
     state.sessionId = data.session_id;
-    state.language = payload.language;
-    state.mode = payload.mode;
     router.show('session');
     $('conversation').innerHTML = '';
     notify('');
