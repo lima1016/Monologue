@@ -55,7 +55,10 @@ def test_the_pitch_reconciles_with_the_sentence_cap_instead_of_fighting_it():
     text = prompts.build_system_prompt("free", "en", level="intermediate",
                                        scenario={"persona_prompt": "p", "goal": "g",
                                                  "max_turns": 8})
-    assert "1 to 3 sentence" in text
+    # The pitch's own phrasing, not SPOKEN_STYLE's -- SPOKEN_STYLE already says
+    # "1 to 3 sentences", so a looser substring would pass without the pitch
+    # naming the cap at all.
+    assert "within the 1 to 3 sentence limit" in text
     assert "longer" not in prompts.LEVEL_PITCH.lower()
 
 
