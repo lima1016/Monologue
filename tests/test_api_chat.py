@@ -196,6 +196,28 @@ def test_chat_survives_a_feedback_failure(client, monkeypatch):
 
     assert body["bot_reply"]
     assert body["ok"] is None and body["tag"] is None
+    assert body["correction"] is None
+    assert body["suggestion"] is None
+    assert body["fixed"] is None
+
+
+def test_chat_survives_a_non_dict_feedback_response(client, monkeypatch):
+    """chat_json guarantees the reply parsed as JSON, not that it parsed as an
+    *object* -- a stray array (or string/number) must degrade the same
+    graceful way a raised exception does, not propagate an AttributeError
+    out of _feedback and 500 the whole turn."""
+    monkeypatch.setattr("app.api.llm.chat_json", lambda messages, schema, **kw: ["oops"])
+
+    r = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                           "scenario_id": "airport-checkin-en"})
+    sid = r.json()["session_id"]
+    body = client.post("/api/chat", json={"session_id": sid, "text": "I go there."}).json()
+
+    assert body["bot_reply"]
+    assert body["ok"] is None and body["tag"] is None
+    assert body["correction"] is None
+    assert body["suggestion"] is None
+    assert body["fixed"] is None
 
 
 def test_audio_endpoint_serves_cached_wav(client):

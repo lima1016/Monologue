@@ -108,21 +108,25 @@ def _feedback(language: str, text: str) -> dict:
     """Structured grammar feedback for one learner line.
 
     Never raises. A model hiccup must not cost the learner their turn -- the
-    conversation continues and the message is stored without feedback.
+    conversation continues and the message is stored without feedback. The
+    guard covers the whole body, not just the call: chat_json guarantees the
+    response parsed as JSON, not that it parsed as an *object*, so a stray
+    array or string would otherwise reach .get() and propagate an
+    AttributeError out of here.
     """
     try:
         result = llm.chat_json(prompts.build_feedback_messages(language, text),
                                prompts.feedback_schema(language))
+        ok = result.get("ok")
+        return {
+            "ok": None if ok is None else bool(ok),
+            "fixed": result.get("fixed"),
+            "tag": result.get("tag"),
+            "correction": result.get("correction"),
+            "suggestion": result.get("suggestion"),
+        }
     except Exception:
         return dict(_NO_FEEDBACK)
-    ok = result.get("ok")
-    return {
-        "ok": None if ok is None else bool(ok),
-        "fixed": result.get("fixed"),
-        "tag": result.get("tag"),
-        "correction": result.get("correction"),
-        "suggestion": result.get("suggestion"),
-    }
 
 
 @router.post("/sessions")
