@@ -40,17 +40,19 @@ test('an event with no transition leaves the state untouched', () => {
   assert.equal(next('undoing', 'UNDO'), 'undoing');
 });
 
-test('controls are disabled exactly while work is in flight', () => {
-  assert.deepEqual(controls('idle'),
-    { mic: true, send: true, undo: true, next: true, end: true, respeak: true });
-  for (const busy of ['sending', 'undoing']) {
-    const c = controls(busy);
-    assert.equal(c.mic, false, `${busy} must not allow a new turn`);
-    assert.equal(c.send, false);
-    assert.equal(c.undo, false);
-    assert.equal(c.next, false);
-    assert.equal(c.respeak, false);
-  }
+test('every state pins exactly which controls are live', () => {
+  const T = { mic: true,  send: true,  undo: true,  next: true,  respeak: true,  end: true };
+  const S = { mic: true,  send: true,  undo: false, next: false, respeak: false, end: true };
+  const F = { mic: false, send: false, undo: false, next: false, respeak: false, end: true };
+
+  assert.deepEqual(controls('idle'), T);
+  // Interactive, not in-flight: the learner may answer over the bot's clip,
+  // but not undo the turn it belongs to or re-speak into it.
+  assert.deepEqual(controls('speaking'), S);
+  assert.deepEqual(controls('listening'), F);
+  assert.deepEqual(controls('sending'), F);
+  assert.deepEqual(controls('undoing'), F);
+  assert.deepEqual(controls('respeaking'), F);
 });
 
 test('the session can always be ended, even mid-flight', () => {
@@ -63,4 +65,18 @@ test('the session can always be ended, even mid-flight', () => {
 
 test('the mic is free again while the bot is still speaking', () => {
   assert.equal(controls('speaking').mic, true);
+});
+
+test('every enabled control has a transition that answers it', () => {
+  // The bug this file exists to prevent: a button that renders live and does
+  // nothing because the machine has no transition for it.
+  const EVENT = { mic: 'MIC', send: 'SEND', undo: 'UNDO', respeak: 'RESPEAK' };
+  for (const state of ['idle', 'listening', 'sending', 'speaking', 'undoing', 'respeaking']) {
+    const c = controls(state);
+    for (const [control, event] of Object.entries(EVENT)) {
+      if (!c[control]) continue;
+      assert.notEqual(next(state, event), state,
+        `${state}: ${control} is enabled but ${event} has no transition`);
+    }
+  }
 });

@@ -14,7 +14,7 @@ const TRANSITIONS = {
   idle:       { MIC: 'listening', SEND: 'sending', UNDO: 'undoing', RESPEAK: 'respeaking' },
   listening:  { HEARD: 'sending', HEARD_NOTHING: 'idle' },
   sending:    { REPLY: 'speaking', SEND_FAILED: 'idle' },
-  speaking:   { AUDIO_DONE: 'idle', MIC: 'listening' },
+  speaking:   { AUDIO_DONE: 'idle', MIC: 'listening', SEND: 'sending' },
   undoing:    { UNDO_DONE: 'idle', UNDO_FAILED: 'idle' },
   respeaking: { HEARD: 'idle', HEARD_NOTHING: 'idle' },
 };
@@ -24,20 +24,22 @@ export function next(state, event) {
   return to || state;
 }
 
-/* Work is in flight during `sending` and `undoing`: a request is out and the
-   conversation's shape depends on its answer. Everything else is interactive. */
-const IN_FLIGHT = new Set(['sending', 'undoing']);
+/* `speaking` is interactive, not in-flight: nothing is pending on the server,
+   the bot's clip is simply still playing, and a learner answering over it is
+   the point. So it permits the two ways of starting a turn and nothing else —
+   undo would delete the turn whose reply is playing, and re-speaking would run
+   recognition while the bot talks over it. Every state listed here also has a
+   matching transition, or a button would sit enabled and do nothing. */
+const CAN_START_TURN = new Set(['idle', 'speaking']);
 
 export function controls(state) {
-  const free = !IN_FLIGHT.has(state) && state !== 'listening' && state !== 'respeaking';
+  const interactive = state === 'idle';
   return {
-    // The mic stays live while the bot is speaking so the learner can answer
-    // before the clip finishes, which is what happens in a real conversation.
-    mic: state === 'idle' || state === 'speaking',
-    send: free,
-    undo: free,
-    next: free,
-    respeak: free,
+    mic: CAN_START_TURN.has(state),
+    send: CAN_START_TURN.has(state),
+    undo: interactive,
+    next: interactive,
+    respeak: interactive,
     // Ending must never be blocked -- a hung request should not trap the
     // learner in a session with no exit.
     end: true,
