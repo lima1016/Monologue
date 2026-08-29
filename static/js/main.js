@@ -7,10 +7,10 @@ import * as router from './router.js';
 
 /* ---------- screens ---------- */
 
-router.register('setup', 'setup');
+router.register('home', 'home');
 router.register('session', 'session');
 router.register('report', 'report');
-router.show('setup');
+router.show('home');
 
 /* ---------- wiring ---------- */
 
