@@ -234,8 +234,17 @@ def get_audio(key: str):
 async def upload_recording(session_id: int, message_id: int = Form(...),
                            file: UploadFile = File(...)):
     """Store the learner's raw recording. Phase 1 only keeps it; Phase 2 scores it."""
-    if db.get_session(session_id) is None:
+    session = db.get_session(session_id)
+    if session is None:
         raise HTTPException(404, "no such session")
+    # /end runs _forget_recordings synchronously before returning, and a
+    # sendText already in flight when /end lands keeps going -- awaiting
+    # uploadPendingRecording after the reply. Without this check that upload
+    # writes the file and sets audio_path *after* the sweep already ran, and
+    # nothing ever collects it: the sweep skips ended sessions and a second
+    # /end 409s. Matches /chat and /last-turn, which already reject this way.
+    if session["ended_at"] is not None:
+        raise HTTPException(409, "this session has already ended")
     if message_id not in {m["id"] for m in db.get_messages(session_id)}:
         raise HTTPException(404, "no such message in this session")
     config.AUDIO_DIR.mkdir(parents=True, exist_ok=True)

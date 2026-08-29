@@ -336,6 +336,24 @@ def test_playback_is_404_when_nothing_was_recorded(client):
     assert client.get(f"/api/messages/{msg['id']}/audio").status_code == 404
 
 
+def test_upload_recording_after_session_ended_is_rejected(client):
+    """/end runs _forget_recordings synchronously, and a slow sendText already
+    in flight when /end lands keeps going -- awaiting uploadPendingRecording
+    after the reply. Without this guard that upload writes the file and sets
+    audio_path *after* the sweep already ran, and nothing ever collects it:
+    the sweep skips ended sessions and a second /end 409s. Matches /chat and
+    /last-turn, which already reject an ended session this way."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+    msg = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+    client.post(f"/api/sessions/{sid}/end")
+
+    r = client.post(f"/api/sessions/{sid}/audio", data={"message_id": msg["id"]},
+                    files={"file": ("clip.webm", io.BytesIO(b"bytes"), "audio/webm")})
+    assert r.status_code == 409
+
+
 def test_ending_a_session_removes_its_recordings(client):
     sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
                                              "scenario_id": "airport-checkin-en"}).json()["session_id"]
