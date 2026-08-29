@@ -168,6 +168,33 @@ def get_messages(session_id) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def delete_last_turn(session_id) -> int:
+    """Drop the most recent learner turn and the bot reply that followed it.
+
+    Undo exists because speech recognition mishears: a turn built on a sentence
+    the learner did not say carries a bot reply and a correction that teach
+    nothing, so they are removed rather than kept as history. Deleting the rows
+    also frees their turn numbers, which matters because messages carries
+    UNIQUE(session_id, turn) and add_message derives the next turn from MAX.
+
+    Returns the number of rows removed: 2 for a normal turn, 1 if the bot reply
+    never landed, 0 if the learner has not spoken yet.
+    """
+    with connect() as conn:
+        last_user = conn.execute(
+            "SELECT turn FROM messages WHERE session_id = ? AND speaker = 'user'"
+            " ORDER BY turn DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        if last_user is None:
+            return 0
+        cur = conn.execute(
+            "DELETE FROM messages WHERE session_id = ? AND turn >= ?",
+            (session_id, last_user["turn"]),
+        )
+        return cur.rowcount
+
+
 def set_message_audio(message_id, audio_path) -> None:
     with connect() as conn:
         conn.execute("UPDATE messages SET audio_path = ? WHERE id = ?", (audio_path, message_id))

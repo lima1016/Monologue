@@ -202,6 +202,17 @@ def chat_turn(payload: ChatTurn):
     }
 
 
+@router.delete("/sessions/{session_id}/last-turn")
+def undo_last_turn(session_id: int):
+    """Discard the most recent learner turn so it can be spoken again."""
+    session = db.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "no such session")
+    if session["ended_at"] is not None:
+        raise HTTPException(409, "this session has already ended")
+    return {"deleted": db.delete_last_turn(session_id)}
+
+
 @router.get("/audio/{key}.wav")
 def get_audio(key: str):
     path = tts.cached_path(key)

@@ -218,3 +218,36 @@ def test_add_message_leaves_feedback_fields_null_when_not_given(store):
     store.add_message(sid, "bot", "Good evening!")
     row = store.get_messages(sid)[0]
     assert row["ok"] is None and row["fixed"] is None and row["tag"] is None
+
+
+def test_delete_last_turn_removes_the_user_line_and_its_bot_reply(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "bot", "Good evening!")
+    store.add_message(sid, "user", "I go store yesterday.", ok=False, tag="시제")
+    store.add_message(sid, "bot", "Nice, what did you buy?")
+
+    assert store.delete_last_turn(sid) == 2
+    remaining = store.get_messages(sid)
+    assert [m["speaker"] for m in remaining] == ["bot"]
+    assert remaining[0]["text"] == "Good evening!"
+
+
+def test_delete_last_turn_leaves_the_opening_line_alone(store):
+    """With no user turn yet there is nothing to undo -- the bot's opening is
+    not the learner's mistake to erase."""
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "bot", "Good evening!")
+    assert store.delete_last_turn(sid) == 0
+    assert len(store.get_messages(sid)) == 1
+
+
+def test_delete_last_turn_frees_the_turn_numbers_for_reuse(store):
+    """messages has UNIQUE(session_id, turn); if delete left a gap the next
+    INSERT would collide."""
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "first")
+    store.add_message(sid, "bot", "reply")
+    store.delete_last_turn(sid)
+    store.add_message(sid, "user", "second")
+    store.add_message(sid, "bot", "reply again")
+    assert [m["text"] for m in store.get_messages(sid)] == ["second", "reply again"]

@@ -258,6 +258,24 @@ def test_audio_endpoint_404s_on_unknown_key(client):
     assert client.get("/api/audio/deadbeef.wav").status_code == 404
 
 
+def test_undo_last_turn_removes_it_and_lets_the_next_turn_take_its_place(client):
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+
+    r = client.delete(f"/api/sessions/{sid}/last-turn")
+    assert r.status_code == 200
+    assert r.json()["deleted"] == 2
+
+    client.post("/api/chat", json={"session_id": sid, "text": "I went there."})
+    texts = [m["text"] for m in db.get_messages(sid) if m["speaker"] == "user"]
+    assert texts == ["I went there."]
+
+
+def test_undo_on_an_unknown_session_is_a_404(client):
+    assert client.delete("/api/sessions/9999/last-turn").status_code == 404
+
+
 def test_recorded_audio_upload_attaches_to_the_message(client):
     sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
                                              "scenario_id": "airport-checkin-en"}).json()["session_id"]
