@@ -322,9 +322,16 @@ def finish_session(session_id: int):
         level = "beginner"
 
     db.end_session(session_id, report, level)
-    _forget_recordings(session_id)
-    for stale in db.stale_open_sessions():
-        _forget_recordings(stale)
+
+    # The report is already committed. Cleanup is housekeeping, and no failure
+    # in it is worth turning a finished report into an error the learner sees.
+    try:
+        _forget_recordings(session_id)
+        for stale in db.stale_open_sessions():
+            _forget_recordings(stale)
+    except Exception:
+        pass
+
     return {"report": report, "level": level}
 
 

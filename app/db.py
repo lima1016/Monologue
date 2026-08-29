@@ -225,17 +225,34 @@ def clear_session_audio(session_id) -> list[str]:
 
 
 def stale_open_sessions(hours=24) -> list[int]:
-    """Sessions started long ago and never ended.
+    """Unfinished sessions with a recording still waiting to be collected.
 
-    A closed browser tab leaves one behind -- there were eight in the real
-    database when this was written -- and their recordings would otherwise
-    never be collected, since cleanup hangs off the end-of-session route.
+    A closed browser tab leaves a session open forever -- there were eight in
+    the real database when this was written. "Abandoned" is judged by the last
+    activity in the session, not by when it started: a session opened
+    yesterday and still being actively used must not look identical to one
+    nobody has touched since. COALESCE falls back to started_at only for a
+    session that never got a single message, since that is the only timestamp
+    such a session has.
+
+    Restricted to sessions that still hold a recording so a session already
+    swept by a previous call drops out on its own, rather than being
+    reprocessed on every future call forever. Its ended_at is deliberately
+    left NULL -- stamping it would make db.latest_level treat an abandoned
+    session as a finished one with no level recorded.
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id FROM sessions WHERE ended_at IS NULL AND started_at < ?"
-            " ORDER BY id",
+            "SELECT s.id FROM sessions s"
+            " WHERE s.ended_at IS NULL"
+            "   AND COALESCE("
+            "         (SELECT MAX(m.created_at) FROM messages m WHERE m.session_id = s.id),"
+            "         s.started_at"
+            "       ) < ?"
+            "   AND EXISTS (SELECT 1 FROM messages m2"
+            "               WHERE m2.session_id = s.id AND m2.audio_path IS NOT NULL)"
+            " ORDER BY s.id",
             (cutoff,),
         ).fetchall()
     return [r["id"] for r in rows]

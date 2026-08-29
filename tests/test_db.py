@@ -272,7 +272,31 @@ def test_stale_open_sessions_finds_only_old_unfinished_ones(store):
     old = store.create_session("en", "free")
     done = store.create_session("en", "free")
     store.end_session(done, "report", "beginner")
+
+    old_mid = store.add_message(old, "user", "hello")
+    store.set_message_audio(old_mid, "audio/s_old.webm")
     with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE id = ?", (old_mid,))
+        conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE id = ?", (old,))
+
+    assert store.stale_open_sessions(hours=24) == [old]
+
+
+def test_stale_open_sessions_ignores_sessions_already_swept(store):
+    """A session whose recordings were already cleared should not be returned
+    again on the next sweep -- it has nothing left to collect."""
+    old = store.create_session("en", "free")
+    old_mid = store.add_message(old, "user", "hello")
+    store.set_message_audio(old_mid, "audio/s_old.webm")
+    with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE id = ?", (old_mid,))
         conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'"
                      " WHERE id = ?", (old,))
     assert store.stale_open_sessions(hours=24) == [old]
+
+    store.clear_session_audio(old)
+
+    assert store.stale_open_sessions(hours=24) == []
