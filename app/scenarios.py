@@ -35,6 +35,17 @@ def validate_item(item) -> None:
         for line in lines:
             if line.get("speaker") not in ("bot", "user") or not line.get("text"):
                 raise ScenarioError(f"{where}: each line needs speaker and text")
+        # nextScriptLine branches on line.speaker: two consecutive bot lines
+        # both play as the bot with the learner never speaking between them,
+        # and a script opening on "user" asks the learner to speak before
+        # anything has been said to them. Neither is a crash, so nothing else
+        # here would ever catch it -- a bad generation would otherwise store
+        # as a scenario that looks fine and only breaks once played.
+        speakers = [line["speaker"] for line in lines]
+        if speakers[0] != "bot":
+            raise ScenarioError(f"{where}: a script starts with the bot speaking")
+        if any(a == b for a, b in zip(speakers, speakers[1:])):
+            raise ScenarioError(f"{where}: script speakers must alternate")
 
 
 def load_scenarios(path=None) -> list[dict]:

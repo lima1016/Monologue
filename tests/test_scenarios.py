@@ -74,6 +74,37 @@ def test_script_without_lines_raises(tmp_path):
         scenarios.load_scenarios(bad)
 
 
+def test_script_starting_with_user_raises(tmp_path):
+    """nextScriptLine plays the first line as-is; a script opening on "user"
+    asks the learner to speak before anything has been said to them."""
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps([{
+        "id": "x", "language": "en", "type": "script", "title": "t",
+        "lines": [
+            {"speaker": "user", "text": "Hi."},
+            {"speaker": "bot", "text": "Hello."},
+        ],
+    }]), encoding="utf-8")
+    with pytest.raises(scenarios.ScenarioError):
+        scenarios.load_scenarios(bad)
+
+
+def test_script_with_consecutive_same_speaker_lines_raises(tmp_path):
+    """nextScriptLine branches on line.speaker -- two consecutive bot lines
+    both play as the bot, and the learner never gets a turn between them."""
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps([{
+        "id": "x", "language": "en", "type": "script", "title": "t",
+        "lines": [
+            {"speaker": "bot", "text": "Hi."},
+            {"speaker": "bot", "text": "How are you?"},
+            {"speaker": "user", "text": "Good."},
+        ],
+    }]), encoding="utf-8")
+    with pytest.raises(scenarios.ScenarioError):
+        scenarios.load_scenarios(bad)
+
+
 def test_scenario_without_id_raises(tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps([{"language": "en", "type": "free", "title": "t", "persona_prompt": "p", "max_turns": 8}]), encoding="utf-8")
