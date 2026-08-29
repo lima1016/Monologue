@@ -157,7 +157,7 @@ def test_report_prompt_hands_the_model_counts_rather_than_asking_it_to_count():
              "sentences": [{"said": "I am interested on music.",
                             "fixed": "I am interested in music.", "tag": "전치사"}]}
     joined = " ".join(m["content"] for m in prompts.build_report_messages("en", "t", stats))
-    assert "전치사" in joined and "2" in joined
+    assert "전치사 2회" in joined
     assert "I am interested in music." in joined
 
 

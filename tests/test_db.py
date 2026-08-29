@@ -281,10 +281,17 @@ def test_clear_session_audio_is_a_no_op_when_nothing_was_recorded(store):
 
 
 def test_stale_open_sessions_finds_only_old_unfinished_ones(store):
+    """`fresh` and `done` must each carry a recording too, or the EXISTS
+    clause alone would exclude them and this test would still pass with the
+    ended_at filter and the cutoff both deleted -- it needs to be the
+    ended_at filter that excludes `done` and the cutoff that excludes
+    `fresh`, not the presence of a recording at all."""
     fresh = store.create_session("en", "free")
     old = store.create_session("en", "free")
     done = store.create_session("en", "free")
-    store.end_session(done, "report", "beginner")
+
+    fresh_mid = store.add_message(fresh, "user", "hello")
+    store.set_message_audio(fresh_mid, "audio/s_fresh.webm")
 
     old_mid = store.add_message(old, "user", "hello")
     store.set_message_audio(old_mid, "audio/s_old.webm")
@@ -293,6 +300,15 @@ def test_stale_open_sessions_finds_only_old_unfinished_ones(store):
                      " WHERE id = ?", (old_mid,))
         conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'"
                      " WHERE id = ?", (old,))
+
+    done_mid = store.add_message(done, "user", "hello")
+    store.set_message_audio(done_mid, "audio/s_done.webm")
+    with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE id = ?", (done_mid,))
+        conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE id = ?", (done,))
+    store.end_session(done, "report", "beginner")
 
     assert store.stale_open_sessions(hours=24) == [old]
 

@@ -53,14 +53,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #controls { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 #controls input { flex: 1; min-width: 220px; margin-top: 0; }
 
-.fb {
-  border-left: 2px solid var(--accent); padding: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-3); background: var(--surface-sunken);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: var(--text-sm);
-}
-.fb .said { color: var(--text-dim); font-style: italic; margin-bottom: var(--space-1); }
-.fb .label { display: inline; }
-
 .notice {
   background: var(--warn-bg); color: var(--warn-ink);
   padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
@@ -132,11 +124,24 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 
 /* --- session screen --- */
 
+/* #mic-dock is `position: sticky; bottom: 0`, which only pins when the
+   element would otherwise scroll away. On a short conversation there is
+   nothing to push it down, so it floats mid-viewport with dead space below
+   it. Making #session fill the viewport gives the grid room to grow into
+   (flex: 1 below) so the dock lands at the bottom on a short conversation,
+   while the sticky behaviour still holds it there once a long one scrolls. */
+#session {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 140px);
+}
+
 .session-grid {
   display: grid;
   grid-template-columns: 1fr var(--panel-w);
   gap: var(--space-4);
   align-items: start;
+  flex: 1;
 }
 
 .conversation-col { min-width: 0; }  /* let long words wrap instead of stretching the grid */

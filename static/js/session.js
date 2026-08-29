@@ -14,12 +14,20 @@ let turnState = turn.INITIAL;
    that knows, and `canDo`/`syncControls` are the only things that read it. */
 let scriptExhausted = false;
 
+/* Set once at load if this browser has no SpeechRecognition. turnstate.js has
+   no notion of browser capability, so this is the one flag that knows --
+   canDo('mic') is the only thing that reads it, the same way scriptExhausted
+   is modelled for canDo('next'). Without this the mic button looks live on
+   an unsupported browser and only explains itself once clicked. */
+const micUnsupported = !recognition;
+
 /* The one place that knows what is in flight. Callers ask it rather than
    keeping their own copy -- two sources of truth about "is a turn running"
    is exactly the bug the old re-entrancy flag produced. */
 export function canDo(control) {
   const c = turn.controls(turnState);
   if (control === 'next') return c.next && !scriptExhausted;
+  if (control === 'mic') return c.mic && !micUnsupported;
   return c[control];
 }
 
@@ -472,6 +480,7 @@ export async function endSession() {
     const data = await postJSON(`/sessions/${state.sessionId}/end`);
     router.show('report');
     renderReport(data);
+    notify(''); // clear any stale notice ("전송 실패", "대본이 끝났습니다") left over from the session
   } catch (err) {
     notify(`리포트 생성 실패: ${err.message}`);
   } finally {
@@ -504,14 +513,20 @@ function renderReport(data) {
   const body = $('report-body');
   body.replaceChildren();
   body.append(reportCard('총평', [data.summary]));
-  if (data.weak_points && data.weak_points.length) {
-    body.append(reportCard('부족한 부분', data.weak_points));
-  }
+  const hasWeakPoints = Boolean(data.weak_points && data.weak_points.length);
+  if (hasWeakPoints) body.append(reportCard('부족한 부분', data.weak_points));
   if (data.expressions && data.expressions.length) {
     body.append(reportCard('외워둘 표현', data.expressions));
   }
   if (data.next_focus) body.append(reportCard('다음엔 이것을', [data.next_focus]));
-  if (s.sentences && s.sentences.length) body.append(sentenceCard(s.sentences));
+  const hasSentenceCard = Boolean(s.sentences && s.sentences.length);
+  if (hasSentenceCard) body.append(sentenceCard(s.sentences));
+  // s.wrong counts every ok===0 turn, but weak_points can come back empty and
+  // sentences requires a non-empty `fixed` -- so a wrong count with neither
+  // card rendered would otherwise claim mistakes no card ever explains.
+  if (s.wrong > 0 && !hasWeakPoints && !hasSentenceCard) {
+    body.append(reportCard('부족한 부분', ['고칠 곳이 있었지만 자세한 내용을 만들지 못했습니다.']));
+  }
 }
 
 function reportCard(title, items) {

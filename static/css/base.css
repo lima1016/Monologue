@@ -18,10 +18,12 @@ main { max-width: 900px; margin: 0 auto; }
 h1 { font-size: var(--text-lg); margin: 0; letter-spacing: -.3px; }
 h2 { font-size: var(--text-base); color: var(--text-dim); margin: 0 0 var(--space-3); letter-spacing: -.2px; }
 
-/* Only consumer today is the feedback labels ("교정" / "이렇게도") in
-   static/js/session.js. Hangul has no case, so uppercase/letter-spacing did
-   nothing there and 9px was at the edge of legibility -- a regression from
-   the deleted static/style.css, which had these at 12px. */
+/* Small section labels throughout the session and report screens: the
+   panel title, the chip detail labels ("교정" / "이렇게도"), and report card
+   headings, all set in static/js/session.js. Hangul has no case, so
+   uppercase/letter-spacing did nothing here and 9px was at the edge of
+   legibility -- a regression from the deleted static/style.css, which had
+   these at 12px. */
 .label {
   font-size: var(--text-xs);
   color: var(--text-faint); font-weight: 700; margin: 0 0 var(--space-2);

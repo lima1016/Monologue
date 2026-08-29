@@ -362,7 +362,9 @@ def finish_session(session_id: int):
 
     # sessions.report is TEXT, so storing JSON keeps the whole report in one
     # column without a migration. Sessions written before this change hold
-    # plain prose there; the frontend falls back to rendering it as text.
+    # plain prose there instead of JSON -- nothing in this phase reads a
+    # report back from storage, but a later phase that does (e.g. a session
+    # history screen) will need to handle both shapes.
     db.end_session(session_id, json.dumps(report, ensure_ascii=False), level)
 
     # The report is already committed. Cleanup is housekeeping, and no failure
