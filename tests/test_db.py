@@ -300,3 +300,41 @@ def test_stale_open_sessions_ignores_sessions_already_swept(store):
     store.clear_session_audio(old)
 
     assert store.stale_open_sessions(hours=24) == []
+
+
+def test_stale_sweep_spares_a_long_running_session_that_is_still_active(store):
+    """The case the activity-based cutoff exists for: opened days ago, spoken
+    into minutes ago. Keying on started_at would sweep this and delete the
+    learner's recordings mid-session."""
+    sid = store.create_session("en", "free")
+    mid = store.add_message(sid, "user", "still going")
+    store.set_message_audio(mid, "audio/s1_m1.webm")
+    with store.connect() as conn:
+        conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE id = ?", (sid,))
+    assert store.stale_open_sessions(hours=24) == []
+
+
+def test_session_stats_counts_only_the_learners_wrong_turns(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "bot", "Good evening!")
+    store.add_message(sid, "user", "I go store yesterday.", ok=False,
+                      fixed="I went to the store yesterday.", tag="시제")
+    store.add_message(sid, "user", "She have two cat.", ok=False,
+                      fixed="She has two cats.", tag="단복수")
+    store.add_message(sid, "user", "My father is a doctor.", ok=True,
+                      fixed="My father is a doctor.", tag="없음")
+
+    stats = store.session_stats(sid)
+    assert stats["turns"] == 3
+    assert stats["wrong"] == 2
+    assert stats["tags"] == {"시제": 1, "단복수": 1}
+    assert [s["fixed"] for s in stats["sentences"]] == [
+        "I went to the store yesterday.", "She has two cats."]
+
+
+def test_session_stats_ignores_turns_that_never_got_feedback(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "no feedback was obtained")
+    stats = store.session_stats(sid)
+    assert stats["turns"] == 1 and stats["wrong"] == 0 and stats["tags"] == {}

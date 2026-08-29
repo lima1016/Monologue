@@ -1,4 +1,5 @@
 """HTTP routes. Thin — every route delegates to a module and shapes the response."""
+import json
 from pathlib import Path
 from typing import Literal
 
@@ -274,6 +275,8 @@ def _transcript(session_id: int) -> str:
             lines.append(f"  [correction] {m['correction']}")
         if m["suggestion"]:
             lines.append(f"  [suggestion] {m['suggestion']}")
+        if m["tag"] and m["tag"] != "없음":
+            lines.append(f"  [tag] {m['tag']}")
     return "\n".join(lines)
 
 
@@ -303,25 +306,34 @@ def finish_session(session_id: int):
     if session["ended_at"] is not None:
         raise HTTPException(409, "this session has already ended")
 
+    stats = db.session_stats(session_id)
     try:
         result = llm.chat_json(
-            prompts.build_report_messages(session["language"], _transcript(session_id)),
+            prompts.build_report_messages(session["language"], _transcript(session_id), stats),
             prompts.REPORT_SCHEMA,
         )
-        report = result.get("report") or REPORT_UNAVAILABLE
-        level = result.get("level")
     except Exception:
-        report, level = REPORT_UNAVAILABLE, None
+        result = {}
+
+    report = {
+        "summary": result.get("summary") or REPORT_UNAVAILABLE,
+        "weak_points": result.get("weak_points") or [],
+        "expressions": result.get("expressions") or [],
+        "next_focus": result.get("next_focus") or "",
+    }
 
     # The schema constrains this, but a local model can still drift. Normalise
     # case and whitespace first: a stray "Advanced" is the model getting the
     # value right, and silently demoting it would change how the next lesson
     # teaches. Anything genuinely unrecognised still falls back to beginner.
-    level = str(level or "").strip().lower()
+    level = str(result.get("level") or "").strip().lower()
     if level not in config.LEVELS:
         level = "beginner"
 
-    db.end_session(session_id, report, level)
+    # sessions.report is TEXT, so storing JSON keeps the whole report in one
+    # column without a migration. Sessions written before this change hold
+    # plain prose there; the frontend falls back to rendering it as text.
+    db.end_session(session_id, json.dumps(report, ensure_ascii=False), level)
 
     # The report is already committed. Cleanup is housekeeping, and no failure
     # in it is worth turning a finished report into an error the learner sees.
@@ -332,7 +344,7 @@ def finish_session(session_id: int):
     except Exception:
         pass
 
-    return {"report": report, "level": level}
+    return {**report, "level": level, "stats": stats}
 
 
 @router.get("/sessions")

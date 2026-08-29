@@ -150,10 +150,13 @@ def feedback_schema(language) -> dict:
 REPORT_SCHEMA = {
     "type": "object",
     "properties": {
-        "report": {"type": "string"},
+        "summary": {"type": "string"},
+        "weak_points": {"type": "array", "items": {"type": "string"}},
+        "expressions": {"type": "array", "items": {"type": "string"}},
+        "next_focus": {"type": "string"},
         "level": {"type": "string", "enum": list(config.LEVELS)},
     },
-    "required": ["report", "level"],
+    "required": ["summary", "weak_points", "expressions", "next_focus", "level"],
 }
 
 
@@ -320,19 +323,57 @@ def build_feedback_messages(language, user_text) -> list[dict]:
     return messages
 
 
-def build_report_messages(language, transcript) -> list[dict]:
-    """Ask for an end-of-session report and a level estimate in one call."""
-    language_name = LANGUAGE_NAMES[language]
-    system = (
-        f"You are a {language_name} teacher writing a short end-of-lesson report "
-        "for one student, in Korean.\n"
-        "Cover: grammar mistakes that repeated, two or three expressions worth "
-        "memorising, and a brief encouraging overall comment.\n"
-        "Also estimate the student's level as exactly one of: beginner, "
-        "intermediate, advanced.\n"
-        "Keep the report under 200 words. No markdown, no emoji."
-    )
+REPORT_SYSTEM = """당신은 한국인 학생을 가르치는 한국어 원어민 교사입니다.
+당신이 말하고 쓰는 언어는 오직 한국어입니다. {lang}은(는) 설명하는 '대상'일 뿐입니다.
+
+학생이 방금 {lang} 회화 연습 한 세션을 마쳤습니다. 대화록과, 코드가 정확히 집계한
+통계를 함께 드립니다. 통계는 이미 정확하니 다시 세지 마세요. 당신이 할 일은 그
+숫자가 무엇을 뜻하는지 해석하고, 다음에 무엇을 연습해야 하는지 짚는 것입니다.
+
+- summary: 이번 세션이 어땠는지 두세 문장. 잘한 것부터 말합니다
+- weak_points: 부족한 부분. 항목마다 무엇이 부족한지와 왜 그런지를 함께 씁니다.
+               통계에 없는 것을 지어내지 마세요. 틀린 곳이 없었다면 빈 배열입니다
+- expressions: 이번 대화에서 실제로 나온 것 중 외워둘 만한 표현 2~3개.
+               {lang} 표현과 그것을 언제 쓰는지를 한국어로 함께 씁니다
+- next_focus: 다음 세션에서 무엇을 연습할지 한 문장. 구체적으로
+
+모든 설명은 한국어로 씁니다. 인용하는 {lang} 표현만 {lang}으로 둡니다.
+마크다운과 이모지는 쓰지 않습니다."""
+
+
+def build_report_messages(language, transcript, stats) -> list[dict]:
+    """Ask for an end-of-session report, handing over counts rather than asking
+    for them.
+
+    The system prompt is Korean for the same reason the feedback prompt is:
+    asking for Korean *in English* produced English, and moving the instruction
+    itself into Korean is what fixed it there.
+
+    The statistics are computed in db.session_stats and pasted in as fact. A
+    model asked "which mistakes repeated" will invent a plausible answer; a
+    model handed "전치사 2회, 시제 1회" and asked what that means will not.
+    """
+    language_name = KOREAN_LANGUAGE_NAMES[language]
+    system = REPORT_SYSTEM.format(lang=language_name)
+    if language == "ja":
+        system += "\n" + JAPANESE_SCRIPT_ONLY_RULE
+
+    lines = ["이번 세션 통계 (코드가 집계한 정확한 숫자입니다)",
+             f"- 학생이 말한 횟수: {stats['turns']}",
+             f"- 그중 고칠 곳이 있었던 횟수: {stats['wrong']}"]
+    if stats["tags"]:
+        ranked = sorted(stats["tags"].items(), key=lambda kv: -kv[1])
+        lines.append("- 오류 종류별 횟수: " + ", ".join(f"{t} {n}회" for t, n in ranked))
+    else:
+        lines.append("- 오류 종류별 횟수: 없음")
+    if stats["sentences"]:
+        lines.append("")
+        lines.append("고쳐야 했던 문장들")
+        for s in stats["sentences"]:
+            lines.append(f"- 말한 것: {s['said']}")
+            lines.append(f"  올바른 문장: {s['fixed']}  ({s['tag']})")
+
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": f"Here is the full session transcript:\n\n{transcript}"},
+        {"role": "user", "content": "\n".join(lines) + f"\n\n전체 대화록\n{transcript}"},
     ]

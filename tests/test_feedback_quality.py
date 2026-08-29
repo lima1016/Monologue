@@ -79,3 +79,21 @@ def test_fixed_is_a_real_sentence_not_an_explanation(results):
     for _, text, _, _, out in results:
         assert out["fixed"], f"empty fixed for {text}"
         assert _hangul(out["fixed"]) == 0, f"Korean leaked into fixed for {text}"
+
+
+def test_report_comes_back_in_korean_and_respects_the_counts():
+    stats = {"turns": 3, "wrong": 2, "tags": {"시제": 1, "전치사": 1},
+             "sentences": [{"said": "I go store yesterday.",
+                            "fixed": "I went to the store yesterday.", "tag": "시제"},
+                           {"said": "I am interested on music.",
+                            "fixed": "I am interested in music.", "tag": "전치사"}]}
+    transcript = ("bot: What did you do yesterday?\n"
+                  "user: I go store yesterday.\n"
+                  "bot: Nice. What music do you like?\n"
+                  "user: I am interested on music.")
+    out = llm.chat_json(prompts.build_report_messages("en", transcript, stats),
+                        prompts.REPORT_SCHEMA)
+    assert _hangul(out["summary"]) >= 8, out["summary"]
+    assert _hangul(out["next_focus"]) >= 5, out["next_focus"]
+    assert out["weak_points"], "two wrong turns should produce at least one weak point"
+    assert out["level"] in ("beginner", "intermediate", "advanced")

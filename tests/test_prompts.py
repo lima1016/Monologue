@@ -126,12 +126,39 @@ def test_report_schema_constrains_level_to_the_three_values():
     assert prompts.REPORT_SCHEMA["properties"]["level"]["enum"] == [
         "beginner", "intermediate", "advanced"
     ]
-    assert set(prompts.REPORT_SCHEMA["required"]) == {"report", "level"}
+
+
+def test_report_schema_asks_for_structured_fields():
+    props = prompts.REPORT_SCHEMA["properties"]
+    assert set(prompts.REPORT_SCHEMA["required"]) == {
+        "summary", "weak_points", "expressions", "next_focus", "level"}
+    assert props["weak_points"]["type"] == "array"
+    assert props["expressions"]["type"] == "array"
 
 
 def test_report_messages_include_the_transcript():
-    msgs = prompts.build_report_messages("en", "bot: Hi\nuser: Hello")
+    empty = {"turns": 1, "wrong": 0, "tags": {}, "sentences": []}
+    msgs = prompts.build_report_messages("en", "bot: Hi\nuser: Hello", empty)
     assert "user: Hello" in " ".join(m["content"] for m in msgs)
+
+
+def test_report_system_prompt_is_written_in_korean():
+    """The same bug Phase 2A fixed for feedback: the report prompt asked for
+    Korean *in English*, and a model answers in the language it is addressed in."""
+    empty = {"turns": 1, "wrong": 0, "tags": {}, "sentences": []}
+    for language in ("en", "ja"):
+        system = prompts.build_report_messages(language, "bot: hi\nuser: hello", empty)[0]["content"]
+        hangul = sum(1 for ch in system if "가" <= ch <= "힣")
+        assert hangul > 100, f"{language} report prompt is not Korean"
+
+
+def test_report_prompt_hands_the_model_counts_rather_than_asking_it_to_count():
+    stats = {"turns": 6, "wrong": 3, "tags": {"전치사": 2, "시제": 1},
+             "sentences": [{"said": "I am interested on music.",
+                            "fixed": "I am interested in music.", "tag": "전치사"}]}
+    joined = " ".join(m["content"] for m in prompts.build_report_messages("en", "t", stats))
+    assert "전치사" in joined and "2" in joined
+    assert "I am interested in music." in joined
 
 
 def test_beginner_lesson_includes_korean_scaffolding_but_advanced_does_not():

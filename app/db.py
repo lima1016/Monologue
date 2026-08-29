@@ -258,6 +258,33 @@ def stale_open_sessions(hours=24) -> list[int]:
     return [r["id"] for r in rows]
 
 
+def session_stats(session_id) -> dict:
+    """Exact counts for the end-of-session report.
+
+    Computed here rather than asked of the model: "which mistakes repeated" is
+    a counting question, and a language model is the wrong tool for it. The
+    model's job is to interpret the pattern, not to produce it.
+
+    `없음` is a stored tag meaning the sentence was already correct, so it is
+    excluded from the weakness counts rather than ranked as one. A turn whose
+    `ok` is NULL never got feedback at all -- the model call failed -- and is
+    counted as neither right nor wrong.
+    """
+    rows = [m for m in get_messages(session_id) if m["speaker"] == "user"]
+    tags, sentences = {}, []
+    for m in rows:
+        if m["ok"] is None or m["ok"]:
+            continue
+        if m["tag"] and m["tag"] != "없음":
+            tags[m["tag"]] = tags.get(m["tag"], 0) + 1
+        if m["fixed"]:
+            sentences.append({"said": m["text"], "fixed": m["fixed"], "tag": m["tag"]})
+    return {"turns": len(rows),
+            "wrong": sum(1 for m in rows if m["ok"] == 0),
+            "tags": tags,
+            "sentences": sentences}
+
+
 def end_session(session_id, report, level) -> None:
     with connect() as conn:
         conn.execute(
