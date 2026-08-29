@@ -448,7 +448,21 @@ def resumable(language: Language):
     registration order, so if that route came first it would swallow
     "resumable" as a session_id and return 422.
     """
-    db.abandon_stale_sessions()
+    # Order matters and must not be swapped: stale_open_sessions only sees
+    # sessions where ended_at IS NULL, so it must run -- and its recordings
+    # must be collected -- before abandon_stale_sessions stamps ended_at on
+    # that same population. Reverse the order and those sessions' audio can
+    # never be found again; it would sit on disk forever, which is exactly
+    # the guarantee (recordings are deleted once a session is over) this
+    # project promised the learner in exchange for writing a report instead.
+    # Best-effort like finish_session's identical cleanup: a failure here is
+    # housekeeping, not something the resumable lookup below should surface.
+    try:
+        for stale in db.stale_open_sessions():
+            _forget_recordings(stale)
+        db.abandon_stale_sessions()
+    except Exception:
+        pass
     session = db.resumable_session(language)
     if session is None:
         return {"session": None}

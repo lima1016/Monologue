@@ -273,8 +273,14 @@ def stale_open_sessions(hours=24) -> list[int]:
     Restricted to sessions that still hold a recording so a session already
     swept by a previous call drops out on its own, rather than being
     reprocessed on every future call forever. Its ended_at is deliberately
-    left NULL -- stamping it would make db.latest_level treat an abandoned
-    session as a finished one with no level recorded.
+    left NULL -- that NULL is what keeps an abandoned session visible to
+    this query at all. abandon_stale_sessions() stamps ended_at on this same
+    population (same cutoff, same staleness test, minus the audio
+    restriction), and the GET /sessions/resumable route always calls this
+    function and unlinks what it returns *before* calling
+    abandon_stale_sessions(). Stamp ended_at first, or swap that order, and
+    these rows drop out of the `ended_at IS NULL` filter below with their
+    recordings never collected -- stranding that audio on disk forever.
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
     with connect() as conn:

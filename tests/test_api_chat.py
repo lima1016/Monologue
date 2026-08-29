@@ -387,3 +387,33 @@ def test_ending_a_session_removes_its_recordings(client):
 
 def test_resumable_is_not_swallowed_by_the_session_id_route(client):
     assert client.get("/api/sessions/resumable?language=en").status_code == 200
+
+
+def test_resumable_sweep_deletes_a_stale_sessions_recording_before_closing_it(client):
+    """db.abandon_stale_sessions stamps ended_at on a strict superset of what
+    db.stale_open_sessions finds (same cutoff, minus the audio restriction).
+    Once ended_at is stamped, stale_open_sessions' `ended_at IS NULL` filter
+    can never see that session again -- so GET /sessions/resumable must sweep
+    the recording off disk *before* closing the session, or the file is
+    orphaned forever. This project deletes a session's recordings once it is
+    over; a session closed with its audio still on disk breaks that."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+    msg = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+
+    clip = config.AUDIO_DIR / f"s{sid}_m{msg['id']}.webm"
+    clip.write_bytes(b"stale-bytes")
+    db.set_message_audio(msg["id"], f"audio/{clip.name}")
+
+    with db.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE session_id = ?", (sid,))
+        conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE id = ?", (sid,))
+
+    r = client.get("/api/sessions/resumable?language=en")
+    assert r.status_code == 200
+
+    assert db.get_session(sid)["ended_at"] is not None
+    assert not clip.exists()
