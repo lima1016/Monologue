@@ -1,0 +1,70 @@
+[
+  {
+    "id": "restaurant-seating-en",
+    "language": "en",
+    "type": "free",
+    "title": "레스토랑 자리 안내",
+    "goal": "창가 자리를 요청하고 안내받는다",
+    "max_turns": 8,
+    "persona_prompt": "You are a friendly host at a mid-range American restaurant on a busy evening. The learner is a walk-in customer. Ask about party size, mention the wait, and offer seating options. Stay in character."
+  },
+  {
+    "id": "airport-checkin-en",
+    "language": "en",
+    "type": "free",
+    "title": "공항 체크인",
+    "goal": "체크인하고 좌석을 배정받는다",
+    "max_turns": 8,
+    "persona_prompt": "You are an airline check-in agent at a US airport. The learner is a passenger flying to Seoul. Ask for their passport, ask about bags, and assign a seat. Stay in character."
+  },
+  {
+    "id": "standup-meeting-en",
+    "language": "en",
+    "type": "script",
+    "title": "회사 데일리 스탠드업",
+    "lines": [
+      { "speaker": "bot", "text": "Morning! Ready for standup?" },
+      { "speaker": "user", "text": "Yeah, give me a sec. Okay, I'm ready." },
+      { "speaker": "bot", "text": "Cool. What did you work on yesterday?" },
+      { "speaker": "user", "text": "I finished the login bug and started on the report screen." },
+      { "speaker": "bot", "text": "Nice. Anything blocking you?" },
+      { "speaker": "user", "text": "Not really. I might need a review on the pull request later." },
+      { "speaker": "bot", "text": "Sure, ping me when it's up. Thanks!" },
+      { "speaker": "user", "text": "Will do. Thanks!" }
+    ]
+  },
+  {
+    "id": "restaurant-seating-ja",
+    "language": "ja",
+    "type": "free",
+    "title": "レストランの案内",
+    "goal": "窓際の席をお願いして案内してもらう",
+    "max_turns": 8,
+    "persona_prompt": "あなたは日本のレストランの店員です。学習者は予約なしで来たお客さんです。人数を聞き、待ち時間を伝え、席の希望を聞いてください。役に徹してください。"
+  },
+  {
+    "id": "convenience-store-ja",
+    "language": "ja",
+    "type": "free",
+    "title": "コンビニで買い物",
+    "goal": "会計をして袋とお箸をもらう",
+    "max_turns": 8,
+    "persona_prompt": "あなたは日本のコンビニの店員です。学習者はレジに来たお客さんです。会計をして、袋やお箸が必要か聞いてください。役に徹してください。"
+  },
+  {
+    "id": "office-greeting-ja",
+    "language": "ja",
+    "type": "script",
+    "title": "会社での朝のやりとり",
+    "lines": [
+      { "speaker": "bot", "text": "おはようございます。今日は早いですね。" },
+      { "speaker": "user", "text": "おはようございます。少し早く来ました。" },
+      { "speaker": "bot", "text": "昨日の資料、もう見ましたか。" },
+      { "speaker": "user", "text": "はい、さっき目を通しました。" },
+      { "speaker": "bot", "text": "何か気になるところはありましたか。" },
+      { "speaker": "user", "text": "一つだけ、数字を確認したいところがあります。" },
+      { "speaker": "bot", "text": "わかりました。あとで一緒に見ましょう。" },
+      { "speaker": "user", "text": "ありがとうございます。よろしくお願いします。" }
+    ]
+  }
+]

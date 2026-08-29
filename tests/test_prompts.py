@@ -1,0 +1,118 @@
+import pytest
+
+from app import prompts
+
+
+def test_every_mode_and_language_produces_a_prompt_with_spoken_style_rules():
+    for mode in ("free", "script", "lesson"):
+        for lang in ("en", "ja"):
+            scenario = {"persona_prompt": "You are a host.", "goal": "seat them",
+                        "max_turns": 8} if mode == "free" else None
+            text = prompts.build_system_prompt(mode, lang, scenario=scenario)
+            assert "1 to 3 sentences" in text
+            assert "contractions" in text.lower()
+            assert "markdown" in text.lower()
+            assert "emoji" in text.lower()
+
+
+def test_free_mode_embeds_persona_and_goal():
+    scenario = {"persona_prompt": "You are an airline agent.", "goal": "assign a seat",
+                "max_turns": 8}
+    text = prompts.build_system_prompt("free", "en", scenario=scenario)
+    assert "You are an airline agent." in text
+    assert "assign a seat" in text
+
+
+def test_free_mode_asks_the_bot_to_wind_down_near_the_turn_limit():
+    scenario = {"persona_prompt": "p", "goal": "g", "max_turns": 8}
+    early = prompts.build_system_prompt("free", "en", scenario=scenario, turns_used=1)
+    late = prompts.build_system_prompt("free", "en", scenario=scenario, turns_used=7)
+    assert "wrap" in late.lower() or "wind" in late.lower()
+    assert "wrap" not in early.lower()
+
+
+def test_lesson_mode_injects_the_estimated_level():
+    text = prompts.build_system_prompt("lesson", "en", level="advanced")
+    assert "advanced" in text
+
+
+def test_lesson_mode_uses_the_topic_when_given():
+    text = prompts.build_system_prompt("lesson", "ja", topic="て form", level="beginner")
+    assert "て form" in text
+
+
+def test_lesson_mode_delegates_topic_choice_when_none_given():
+    text = prompts.build_system_prompt("lesson", "en", level="beginner")
+    assert "choose" in text.lower()
+
+
+def test_lesson_mode_describes_the_teaching_cycle():
+    text = prompts.build_system_prompt("lesson", "en", level="beginner")
+    for beat in ("explain", "example", "correct"):
+        assert beat in text.lower()
+
+
+def test_prompt_names_the_target_language():
+    assert "English" in prompts.build_system_prompt("lesson", "en")
+    assert "Japanese" in prompts.build_system_prompt("lesson", "ja")
+
+
+def test_unknown_mode_raises():
+    with pytest.raises(ValueError):
+        prompts.build_system_prompt("quiz", "en")
+
+
+def test_free_mode_without_scenario_raises():
+    with pytest.raises(ValueError):
+        prompts.build_system_prompt("free", "en")
+
+
+def test_feedback_messages_carry_the_learner_text_and_two_sentence_cap():
+    msgs = prompts.build_feedback_messages("en", "I go store yesterday")
+    joined = " ".join(m["content"] for m in msgs)
+    assert "I go store yesterday" in joined
+    assert "two sentences" in joined.lower()
+
+
+def test_feedback_system_prompt_states_korean_up_front():
+    # The Korean requirement must be in the opening sentence, not buried mid-paragraph,
+    # or local models ignore it and answer in the target language instead.
+    msgs = prompts.build_feedback_messages("en", "I go store yesterday")
+    system = msgs[0]["content"]
+    assert "Korean" in system[:120]
+
+
+def test_feedback_schema_requires_correction_and_suggestion():
+    props = prompts.FEEDBACK_SCHEMA["properties"]
+    assert set(props) == {"correction", "suggestion"}
+    assert set(prompts.FEEDBACK_SCHEMA["required"]) == {"correction", "suggestion"}
+
+
+def test_report_schema_constrains_level_to_the_three_values():
+    assert prompts.REPORT_SCHEMA["properties"]["level"]["enum"] == [
+        "beginner", "intermediate", "advanced"
+    ]
+    assert set(prompts.REPORT_SCHEMA["required"]) == {"report", "level"}
+
+
+def test_report_messages_include_the_transcript():
+    msgs = prompts.build_report_messages("en", "bot: Hi\nuser: Hello")
+    assert "user: Hello" in " ".join(m["content"] for m in msgs)
+
+
+def test_beginner_lesson_includes_korean_scaffolding_but_advanced_does_not():
+    beginner = prompts.build_system_prompt("lesson", "en", level="beginner")
+    advanced = prompts.build_system_prompt("lesson", "en", level="advanced")
+    assert "Korean" in beginner
+    assert "Korean" not in advanced
+
+
+def test_unknown_level_falls_back_to_beginner_rule_without_raising():
+    prompt = prompts.build_system_prompt("lesson", "en", level="fluent")
+    assert prompt  # Should produce a prompt
+    assert "Korean" in prompt  # Should fall back to beginner rule
+
+
+def test_lesson_prompt_instructs_one_step_per_reply():
+    prompt = prompts.build_system_prompt("lesson", "en", level="beginner")
+    assert "one of these four steps per reply, then stop and wait" in prompt

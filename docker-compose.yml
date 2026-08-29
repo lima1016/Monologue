@@ -1,0 +1,22 @@
+# VOICEVOX — Japanese TTS engine.
+#
+# Only VOICEVOX runs in Docker. Ollama is installed natively so it can use the
+# GPU directly without a WSL2/NVIDIA-Container-Toolkit layer, and Kokoro (English
+# TTS) is a Python library that runs in-process inside the app.
+#
+#   docker compose up -d      start (also comes back automatically after reboot)
+#   docker compose down       stop
+#   curl localhost:50021/version
+services:
+  voicevox:
+    image: voicevox/voicevox_engine:cpu-latest
+    container_name: monologue-voicevox
+    ports:
+      - "127.0.0.1:50021:50021"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:50021/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s

@@ -1,0 +1,24 @@
+# TTS engines and model weights — large binaries, installed locally.
+# Kokoro is ~350MB; VOICEVOX runs in Docker. See README for setup.
+engines/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Runtime data — personal practice history and recordings, never commit
+monologue.db
+audio/
+tts_cache/
+
+# Generated voice-picker pages (regenerate via docs/tts-spike scripts)
+docs/tts-spike/*.html
+
+# SDD execution scratch (ledger, briefs, review packages)
+.superpowers/
+
+# OS
+.DS_Store
+Thumbs.db
