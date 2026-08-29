@@ -1201,3 +1201,572 @@ Select-String -Path static/js/*.js -Pattern "busy"
 ## 다음 단계
 
 B단계가 끝나면 **C단계(홈)** 계획을 따로 쓴다. C는 통합 입력창과 LLM 시나리오 생성, 이어서 하기, i+1을 다룬다. 그다음 D(마이페이지), E(새 모드) 순이다.
+
+---
+
+## 계획 증보 — Task 10~12
+
+세션이 끝난 뒤 녹음을 쓰는 기능이 설계에 없다는 것이 확인되어(마이페이지에 녹음 항목이
+없고, 쉐도잉의 재생도 세션 안에서 끝난다), 녹음을 세션 종료 시 정리한다. 그 대신
+**리포트를 제대로 만든다** — 세션이 끝나고 학습자에게 남는 유일한 산출물이므로.
+
+리포트가 지금 약한 이유가 셋이다.
+
+1. **시스템 프롬프트가 영어다.** `build_report_messages`는 *영어로* "한국어로 쓰라"고
+   지시한다. Phase 2A가 피드백 프롬프트에서 고친 바로 그 버그가 리포트 쪽에는 그대로
+   남아 있다.
+2. **대화록이 구조화 데이터를 버린다.** `_transcript`는 `correction`/`suggestion` 산문만
+   넣고 Phase 2A가 만든 `ok`/`fixed`/`tag`는 넣지 않는다.
+3. **모델에게 세는 일을 시킨다.** "반복된 문법 실수"를 찾으라는 것은 집계를 요구하는
+   것이고, 그건 언어 모델이 가장 못 하는 일이다. 카운트는 코드가 정확히 내고, 모델은
+   그 패턴이 무엇을 뜻하는지 **해석**하게 한다.
+
+---
+
+### Task 10: 세션 종료 시 녹음 정리
+
+**Files:**
+- Modify: `app/db.py`, `app/api.py`
+- Test: `tests/test_db.py`, `tests/test_api_chat.py`
+
+**Interfaces:**
+- Consumes: `config.AUDIO_DIR`, `db.get_messages`
+- Produces:
+  - `db.clear_session_audio(session_id) -> list[str]` — 지운 경로들, `audio_path`는 NULL로
+  - `db.stale_open_sessions(hours=24) -> list[int]`
+  - `finish_session`이 리포트 저장 뒤 둘 다 호출
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/test_db.py`에 추가한다:
+
+```python
+def test_clear_session_audio_nulls_the_paths_and_reports_them(store):
+    sid = store.create_session("en", "free")
+    mid = store.add_message(sid, "user", "hello")
+    store.set_message_audio(mid, "audio/s1_m1.webm")
+    assert store.clear_session_audio(sid) == ["audio/s1_m1.webm"]
+    assert store.get_messages(sid)[0]["audio_path"] is None
+
+
+def test_clear_session_audio_is_a_no_op_when_nothing_was_recorded(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "typed, not spoken")
+    assert store.clear_session_audio(sid) == []
+
+
+def test_stale_open_sessions_finds_only_old_unfinished_ones(store):
+    fresh = store.create_session("en", "free")
+    old = store.create_session("en", "free")
+    done = store.create_session("en", "free")
+    store.end_session(done, "report", "beginner")
+    with store.connect() as conn:
+        conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE id = ?", (old,))
+    assert store.stale_open_sessions(hours=24) == [old]
+```
+
+`tests/test_api_chat.py`에 추가한다:
+
+```python
+def test_ending_a_session_removes_its_recordings(client):
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+    msg = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+    client.post(f"/api/sessions/{sid}/audio", data={"message_id": msg["id"]},
+                files={"file": ("clip.webm", io.BytesIO(b"bytes"), "audio/webm")})
+    assert client.get(f"/api/messages/{msg['id']}/audio").status_code == 200
+
+    client.post(f"/api/sessions/{sid}/end")
+
+    assert client.get(f"/api/messages/{msg['id']}/audio").status_code == 404
+    assert next(m for m in db.get_messages(sid) if m["speaker"] == "user")["audio_path"] is None
+```
+
+- [ ] **Step 2: Run them and confirm they fail**
+
+Run: `.\venv\Scripts\python.exe -m pytest tests/test_db.py tests/test_api_chat.py -k "clear_session_audio or stale_open or removes_its_recordings" -v`
+Expected: FAIL — `AttributeError: module 'app.db' has no attribute 'clear_session_audio'`
+
+- [ ] **Step 3: Implement the db functions**
+
+`app/db.py`의 import를 `from datetime import datetime, timedelta, timezone`로 넓히고, `set_message_audio` 아래에 추가한다:
+
+```python
+def clear_session_audio(session_id) -> list[str]:
+    """Forget the learner's recordings for one session.
+
+    Nothing reads a recording after its session ends -- the report is written
+    from the text transcript, and both places that play a clip back (the
+    session screen and, later, shadowing) do so while the session is still
+    running. Keeping them only accumulates the learner's voice on disk for no
+    purpose.
+
+    Returns the stored paths so the caller can unlink the files; this module
+    does not touch the filesystem.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT audio_path FROM messages"
+            " WHERE session_id = ? AND audio_path IS NOT NULL",
+            (session_id,),
+        ).fetchall()
+        conn.execute(
+            "UPDATE messages SET audio_path = NULL WHERE session_id = ?", (session_id,)
+        )
+    return [r["audio_path"] for r in rows]
+
+
+def stale_open_sessions(hours=24) -> list[int]:
+    """Sessions started long ago and never ended.
+
+    A closed browser tab leaves one behind -- there were eight in the real
+    database when this was written -- and their recordings would otherwise
+    never be collected, since cleanup hangs off the end-of-session route.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id FROM sessions WHERE ended_at IS NULL AND started_at < ?"
+            " ORDER BY id",
+            (cutoff,),
+        ).fetchall()
+    return [r["id"] for r in rows]
+```
+
+- [ ] **Step 4: Call it from `finish_session`**
+
+`app/api.py`에 헬퍼를 추가한다:
+
+```python
+def _forget_recordings(session_id: int) -> None:
+    """Delete one session's clips from disk. Never raises: losing a recording is
+    not worth failing a report the learner is waiting for."""
+    for stored in db.clear_session_audio(session_id):
+        try:
+            (config.REPO_ROOT / stored).unlink(missing_ok=True)
+        except OSError:
+            pass
+```
+
+`finish_session`의 `db.end_session(...)` 바로 뒤에 추가한다:
+
+```python
+    _forget_recordings(session_id)
+    for stale in db.stale_open_sessions():
+        _forget_recordings(stale)
+```
+
+- [ ] **Step 5: Run the full suite and commit**
+
+Run: `.\venv\Scripts\python.exe -m pytest -m "not engine" -q`
+
+```bash
+git add app/db.py app/api.py tests/
+git commit -m "feat: forget the learner's recordings when a session ends"
+```
+
+---
+
+### Task 11: 리포트를 제대로 만든다 (백엔드)
+
+**Files:**
+- Modify: `app/prompts.py`, `app/api.py`, `app/db.py`
+- Test: `tests/test_db.py`, `tests/test_prompts.py`, `tests/test_api_report.py`, `tests/test_feedback_quality.py`
+
+**Interfaces:**
+- Produces:
+  - `db.session_stats(session_id) -> dict` — `{turns, wrong, tags: {tag: n}, sentences: [{said, fixed, tag}]}`
+  - `prompts.REPORT_SCHEMA` — `summary`, `weak_points[]`, `expressions[]`, `next_focus`, `level`
+  - `prompts.build_report_messages(language, transcript, stats)` — 한국어 시스템 프롬프트
+  - `POST /sessions/{id}/end` 응답에 구조화 필드 + `stats`. `sessions.report`에는 JSON 문자열로 저장
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/test_db.py`에 추가한다:
+
+```python
+def test_session_stats_counts_only_the_learners_wrong_turns(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "bot", "Good evening!")
+    store.add_message(sid, "user", "I go store yesterday.", ok=False,
+                      fixed="I went to the store yesterday.", tag="시제")
+    store.add_message(sid, "user", "She have two cat.", ok=False,
+                      fixed="She has two cats.", tag="단복수")
+    store.add_message(sid, "user", "My father is a doctor.", ok=True,
+                      fixed="My father is a doctor.", tag="없음")
+
+    stats = store.session_stats(sid)
+    assert stats["turns"] == 3
+    assert stats["wrong"] == 2
+    assert stats["tags"] == {"시제": 1, "단복수": 1}
+    assert [s["fixed"] for s in stats["sentences"]] == [
+        "I went to the store yesterday.", "She has two cats."]
+
+
+def test_session_stats_ignores_turns_that_never_got_feedback(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "no feedback was obtained")
+    stats = store.session_stats(sid)
+    assert stats["turns"] == 1 and stats["wrong"] == 0 and stats["tags"] == {}
+```
+
+`tests/test_prompts.py`에 추가한다:
+
+```python
+def test_report_system_prompt_is_written_in_korean():
+    """The same bug Phase 2A fixed for feedback: the report prompt asked for
+    Korean *in English*, and a model answers in the language it is addressed in."""
+    empty = {"turns": 1, "wrong": 0, "tags": {}, "sentences": []}
+    for language in ("en", "ja"):
+        system = prompts.build_report_messages(language, "bot: hi\nuser: hello", empty)[0]["content"]
+        hangul = sum(1 for ch in system if "가" <= ch <= "힣")
+        assert hangul > 100, f"{language} report prompt is not Korean"
+
+
+def test_report_prompt_hands_the_model_counts_rather_than_asking_it_to_count():
+    stats = {"turns": 6, "wrong": 3, "tags": {"전치사": 2, "시제": 1},
+             "sentences": [{"said": "I am interested on music.",
+                            "fixed": "I am interested in music.", "tag": "전치사"}]}
+    joined = " ".join(m["content"] for m in prompts.build_report_messages("en", "t", stats))
+    assert "전치사" in joined and "2" in joined
+    assert "I am interested in music." in joined
+
+
+def test_report_schema_asks_for_structured_fields():
+    props = prompts.REPORT_SCHEMA["properties"]
+    assert set(prompts.REPORT_SCHEMA["required"]) == {
+        "summary", "weak_points", "expressions", "next_focus", "level"}
+    assert props["weak_points"]["type"] == "array"
+    assert props["expressions"]["type"] == "array"
+```
+
+- [ ] **Step 2: Run them and confirm they fail**
+
+Run: `.\venv\Scripts\python.exe -m pytest tests/test_db.py tests/test_prompts.py -k "session_stats or report_" -v`
+
+- [ ] **Step 3: Implement `db.session_stats`**
+
+`app/db.py`에 추가한다:
+
+```python
+def session_stats(session_id) -> dict:
+    """Exact counts for the end-of-session report.
+
+    Computed here rather than asked of the model: "which mistakes repeated" is
+    a counting question, and a language model is the wrong tool for it. The
+    model's job is to interpret the pattern, not to produce it.
+
+    `없음` is a stored tag meaning the sentence was already correct, so it is
+    excluded from the weakness counts rather than ranked as one. A turn whose
+    `ok` is NULL never got feedback at all -- the model call failed -- and is
+    counted as neither right nor wrong.
+    """
+    rows = [m for m in get_messages(session_id) if m["speaker"] == "user"]
+    tags, sentences = {}, []
+    for m in rows:
+        if m["ok"] is None or m["ok"]:
+            continue
+        if m["tag"] and m["tag"] != "없음":
+            tags[m["tag"]] = tags.get(m["tag"], 0) + 1
+        if m["fixed"]:
+            sentences.append({"said": m["text"], "fixed": m["fixed"], "tag": m["tag"]})
+    return {"turns": len(rows),
+            "wrong": sum(1 for m in rows if m["ok"] == 0),
+            "tags": tags,
+            "sentences": sentences}
+```
+
+- [ ] **Step 4: Rewrite the report schema and prompt**
+
+`app/prompts.py`의 `REPORT_SCHEMA`를 교체한다:
+
+```python
+REPORT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "weak_points": {"type": "array", "items": {"type": "string"}},
+        "expressions": {"type": "array", "items": {"type": "string"}},
+        "next_focus": {"type": "string"},
+        "level": {"type": "string", "enum": list(config.LEVELS)},
+    },
+    "required": ["summary", "weak_points", "expressions", "next_focus", "level"],
+}
+```
+
+`build_report_messages`를 교체한다:
+
+```python
+REPORT_SYSTEM = """당신은 한국인 학생을 가르치는 한국어 원어민 교사입니다.
+당신이 말하고 쓰는 언어는 오직 한국어입니다. {lang}은(는) 설명하는 '대상'일 뿐입니다.
+
+학생이 방금 {lang} 회화 연습 한 세션을 마쳤습니다. 대화록과, 코드가 정확히 집계한
+통계를 함께 드립니다. 통계는 이미 정확하니 다시 세지 마세요. 당신이 할 일은 그
+숫자가 무엇을 뜻하는지 해석하고, 다음에 무엇을 연습해야 하는지 짚는 것입니다.
+
+- summary: 이번 세션이 어땠는지 두세 문장. 잘한 것부터 말합니다
+- weak_points: 부족한 부분. 항목마다 무엇이 부족한지와 왜 그런지를 함께 씁니다.
+               통계에 없는 것을 지어내지 마세요. 틀린 곳이 없었다면 빈 배열입니다
+- expressions: 이번 대화에서 실제로 나온 것 중 외워둘 만한 표현 2~3개.
+               {lang} 표현과 그것을 언제 쓰는지를 한국어로 함께 씁니다
+- next_focus: 다음 세션에서 무엇을 연습할지 한 문장. 구체적으로
+
+모든 설명은 한국어로 씁니다. 인용하는 {lang} 표현만 {lang}으로 둡니다.
+마크다운과 이모지는 쓰지 않습니다."""
+
+
+def build_report_messages(language, transcript, stats) -> list[dict]:
+    """Ask for an end-of-session report, handing over counts rather than asking
+    for them.
+
+    The system prompt is Korean for the same reason the feedback prompt is:
+    asking for Korean *in English* produced English, and moving the instruction
+    itself into Korean is what fixed it there.
+
+    The statistics are computed in db.session_stats and pasted in as fact. A
+    model asked "which mistakes repeated" will invent a plausible answer; a
+    model handed "전치사 2회, 시제 1회" and asked what that means will not.
+    """
+    language_name = KOREAN_LANGUAGE_NAMES[language]
+    system = REPORT_SYSTEM.format(lang=language_name)
+    if language == "ja":
+        system += "\n" + JAPANESE_SCRIPT_ONLY_RULE
+
+    lines = ["이번 세션 통계 (코드가 집계한 정확한 숫자입니다)",
+             f"- 학생이 말한 횟수: {stats['turns']}",
+             f"- 그중 고칠 곳이 있었던 횟수: {stats['wrong']}"]
+    if stats["tags"]:
+        ranked = sorted(stats["tags"].items(), key=lambda kv: -kv[1])
+        lines.append("- 오류 종류별 횟수: " + ", ".join(f"{t} {n}회" for t, n in ranked))
+    else:
+        lines.append("- 오류 종류별 횟수: 없음")
+    if stats["sentences"]:
+        lines.append("")
+        lines.append("고쳐야 했던 문장들")
+        for s in stats["sentences"]:
+            lines.append(f"- 말한 것: {s['said']}")
+            lines.append(f"  올바른 문장: {s['fixed']}  ({s['tag']})")
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": "\n".join(lines) + f"\n\n전체 대화록\n{transcript}"},
+    ]
+```
+
+- [ ] **Step 5: Include the tag in `_transcript`**
+
+`app/api.py`의 `_transcript`에서 suggestion 줄 아래에 추가한다:
+
+```python
+        if m["tag"] and m["tag"] != "없음":
+            lines.append(f"  [tag] {m['tag']}")
+```
+
+- [ ] **Step 6: Store and return the structured report**
+
+`app/api.py`에 `import json`을 추가하고, `finish_session`의 본문을 교체한다:
+
+```python
+    stats = db.session_stats(session_id)
+    try:
+        result = llm.chat_json(
+            prompts.build_report_messages(session["language"], _transcript(session_id), stats),
+            prompts.REPORT_SCHEMA,
+        )
+    except Exception:
+        result = {}
+
+    report = {
+        "summary": result.get("summary") or REPORT_UNAVAILABLE,
+        "weak_points": result.get("weak_points") or [],
+        "expressions": result.get("expressions") or [],
+        "next_focus": result.get("next_focus") or "",
+    }
+
+    # The schema constrains this, but a local model can still drift. Normalise
+    # case and whitespace first: a stray "Advanced" is the model getting the
+    # value right, and silently demoting it would change how the next lesson
+    # teaches. Anything genuinely unrecognised still falls back to beginner.
+    level = str(result.get("level") or "").strip().lower()
+    if level not in config.LEVELS:
+        level = "beginner"
+
+    # sessions.report is TEXT, so storing JSON keeps the whole report in one
+    # column without a migration. Sessions written before this change hold
+    # plain prose there; the frontend falls back to rendering it as text.
+    db.end_session(session_id, json.dumps(report, ensure_ascii=False), level)
+    _forget_recordings(session_id)
+    for stale in db.stale_open_sessions():
+        _forget_recordings(stale)
+    return {**report, "level": level, "stats": stats}
+```
+
+- [ ] **Step 7: Add an engine-marked check that the report is Korean**
+
+`tests/test_feedback_quality.py`에 추가한다:
+
+```python
+def test_report_comes_back_in_korean_and_respects_the_counts():
+    stats = {"turns": 3, "wrong": 2, "tags": {"시제": 1, "전치사": 1},
+             "sentences": [{"said": "I go store yesterday.",
+                            "fixed": "I went to the store yesterday.", "tag": "시제"},
+                           {"said": "I am interested on music.",
+                            "fixed": "I am interested in music.", "tag": "전치사"}]}
+    transcript = ("bot: What did you do yesterday?\n"
+                  "user: I go store yesterday.\n"
+                  "bot: Nice. What music do you like?\n"
+                  "user: I am interested on music.")
+    out = llm.chat_json(prompts.build_report_messages("en", transcript, stats),
+                        prompts.REPORT_SCHEMA)
+    assert _hangul(out["summary"]) >= 8, out["summary"]
+    assert _hangul(out["next_focus"]) >= 5, out["next_focus"]
+    assert out["weak_points"], "two wrong turns should produce at least one weak point"
+    assert out["level"] in ("beginner", "intermediate", "advanced")
+```
+
+- [ ] **Step 8: Fix the existing report tests, verify, commit**
+
+`tests/test_api_report.py`는 응답에 `report` 문자열이 있다고 기대한다. 구조화 필드를 기대하도록 고친다 — **통과시키려고 단언을 지우지 말고**, 같은 성질을 새 모양에 맞게 옮긴다. 리포트 생성이 실패했을 때 대화 기록이 그대로 남는다는 성질은 특히 유지한다.
+
+```powershell
+.\venv\Scripts\python.exe -m pytest -m "not engine"
+.\venv\Scripts\python.exe -m pytest tests/test_feedback_quality.py -m engine
+```
+
+```bash
+git add app/ tests/
+git commit -m "feat: write the report from computed stats, in Korean, as structured fields"
+```
+
+---
+
+### Task 12: 리포트 화면
+
+리포트는 세션이 끝나고 남는 유일한 산출물인데 지금은 `<pre>` 회색 덩어리다. 로그가 아니라
+결과물로 보이게 한다.
+
+**Files:**
+- Modify: `static/index.html`, `static/js/session.js`, `static/css/components.css`
+
+- [ ] **Step 1: Replace the report markup**
+
+`static/index.html`의 `<section id="report">` 안을 교체한다:
+
+```html
+    <h2>수업 리포트</h2>
+    <div id="report-head">
+      <p id="report-level"></p>
+      <p id="report-counts" class="hint"></p>
+    </div>
+    <div id="report-body"></div>
+    <button id="btn-restart" class="primary">새 세션</button>
+```
+
+`<pre>`를 없앤다.
+
+- [ ] **Step 2: Render the structured report**
+
+`session.js`의 `endSession`에서 `$('report-level')`/`$('report-body')`에 쓰던 두 줄을 `renderReport(data)` 호출로 바꾸고, 아래를 추가한다:
+
+```javascript
+/* The report is what the learner is left with when the session ends, so it is
+   laid out rather than dumped. The counts come from code and are exact; the
+   prose comes from the model and is fallible; the sentences to re-practise are
+   the part they will actually act on, so they get their own card. */
+function renderReport(data) {
+  $('report-level').textContent = `추정 수준: ${data.level}`;
+  const s = data.stats || {};
+  $('report-counts').textContent =
+    `말한 횟수 ${s.turns ?? 0} · 고칠 곳이 있던 횟수 ${s.wrong ?? 0}`;
+
+  const body = $('report-body');
+  body.replaceChildren();
+  body.append(reportCard('총평', [data.summary]));
+  if (data.weak_points && data.weak_points.length) {
+    body.append(reportCard('부족한 부분', data.weak_points));
+  }
+  if (data.expressions && data.expressions.length) {
+    body.append(reportCard('외워둘 표현', data.expressions));
+  }
+  if (data.next_focus) body.append(reportCard('다음엔 이것을', [data.next_focus]));
+  if (s.sentences && s.sentences.length) body.append(sentenceCard(s.sentences));
+}
+
+function reportCard(title, items) {
+  const card = document.createElement('section');
+  card.className = 'report-card';
+  const heading = document.createElement('p');
+  heading.className = 'label';
+  heading.textContent = title;
+  card.append(heading);
+  for (const item of items) {
+    const p = document.createElement('p');
+    p.textContent = item;
+    card.append(p);
+  }
+  return card;
+}
+
+function sentenceCard(sentences) {
+  const card = document.createElement('section');
+  card.className = 'report-card';
+  const heading = document.createElement('p');
+  heading.className = 'label';
+  heading.textContent = '다시 말해볼 문장';
+  card.append(heading);
+  for (const s of sentences) {
+    const row = document.createElement('div');
+    row.className = 'fix-row';
+    const said = document.createElement('p');
+    said.className = 'said';
+    said.textContent = s.said;
+    const fixed = document.createElement('p');
+    fixed.className = 'fixed';
+    fixed.textContent = s.fixed;
+    row.append(said, fixed);
+    card.append(row);
+  }
+  return card;
+}
+```
+
+모델 출력과 학습자 문장은 전부 `textContent`로만 넣는다. `innerHTML`을 쓰지 않는다.
+
+- [ ] **Step 3: Style it**
+
+`static/css/components.css`에 추가한다:
+
+```css
+#report-head { margin-bottom: var(--space-4); }
+#report-counts { font-size: var(--text-sm); margin: var(--space-1) 0 0; }
+
+.report-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.report-card p { margin: 0 0 var(--space-2); line-height: 1.55; }
+.report-card p:last-child { margin-bottom: 0; }
+
+.fix-row { padding: var(--space-2) 0; border-bottom: 1px solid var(--line); }
+.fix-row:last-child { border-bottom: 0; }
+/* Struck-through beside the corrected line: the pair is the point, and it
+   reads at a glance without a label. */
+.fix-row .said { color: var(--text-dim); text-decoration: line-through; }
+.fix-row .fixed { color: var(--suggest-ink); font-weight: 600; }
+```
+
+`#report-body`의 옛 `<pre>` 규칙은 삭제한다.
+
+- [ ] **Step 4: Verify and commit**
+
+프론트 테스트, 파이썬 스위트, 포트 8010 자산 확인, 자유 식별자 감사를 모두 돌린다. 그리고
+`curl`로 세션을 하나 시작해 한 턴 보내고 끝내서 `/end` 응답에 `summary`/`weak_points`/
+`expressions`/`next_focus`/`stats`가 실제로 들어오는지 확인하고 값을 보고한다.
+
+```bash
+git add static/
+git commit -m "feat: lay the report out as cards instead of a text dump"
+```
