@@ -103,7 +103,22 @@ function setupRecognition() {
     pendingRespeakHandler = null;
   };
   recognition.onresult = (e) => { heard = true; deliver(e.results[0][0].transcript); };
-  recognition.onerror = (e) => notify(`음성 인식 실패(${e.error}). 입력창에 직접 입력하세요.`);
+  // For not-allowed/audio-capture/service-not-allowed/network, Chrome fires
+  // error and end with no start at all -- onstart's promotion never runs, so
+  // a staged re-speak handler would otherwise sit armed with nothing to ever
+  // deliver to it. Promote it here too, so onend's deliver(null) below still
+  // reaches it and it renders its own "못 알아들었습니다" instead of leaving
+  // the chip on "듣는 중..." forever. Only when something is actually staged:
+  // if onstart already ran for this session (the ordinary error-after-start
+  // case), pendingRespeakHandler is already null and this must not overwrite
+  // the respeakHandler onstart already armed.
+  recognition.onerror = (e) => {
+    if (pendingRespeakHandler) {
+      respeakHandler = pendingRespeakHandler;
+      pendingRespeakHandler = null;
+    }
+    notify(`음성 인식 실패(${e.error}). 입력창에 직접 입력하세요.`);
+  };
   // onend fires whether or not anything was recognised, and it is the only
   // event that always arrives -- so it is where the "heard nothing" path has
   // to live, or a failed recognition would strand the state machine in

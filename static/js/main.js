@@ -1,5 +1,5 @@
 import { $, postJSON, notify } from './api.js';
-import { recognition, BCP47, startRecording, stopRecording } from './audio.js';
+import { recognition, BCP47, startRecording, stopRecording, setRespeakHandler } from './audio.js';
 import { refreshHealth, loadScenarios, startSession,
          sendTurn, nextScriptLine, endSession, undoLastTurn, setTurnState, canDo } from './session.js';
 import { renderVoiceList, previewVoice } from './settings.js';
@@ -39,7 +39,15 @@ $('btn-mic').addEventListener('click', () => {
   }
   notify('');
   setTurnState('MIC');
-  startRecording();
+  const recording = startRecording();
+  // An ordinary listen never belongs to a re-speak. Discard any handler left
+  // staged by a re-speak whose recognition never reached onstart -- Chrome
+  // fires error+end with no start at all for not-allowed/audio-capture/
+  // service-not-allowed/network, so startRespeak's own catch never runs and
+  // the stage would otherwise still be armed here. Cleared before start(),
+  // never in onend, so a click landing between a previous session's end and
+  // its queued onend can't wipe a handler this call is about to stage.
+  setRespeakHandler(null);
   recognition.lang = BCP47[$('language').value];
   try {
     recognition.start();
@@ -48,10 +56,10 @@ $('btn-mic').addEventListener('click', () => {
     // onend never fires when start() itself throws, so nothing would
     // otherwise return the machine from `listening` -- HEARD_NOTHING does
     // the same thing a real "heard nothing" result would. startRecording()
-    // above already opened the microphone; without stopping it here, it
-    // would stay open (with nothing ever reading from it) until the next
-    // startRecording() call replaced it.
-    stopRecording();
+    // is async and un-awaited above, so the stream/recorder it opens may not
+    // exist yet -- stop it once that promise actually settles, or the mic
+    // stays open until the next startRecording() call replaces it.
+    recording.then(stopRecording);
     notify(`음성 인식을 시작하지 못했습니다: ${err.message}`);
     setTurnState('HEARD_NOTHING');
   }
