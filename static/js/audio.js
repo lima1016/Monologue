@@ -113,6 +113,17 @@ function setupRecognition() {
   // case), pendingRespeakHandler is already null and this must not overwrite
   // the respeakHandler onstart already armed.
   recognition.onerror = (e) => {
+    // A cycle that errors heard nothing, and it may never have reached
+    // onstart -- Chrome fires error+end with no start for not-allowed,
+    // audio-capture, service-not-allowed and network. onstart and onerror are
+    // therefore the two entry points that between them guarantee `heard` is
+    // false before any onend can run; resetting in onstart alone leaves the
+    // previous cycle's value in place on exactly the paths that need it most
+    // (a re-speak that fails this way right after a turn where speech WAS
+    // recognised would otherwise inherit a stale `heard = true` and onend
+    // would skip deliver(null) entirely, stranding the machine in
+    // `respeaking` with the chip stuck on "듣는 중...").
+    heard = false;
     if (pendingRespeakHandler) {
       respeakHandler = pendingRespeakHandler;
       pendingRespeakHandler = null;
