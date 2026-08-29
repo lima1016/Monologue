@@ -205,7 +205,10 @@ export function addChip(bubble, fb) {
    the only thing standing between a stray click and two recognitions
    overlapping. */
 export function startRespeak(target, resultEl) {
-  if (!canDo('respeak')) return;
+  if (!canDo('respeak')) {
+    notify('봇이 말하는 동안에는 다시 말할 수 없습니다. 끝날 때까지 기다려주세요.');
+    return;
+  }
   if (!recognition) { notify('이 브라우저는 음성 인식을 지원하지 않습니다.'); return; }
   setTurnState('RESPEAK');
   resultEl.hidden = false;
@@ -286,7 +289,7 @@ export async function sendText(text) {
   // finishes -- until then `speaking` still permits starting a new turn
   // (barge-in) but blocks undo/next/respeak (see turnstate.js).
   play(data.audio_key, data.bot_reply, () => setTurnState('AUDIO_DONE'));
-  await uploadPendingRecording(); // clears state.chunks itself on this path
+  await uploadPendingRecording(bubble); // clears state.chunks itself on this path
 }
 
 export async function sendTurn() {
@@ -379,7 +382,7 @@ export async function nextScriptLine() {
 
     setTurnState('REPLY');
     addChip(bubble, data);
-    await uploadPendingRecording(); // clears state.chunks itself on this path
+    await uploadPendingRecording(bubble); // clears state.chunks itself on this path
     state.scriptIndex += 1; // only advance past a turn that was actually recorded
     // Unlike sendText, nothing from this /chat reply is played as audio --
     // the script's own pre-recorded line audio plays via advanceScript()
@@ -393,7 +396,22 @@ export async function nextScriptLine() {
   advanceScript();
 }
 
-export async function uploadPendingRecording() {
+/* The learner's own recording, next to the bot's native-speaker clip. Hearing
+   the two back to back is what makes pronunciation differences audible.
+   Phase 1 stored these and never played them. */
+function addPlayButton(bubble, messageId) {
+  const btn = document.createElement('button');
+  btn.className = 'play-mine';
+  btn.textContent = '▶ 내 발음';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation(); // the bubble itself is the undo target
+    new Audio(`/api/messages/${messageId}/audio`).play()
+      .catch(() => notify('녹음을 재생할 수 없습니다.'));
+  });
+  bubble.appendChild(btn);
+}
+
+export async function uploadPendingRecording(bubble) {
   if (!state.chunks.length) return;
   const blob = new Blob(state.chunks, { type: 'audio/webm' });
   state.chunks = [];
@@ -405,6 +423,7 @@ export async function uploadPendingRecording() {
     form.append('message_id', lastUser.id);
     form.append('file', blob, 'clip.webm');
     await api(`/sessions/${state.sessionId}/audio`, { method: 'POST', body: form });
+    if (bubble) addPlayButton(bubble, lastUser.id);
   } catch {
     /* recording is a Phase 2 nicety — never interrupt practice for it */
   }
