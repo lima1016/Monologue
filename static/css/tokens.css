@@ -26,6 +26,12 @@
   --suggest-bg: #f2f8f5;
   --suggest-ink: #28503c;
 
+  /* System notices (Ollama/VOICEVOX down, etc.), kept separate from the
+     correction palette above -- a warning is not a grammar correction, and
+     Phase 2B renders correction chips in --correct-* directly. */
+  --warn-bg: rgba(200, 140, 0, .15);
+  --warn-ink: #8a5a00;
+
   --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
   --space-4: 16px; --space-5: 20px; --space-6: 24px; --space-8: 32px;
 
@@ -52,6 +58,8 @@
     --correct-ink: #f0b49c;
     --suggest-bg: #17251d;
     --suggest-ink: #9ad7b7;
+    --warn-bg: rgba(200, 140, 0, .18);
+    --warn-ink: #e0b34d;
     --shadow: 0 2px 8px rgba(0, 0, 0, .4);
   }
 }
