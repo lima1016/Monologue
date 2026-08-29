@@ -1,0 +1,25 @@
+/* Author rules like `label { display: block }` outrank the UA's [hidden] rule,
+   so hidden must be reasserted or toggling it in JS does nothing. */
+[hidden] { display: none !important; }
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 var(--space-6) var(--space-8);
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: var(--text-base);
+  line-height: 1.55;
+}
+
+main { max-width: 900px; margin: 0 auto; }
+
+h1 { font-size: var(--text-lg); margin: 0; letter-spacing: -.3px; }
+h2 { font-size: var(--text-base); margin: 0 0 var(--space-3); letter-spacing: -.2px; }
+
+.label {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .7px;
+  color: var(--text-faint); font-weight: 700; margin: 0 0 var(--space-2);
+}
+.hint { color: var(--text-dim); font-weight: normal; }

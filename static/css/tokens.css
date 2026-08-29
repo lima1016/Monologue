@@ -1,0 +1,53 @@
+/* Design tokens. Light first, with dark handled by redefining the same names --
+   never define a colour only inside the dark block. */
+:root {
+  --bg: #fbfbfe;
+  --surface: #ffffff;
+  --surface-sunken: #f6f7fb;
+  --line: #e6e7ef;
+  --text: #1c1d26;
+  --text-dim: #8a8c9e;
+  --text-faint: #9a9cae;
+
+  --accent: #4c5fd7;
+  --accent-soft: #eef1fd;
+  --accent-ink: #4453c4;
+
+  /* Correction and suggestion are toned down on purpose: a learner sees these
+     every single turn, and red/green reads as being told off. */
+  --correct: #e8896b;
+  --correct-bg: #fff5f2;
+  --correct-ink: #6b3a2a;
+  --suggest: #63b58a;
+  --suggest-bg: #f2f8f5;
+  --suggest-ink: #28503c;
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 20px; --space-6: 24px; --space-8: 32px;
+
+  --text-xs: 11px;  --text-sm: 12.5px; --text-base: 14px;
+  --text-lg: 17px;  --text-xl: 21px;   --text-2xl: 25px;
+
+  --radius-sm: 6px; --radius: 10px; --radius-lg: 14px; --radius-pill: 999px;
+  --shadow: 0 2px 8px rgba(30, 32, 60, .08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14151c;
+    --surface: #1c1e27;
+    --surface-sunken: #191a22;
+    --line: #2b2d3a;
+    --text: #e8e9f0;
+    --text-dim: #9698ab;
+    --text-faint: #7b7d90;
+    --accent: #7c8bea;
+    --accent-soft: #232640;
+    --accent-ink: #96a2f0;
+    --correct-bg: #2a1e1a;
+    --correct-ink: #f0b49c;
+    --suggest-bg: #17251d;
+    --suggest-ink: #9ad7b7;
+    --shadow: 0 2px 8px rgba(0, 0, 0, .4);
+  }
+}
