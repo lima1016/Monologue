@@ -293,6 +293,47 @@ def stale_open_sessions(hours=24) -> list[int]:
     return [r["id"] for r in rows]
 
 
+def resumable_session(language):
+    """The session the learner would want to come back to, if any.
+
+    Only one is offered even when several are open: a list of half-finished
+    conversations is a chore, not a feature. Sessions with no messages are
+    skipped -- pressing 시작 and closing the tab leaves one of those, and there
+    is nothing in it to resume. Script-mode sessions are excluded outright:
+    the learner's position in the script (scriptIndex) lives only in the
+    browser and is never persisted, so the app has no way to place them back
+    where they left off -- and re-reading a short script from the top is
+    natural anyway.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS turns"
+            " FROM sessions s"
+            " WHERE s.language = ? AND s.ended_at IS NULL AND s.started_at >= ?"
+            "   AND s.mode <> 'script'"
+            "   AND EXISTS (SELECT 1 FROM messages m2 WHERE m2.session_id = s.id)"
+            " ORDER BY s.id DESC LIMIT 1",
+            (language, cutoff),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def abandon_stale_sessions(hours=24) -> int:
+    """Close sessions nobody came back to, so they stop being offered and stop
+    being swept for recordings on every /end."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    with connect() as conn:
+        cur = conn.execute(
+            "UPDATE sessions SET ended_at = ?"
+            " WHERE ended_at IS NULL"
+            "   AND COALESCE((SELECT MAX(m.created_at) FROM messages m"
+            "                 WHERE m.session_id = sessions.id), started_at) < ?",
+            (_now(), cutoff),
+        )
+        return cur.rowcount
+
+
 def session_stats(session_id) -> dict:
     """Exact counts for the end-of-session report.
 

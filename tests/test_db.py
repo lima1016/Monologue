@@ -388,6 +388,49 @@ def test_stale_sweep_spares_a_long_running_session_that_is_still_active(store):
     assert store.stale_open_sessions(hours=24) == []
 
 
+def test_resumable_session_offers_only_the_most_recent_unfinished_one(store):
+    old = store.create_session("en", "free", scenario_id="airport-checkin-en")
+    store.add_message(old, "user", "hi")
+    new = store.create_session("en", "free", scenario_id="restaurant-seating-en")
+    store.add_message(new, "user", "hello")
+    assert store.resumable_session("en")["id"] == new
+
+
+def test_a_finished_session_is_not_resumable(store):
+    sid = store.create_session("en", "free")
+    store.end_session(sid, "r", "beginner")
+    assert store.resumable_session("en") is None
+
+
+def test_a_session_with_no_messages_is_not_worth_resuming(store):
+    """Pressing 시작 and closing the tab leaves one of these. There is nothing
+    to come back to."""
+    store.create_session("en", "free")
+    assert store.resumable_session("en") is None
+
+
+def test_a_script_mode_session_is_not_resumable(store):
+    """scriptIndex lives only in the browser and is never persisted, so the
+    app has no way to place the learner back where they left off. Everything
+    else about this session satisfies resumable_session's other filters --
+    unfinished, has messages, within the window -- so only the mode
+    exclusion can be what keeps it out."""
+    sid = store.create_session("en", "script", scenario_id="standup-en")
+    store.add_message(sid, "user", "hi")
+    assert store.resumable_session("en") is None
+
+
+def test_abandon_stale_sessions_closes_them_and_they_stop_being_offered(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "hi")
+    with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = '2020-01-01T00:00:00+00:00'")
+        conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'")
+    assert store.abandon_stale_sessions(hours=24) == 1
+    assert store.resumable_session("en") is None
+    assert store.get_session(sid)["ended_at"] is not None
+
+
 def test_session_stats_counts_only_the_learners_wrong_turns(store):
     sid = store.create_session("en", "free")
     store.add_message(sid, "bot", "Good evening!")

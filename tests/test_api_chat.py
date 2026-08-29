@@ -383,3 +383,7 @@ def test_ending_a_session_removes_its_recordings(client):
 
     assert client.get(f"/api/messages/{msg['id']}/audio").status_code == 404
     assert next(m for m in db.get_messages(sid) if m["speaker"] == "user")["audio_path"] is None
+
+
+def test_resumable_is_not_swallowed_by_the_session_id_route(client):
+    assert client.get("/api/sessions/resumable?language=en").status_code == 200

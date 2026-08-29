@@ -439,6 +439,26 @@ def session_history(limit: int = Query(default=20, ge=1, le=100)):
     return {"sessions": db.list_sessions(limit)}
 
 
+@router.get("/sessions/resumable")
+def resumable(language: Language):
+    """Offer the session the learner walked away from, and clear out the ones
+    they are never coming back to while we are here.
+
+    Registered before /sessions/{session_id}: FastAPI matches routes in
+    registration order, so if that route came first it would swallow
+    "resumable" as a session_id and return 422.
+    """
+    db.abandon_stale_sessions()
+    session = db.resumable_session(language)
+    if session is None:
+        return {"session": None}
+    scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
+    return {"session": {
+        "id": session["id"], "mode": session["mode"], "turns": session["turns"],
+        "title": scenario["title"] if scenario else (session["topic"] or "수업"),
+    }}
+
+
 @router.get("/sessions/{session_id}")
 def session_detail(session_id: int):
     session = db.get_session(session_id)
