@@ -92,6 +92,13 @@ export async function loadScenarios() {
 }
 
 export async function startSession() {
+  // startScript resets this for a script session; a free session never went
+  // through startScript before, so without this a free session started right
+  // after a finished script session would inherit the earlier session's
+  // exhausted flag. Harmless today only because btn-next stays hidden in free
+  // mode -- cleared here so the invariant holds for every session, not just
+  // script ones.
+  scriptExhausted = false;
   const payload = {
     language: $('language').value,
     mode: $('mode').value,
@@ -137,10 +144,42 @@ export function addMessage(who, text) {
   return div;
 }
 
-export function addFeedback(said, correction, suggestion) {
-  // Task 7 renders correction chips under the speech bubble. Left as a
-  // no-op (rather than deleted) because sendText/nextScriptLine still call it.
-  return;
+/* One line under the learner's bubble, expanding in place.
+
+   The prose the model returns is two Korean sentences per field, and it comes
+   back on every single turn -- rendered in full it buries the conversation
+   within two exchanges. Collapsed, a correct turn reads as praise rather than
+   as the model's boilerplate "고칠 부분이 없습니다". */
+export function addChip(bubble, fb) {
+  if (fb.ok === null || fb.ok === undefined) return; // no feedback for this turn
+  const wrap = document.createElement('div');
+  wrap.className = 'chip-row';
+
+  const summary = document.createElement('button');
+  summary.className = `chip ${fb.ok ? 'ok' : 'fix'}`;
+  summary.textContent = fb.ok ? '✓ 문장 정확' : `고칠 곳 · ${fb.tag || '문법'}`;
+
+  const detail = document.createElement('div');
+  detail.className = 'chip-detail';
+  detail.hidden = true;
+  if (fb.correction) detail.appendChild(block('교정', fb.correction, 'corr'));
+  if (fb.suggestion) detail.appendChild(block('이렇게도', fb.suggestion, 'sug'));
+
+  summary.addEventListener('click', () => { detail.hidden = !detail.hidden; });
+
+  wrap.append(summary, detail);
+  bubble.after(wrap);
+  return wrap;
+}
+
+function block(label, text, kind) {
+  const el = document.createElement('div');
+  el.className = `chip-block ${kind}`;
+  const labelEl = document.createElement('span');
+  labelEl.className = 'label';
+  labelEl.textContent = label;
+  el.append(labelEl, document.createTextNode(' '), document.createTextNode(text));
+  return el;
 }
 
 export async function sendText(text) {
@@ -175,7 +214,7 @@ export async function sendText(text) {
 
   setTurnState('REPLY');
   addMessage('bot', data.bot_reply);
-  addFeedback(text, data.correction, data.suggestion);
+  addChip(bubble, data);
   // AUDIO_DONE returns the turn to `idle` once the bot's clip actually
   // finishes -- until then `speaking` still permits starting a new turn
   // (barge-in) but blocks undo/next/respeak (see turnstate.js).
@@ -272,7 +311,7 @@ export async function nextScriptLine() {
     }
 
     setTurnState('REPLY');
-    addFeedback(spoken, data.correction, data.suggestion);
+    addChip(bubble, data);
     await uploadPendingRecording(); // clears state.chunks itself on this path
     state.scriptIndex += 1; // only advance past a turn that was actually recorded
     // Unlike sendText, nothing from this /chat reply is played as audio --
@@ -306,8 +345,18 @@ export async function uploadPendingRecording() {
 
 /* ---------- end ---------- */
 
+// Report generation is a multi-second local LLM call, and the server only
+// rejects a second /end request with 409 after the first one has already
+// committed -- so an impatient second click lands inside that window, passes
+// the guard, and generates (and overwrites) the report twice. This flag is
+// the in-flight guard for that, checked instead of disabling the button: `end`
+// stays pressable on purpose (see the comment below), a second press while
+// one is already in flight just does nothing.
+let ending = false;
+
 export async function endSession() {
-  if (!state.sessionId) return;
+  if (!state.sessionId || ending) return;
+  ending = true;
   // No disabled-write here: the turn state machine deliberately keeps `end`
   // always enabled (a hung request must never trap the learner in the
   // session), and writing it directly here would fight that -- an AUDIO_DONE
@@ -320,5 +369,7 @@ export async function endSession() {
     $('report-body').textContent = data.report;
   } catch (err) {
     notify(`리포트 생성 실패: ${err.message}`);
+  } finally {
+    ending = false;
   }
 }
