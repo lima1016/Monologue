@@ -237,6 +237,19 @@ async def upload_recording(session_id: int, message_id: int = Form(...),
     return {"audio_path": stored}
 
 
+@router.get("/messages/{message_id}/audio")
+def get_recording(message_id: int):
+    """Serve the learner's own recording back so they can hear themselves.
+
+    Phase 1 stored these and never played them; the session screen now offers
+    them beside the bot's native-speaker audio.
+    """
+    matches = sorted(config.AUDIO_DIR.glob(f"s*_m{message_id}.webm"))
+    if not matches:
+        raise HTTPException(404, "no recording for this message")
+    return Response(content=matches[0].read_bytes(), media_type="audio/webm")
+
+
 REPORT_UNAVAILABLE = "리포트를 만들지 못했습니다. 대화 기록은 그대로 저장되어 있습니다."
 
 

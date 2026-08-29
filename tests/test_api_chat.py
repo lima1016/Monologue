@@ -291,3 +291,27 @@ def test_recorded_audio_upload_attaches_to_the_message(client):
     stored = [m for m in db.get_messages(sid) if m["id"] == message_id][0]["audio_path"]
     assert stored.endswith(".webm")
     assert (config.AUDIO_DIR / stored.split("/")[-1]).read_bytes() == b"webmdata"
+
+
+def test_uploaded_recording_can_be_played_back(client):
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+    msg = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+
+    client.post(f"/api/sessions/{sid}/audio",
+                data={"message_id": msg["id"]},
+                files={"file": ("clip.webm", io.BytesIO(b"webm-bytes"), "audio/webm")})
+
+    r = client.get(f"/api/messages/{msg['id']}/audio")
+    assert r.status_code == 200
+    assert r.content == b"webm-bytes"
+    assert r.headers["content-type"].startswith("audio/webm")
+
+
+def test_playback_is_404_when_nothing_was_recorded(client):
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+    msg = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+    assert client.get(f"/api/messages/{msg['id']}/audio").status_code == 404
