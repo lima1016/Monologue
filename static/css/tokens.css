@@ -64,7 +64,13 @@
     --accent: #7c8bea;
     --accent-soft: #232640;
     --accent-ink: #96a2f0;
-    --on-accent: #ffffff;
+    /* Dark ink, not white. --accent inverts between schemes: it is a deep
+       indigo in light and a light periwinkle here, so white sits on it at
+       about 3.2:1 and the 시작 button, the resume card and the mic glyph all
+       read washed out. Near-black on the same fill is about 5.7:1, and 7.5:1
+       against the lighter --accent-ink used on hover. Every use of this token
+       is something drawn on top of --accent, so it flips as one. */
+    --on-accent: #14151c;
     --correct-bg: #2a1e1a;
     --correct-ink: #f0b49c;
     --suggest-bg: #17251d;
