@@ -1,4 +1,5 @@
 """HTTP routes. Thin — every route delegates to a module and shapes the response."""
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
@@ -276,6 +277,24 @@ def _transcript(session_id: int) -> str:
     return "\n".join(lines)
 
 
+def _forget_recordings(session_id: int) -> None:
+    """Delete one session's clips from disk.
+
+    db.clear_session_audio only nulls the audio_path column -- app/db.py never
+    touches the filesystem -- so the actual unlink happens here. Only the
+    basename of the stored path is used, so this can never reach outside
+    AUDIO_DIR even if a stored value were ever unexpected.
+
+    Never raises: losing a recording is not worth failing a report the
+    learner is waiting for.
+    """
+    for stored in db.clear_session_audio(session_id):
+        try:
+            (config.AUDIO_DIR / Path(stored).name).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 @router.post("/sessions/{session_id}/end")
 def finish_session(session_id: int):
     session = db.get_session(session_id)
@@ -303,6 +322,9 @@ def finish_session(session_id: int):
         level = "beginner"
 
     db.end_session(session_id, report, level)
+    _forget_recordings(session_id)
+    for stale in db.stale_open_sessions():
+        _forget_recordings(stale)
     return {"report": report, "level": level}
 
 

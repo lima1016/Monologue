@@ -5,7 +5,7 @@ future storage swap only rewrites this file.
 """
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app import config
 
@@ -198,6 +198,47 @@ def delete_last_turn(session_id) -> int:
 def set_message_audio(message_id, audio_path) -> None:
     with connect() as conn:
         conn.execute("UPDATE messages SET audio_path = ? WHERE id = ?", (audio_path, message_id))
+
+
+def clear_session_audio(session_id) -> list[str]:
+    """Forget the learner's recordings for one session.
+
+    Nothing reads a recording after its session ends -- the report is written
+    from the text transcript, and both places that play a clip back (the
+    session screen and, later, shadowing) do so while the session is still
+    running. Keeping them only accumulates the learner's voice on disk for no
+    purpose.
+
+    Returns the stored paths so the caller can unlink the files; this module
+    does not touch the filesystem.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT audio_path FROM messages"
+            " WHERE session_id = ? AND audio_path IS NOT NULL",
+            (session_id,),
+        ).fetchall()
+        conn.execute(
+            "UPDATE messages SET audio_path = NULL WHERE session_id = ?", (session_id,)
+        )
+    return [r["audio_path"] for r in rows]
+
+
+def stale_open_sessions(hours=24) -> list[int]:
+    """Sessions started long ago and never ended.
+
+    A closed browser tab leaves one behind -- there were eight in the real
+    database when this was written -- and their recordings would otherwise
+    never be collected, since cleanup hangs off the end-of-session route.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id FROM sessions WHERE ended_at IS NULL AND started_at < ?"
+            " ORDER BY id",
+            (cutoff,),
+        ).fetchall()
+    return [r["id"] for r in rows]
 
 
 def end_session(session_id, report, level) -> None:

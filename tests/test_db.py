@@ -251,3 +251,28 @@ def test_delete_last_turn_frees_the_turn_numbers_for_reuse(store):
     store.add_message(sid, "user", "second")
     store.add_message(sid, "bot", "reply again")
     assert [m["text"] for m in store.get_messages(sid)] == ["second", "reply again"]
+
+
+def test_clear_session_audio_nulls_the_paths_and_reports_them(store):
+    sid = store.create_session("en", "free")
+    mid = store.add_message(sid, "user", "hello")
+    store.set_message_audio(mid, "audio/s1_m1.webm")
+    assert store.clear_session_audio(sid) == ["audio/s1_m1.webm"]
+    assert store.get_messages(sid)[0]["audio_path"] is None
+
+
+def test_clear_session_audio_is_a_no_op_when_nothing_was_recorded(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "typed, not spoken")
+    assert store.clear_session_audio(sid) == []
+
+
+def test_stale_open_sessions_finds_only_old_unfinished_ones(store):
+    fresh = store.create_session("en", "free")
+    old = store.create_session("en", "free")
+    done = store.create_session("en", "free")
+    store.end_session(done, "report", "beginner")
+    with store.connect() as conn:
+        conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE id = ?", (old,))
+    assert store.stale_open_sessions(hours=24) == [old]
