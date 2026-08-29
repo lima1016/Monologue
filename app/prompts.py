@@ -264,6 +264,10 @@ FEEDBACK_EXAMPLES = {
     ],
 }
 
+# Editing this string? Run `pytest tests/test_feedback_quality.py -m engine`
+# against the real model afterward -- it is the only check that catches a
+# regression in Korean output or tag accuracy; the default (non-engine) test
+# run mocks the model and will not notice.
 FEEDBACK_SYSTEM = """당신은 한국인 학생을 가르치는 한국어 원어민 교사입니다.
 당신이 말하고 쓰는 언어는 오직 한국어입니다. {lang}은(는) 당신이 설명하는 '대상'일 뿐,
 당신이 사용하는 언어가 아닙니다.

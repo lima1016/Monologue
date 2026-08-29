@@ -56,7 +56,7 @@ The two dots in the header show whether Ollama and VOICEVOX are up.
 그러면 옛날 코드를 테스트하게 됩니다. 이번 빌드 중에도 프롬프트를 고쳤는데
 반영이 안 된 것처럼 보여서 시간을 꽤 썼습니다.
 
-Chrome은 `app.js`와 `style.css`를 캐싱합니다. `static/` 아래를 고친 뒤에는
+Chrome은 `static/js/*.js`와 `static/css/*.css`를 캐싱합니다. `static/` 아래를 고친 뒤에는
 하드 리로드(Ctrl+Shift+R)를 하세요 — 안 그러면 옛날 파일을 테스트하게
 됩니다. 이것도 마찬가지로 제대로 고친 게 안 고쳐진 것처럼 보이게 만든
 원인이었습니다.
@@ -75,8 +75,14 @@ TABLE IF NOT EXISTS`이기 때문에 이미 생성된 테이블은 그냥 건너
 .\venv\Scripts\python.exe -m pytest -m "not engine"
 ```
 
-`-m engine` runs the tests that hit the real Kokoro and VOICEVOX engines; they
-need the model files present and VOICEVOX running.
+`-m engine` runs the tests that hit real engines: Kokoro and VOICEVOX (need the
+model files present and VOICEVOX running) and `tests/test_feedback_quality.py`,
+which hits **Ollama** and checks that grammar feedback still comes back in
+Korean with mostly-right tags. That file is the only thing that catches a
+prompt regression in `app/prompts.py` — the default `not engine` run mocks the
+model, so a change that breaks feedback quality still shows green there. Run
+`-m engine` after any change to the feedback prompt, not just before a
+release.
 
 ## Voices
 
@@ -93,7 +99,7 @@ Japanese speech is produced with [VOICEVOX](https://voicevox.hiroshiba.jp/).
 ## 무엇을 확인했나
 
 `run.ps1`로 VOICEVOX(Docker)와 Ollama 상태 확인 후 uvicorn이 올라오는 것을
-확인했고, 전체 테스트 스위트(엔진 테스트 포함) 123개가 통과했습니다. 브라우저를
+확인했고, 전체 테스트 스위트(엔진 테스트 포함)가 통과했습니다. 브라우저를
 직접 열 수 없는 환경이라 여섯 조합(영어/일본어 × free/script/lesson) 전부를
 HTTP API로 직접 재현해 세션 시작 → 턴 진행 → 세션 종료까지 실제 백엔드 경로를
 통과시켰고, 매번 `audio_key`가 채워지는 것을 확인해 Kokoro/VOICEVOX 합성이
@@ -106,6 +112,13 @@ HTTP API로 직접 재현해 세션 시작 → 턴 진행 → 세션 종료까�
 API 응답 텍스트로 확인했지만, 로컬 14B 모델이 지시를 얼마나 안정적으로
 따르는지는 실행마다 달라질 수 있어 이번 6회 샘플의 결과일 뿐입니다
 (자세한 수치는 task-13-report.md 참고).
+
+**아래 두 라운드는 이력입니다 — Phase 2A에서 해결됨.** 이 문제(일본어 세션의
+피드백이 한국어로 나오지 않음)는 두 라운드 모두 풀지 못한 채 남겨졌지만,
+Phase 2A에서 원인을 다시 짚어 해결했습니다. 원인은 few-shot이나 화자
+정체성이 아니라 **지시문 자체가 쓰인 언어**였습니다 — "한국어로 써라"를
+영어로 지시하고 있었던 것입니다. 지금 상태는 아래 "알려진 한계" 절을
+참고하세요.
 
 **수정 라운드 1 (한국어 준수 / 문장 수 캡 / 일본어 스크립트 오염):**
 `app/prompts.py`의 피드백 프롬프트에 언어별 few-shot 예시 2개(오류 문장,
@@ -140,16 +153,28 @@ task-13-report.md의 "Fix round 1" 절 참고.
 
 ## 알려진 한계
 
-로컬 `qwen2.5:14b`에서, 영어 세션의 `correction`/`suggestion`은 의도대로
-한국어로 설명됩니다. 일본어 세션에서는 이미 맞는 문장에 대한 피드백은
-한국어로 나오는 경우가 있지만, 문법 오류를 설명해야 하는 더 흔하고 중요한
-경우에는 여전히 일본어로만 나오는 경향이 있습니다 — 프롬프팅(직접 지시),
-few-shot 예시, 화자 정체성 반전까지 시도했지만 완전히 고쳐지지 않았습니다.
-우회책은 세션 종료 시 나오는 `report`가 두 언어 모두에서 안정적으로
-한국어로 나온다는 점입니다 — 학습자는 턴별 피드백이 아니더라도 세션이
-끝날 때 한국어 요약을 받습니다. 더 크거나 다른 베이스 모델을 쓰면 다르게
-동작할 수 있습니다. 이는 다음에 다시 다뤄볼 만한 한계로 남겨두는 것이지,
-사과할 결함으로 취급하지는 않습니다.
+로컬 `qwen2.5:14b`에서, 피드백(`correction`/`suggestion`)이 한국어로 나오지
+않던 문제는 Phase 2A에서 고쳤습니다. 원인은 few-shot이나 화자 정체성이
+아니라 지시문 자체가 쓰인 언어였습니다 — `build_feedback_messages`의 시스템
+프롬프트가 "한국어로 써라"를 *영어로* 지시하고 있었고, 모델은 지시받은
+언어로 답했습니다. 프롬프트 자체를 한국어로 옮기고, 오류 태그 목록을
+언어별로 나누고, 태그마다 정의를 붙인 뒤 스파이크로 측정한 결과 영어
+10/10, 일본어 8/8 모두 한국어로 나왔습니다 (`tests/test_feedback_quality.py`
+가 이 회귀를 지금도 감시합니다).
+
+남아 있는 한계는 언어가 아니라 **태그(`tag`) 정확도**입니다: 90% 언저리이지
+100%가 아닙니다 (스파이크 측정 영어 8/10, 일본어 8/8). 예를 들어 `He don't
+like coffee.`는 `단복수`가 아니라 `시제`로 태그가 찍혔습니다 —
+`correction` 설명 자체는 정확했고, 분류만 틀렸습니다.
+
+이 때문에 향후 복습 큐는 태그가 아니라 **문장 단위로** 라우팅하도록
+설계합니다: 수십 번 누적된 카운트에서 10% 오분류는 마이페이지 「자주
+걸리는 것」 막대그래프의 순위를 뒤집지 않지만, 학습자가 지금 당장 다시
+연습할 문장 하나를 태그로 골라내면 가끔 엉뚱한 문장이 걸립니다.
+`correction`과 `fixed`는 늘 정확했으므로, 복습 목록은 그 문장 자체를
+그대로 큐에 넣습니다. 자세한 내용은
+`docs/superpowers/specs/2026-08-29-monologue-phase2-design.md`의 "스파이크
+결과" 절을 참고하세요.
 
 ## Design notes
 
