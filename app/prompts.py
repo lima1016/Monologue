@@ -61,11 +61,20 @@ Follow these rules without exception:
 # free mode taking a level argument and silently ignoring it. Script mode is
 # excluded on purpose: its lines are fixed dialogue, not generated speech, so
 # there is nothing here for a level to pitch.
+#
+# Length is deliberately not one of the levers. SPOKEN_STYLE caps every reply
+# at three sentences as a hard rule, so an i+1 instruction phrased as "speak a
+# little longer" cannot be obeyed -- and a model asked to do two contradictory
+# things at once tends to satisfy the hard limit and drop the softer one,
+# taking the rest of the pitch down with it. The levers here -- vocabulary,
+# structure, question openness -- are the ones that still fit inside the cap.
+# Do not restore length as a lever here.
 LEVEL_PITCH = (
     "The student's current level is {level}. Pitch your own speech a small step "
-    "above it -- a little longer, a little richer -- so there is something new to "
-    "pick up, while staying comprehensible. Do not drop to their level, and do not "
-    "leap past it."
+    "above it, within the 1 to 3 sentence limit: reach for slightly less common "
+    "words, vary your sentence structure instead of repeating the same shape, "
+    "and ask questions that need more than yes or no. Do not drop to their "
+    "level, and do not leap past it."
 )
 
 FREE_TEMPLATE = """\

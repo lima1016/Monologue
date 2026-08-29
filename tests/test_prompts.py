@@ -46,6 +46,19 @@ def test_the_bot_is_told_to_pitch_slightly_above_the_learner():
     assert "step above" in text.lower()
 
 
+def test_the_pitch_reconciles_with_the_sentence_cap_instead_of_fighting_it():
+    """LEVEL_PITCH used to ask for speech "a little longer" while SPOKEN_STYLE
+    caps every reply at three sentences as a hard limit -- a direct
+    contradiction that the model resolved by obeying the cap and dropping the
+    pitch along with it. The pitch must name the cap it lives inside, and must
+    never ask for more length again."""
+    text = prompts.build_system_prompt("free", "en", level="intermediate",
+                                       scenario={"persona_prompt": "p", "goal": "g",
+                                                 "max_turns": 8})
+    assert "1 to 3 sentence" in text
+    assert "longer" not in prompts.LEVEL_PITCH.lower()
+
+
 def test_lesson_mode_uses_the_topic_when_given():
     text = prompts.build_system_prompt("lesson", "ja", topic="て form", level="beginner")
     assert "て form" in text

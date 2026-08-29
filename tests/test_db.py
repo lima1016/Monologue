@@ -157,6 +157,15 @@ def test_stable_level_ignores_the_other_language(store):
     assert store.stable_level("en") is None
 
 
+def test_stable_level_breaks_a_three_way_tie_toward_the_most_recent(store):
+    """min_sessions=3 with three distinct levels is the smallest sample where a
+    tie is unavoidable. The mode can't pick a winner, so the most recent of the
+    tied levels does."""
+    for level in ["beginner", "intermediate", "advanced"]:
+        _finished(store, "en", level)
+    assert store.stable_level("en") == "advanced"
+
+
 def test_settings_get_set_and_default(store):
     assert store.get_setting("voice_en") is None
     assert store.get_setting("voice_en", "am_adam") == "am_adam"

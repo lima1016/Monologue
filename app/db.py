@@ -362,11 +362,9 @@ def stable_level(language, recent=5, min_sessions=3):
 
     The mode of the recent window, not the newest value and not an average:
     levels are an ordered set of three labels, and averaging labels is
-    meaningless, so "usually" is the mode. Ties fall to whichever level
-    max() meets first among the tied candidates, which is the most recent
-    occurrence order returned by the query -- not something callers should
-    rely on, since a genuine tie means the sample does not clearly say one
-    thing anyway.
+    meaningless, so "usually" is the mode. On a tie, the most recent of the
+    tied levels wins: a tie means the window does not clearly say one thing,
+    so the newer evidence is the better guess.
 
     Returns None when the sample is too thin to say anything, which callers
     must handle rather than defaulting silently.
@@ -381,7 +379,7 @@ def stable_level(language, recent=5, min_sessions=3):
     levels = [r["level"] for r in rows]
     if len(levels) < min_sessions:
         return None
-    return max(set(levels), key=levels.count)
+    return max(levels, key=levels.count)
 
 
 def list_sessions(limit=20) -> list[dict]:
