@@ -47,14 +47,15 @@ export async function startSession() {
     state.language = payload.language;
     state.mode = payload.mode;
     router.show('session');
-    $('feedback').hidden = false;
     $('conversation').innerHTML = '';
-    $('feedback-list').innerHTML = '';
     notify('');
 
     if (data.mode === 'script') startScript(data.lines);
     else {
-      $('script-panel').hidden = true;
+      // Scenario goal isn't in this response yet (Task 6 wires that up) --
+      // fall back to the topic the learner typed, or leave the panel blank.
+      $('panel-title').textContent = '목표';
+      $('panel-body').textContent = payload.topic || '';
       $('btn-next').hidden = true;
       $('btn-send').hidden = false;
       addMessage('bot', data.opening);
@@ -78,13 +79,9 @@ export function addMessage(who, text) {
 }
 
 export function addFeedback(said, correction, suggestion) {
-  if (!correction && !suggestion) return;
-  const div = document.createElement('div');
-  div.className = 'fb';
-  div.innerHTML = `<div class="said">"${said}"</div>`;
-  if (correction) div.innerHTML += `<div><span class="label">교정</span><br>${correction}</div>`;
-  if (suggestion) div.innerHTML += `<div><span class="label">이렇게도</span><br>${suggestion}</div>`;
-  $('feedback-list').prepend(div);
+  // Task 7 renders correction chips under the speech bubble. Left as a
+  // no-op (rather than deleted) because sendTurn/nextScriptLine still call it.
+  return;
 }
 
 export async function sendTurn() {
@@ -114,17 +111,17 @@ export async function sendTurn() {
 function startScript(lines) {
   state.scriptLines = lines;
   state.scriptIndex = 0;
-  $('script-panel').hidden = false;
   $('btn-next').hidden = false;
   $('btn-send').hidden = true;
-  $('script-lines').innerHTML = lines
+  $('panel-title').textContent = '대본';
+  $('panel-body').innerHTML = `<ol>${lines
     .map((l, i) => `<li data-i="${i}"><b>${l.speaker === 'bot' ? '봇' : '나'}</b> ${l.text}</li>`)
-    .join('');
+    .join('')}</ol>`;
   advanceScript();
 }
 
 function advanceScript() {
-  const items = [...$('script-lines').children];
+  const items = [...$('panel-body').querySelectorAll('li')];
   items.forEach((li, i) => {
     li.classList.toggle('current', i === state.scriptIndex);
     li.classList.toggle('done', i < state.scriptIndex);

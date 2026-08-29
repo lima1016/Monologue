@@ -19,6 +19,8 @@
 </header>
 
 <main>
+  <p id="notice" class="notice" hidden></p>
+
   <section id="setup">
     <div class="row">
       <label>언어
@@ -45,27 +47,29 @@
   </section>
 
   <section id="session" hidden>
-    <div id="script-panel" hidden>
-      <h2>대본</h2>
-      <ol id="script-lines"></ol>
+    <div class="session-grid">
+      <div class="conversation-col">
+        <div id="conversation"></div>
+        <div id="thinking" class="thinking" hidden><i></i><i></i><i></i></div>
+      </div>
+
+      <aside class="side-panel">
+        <p class="label" id="panel-title">목표</p>
+        <div id="panel-body"></div>
+      </aside>
     </div>
 
-    <div id="conversation"></div>
-
-    <div id="controls">
-      <button id="btn-mic" class="primary">🎤 말하기</button>
-      <input id="text-input" type="text" placeholder="인식된 내용을 여기서 고칠 수 있습니다">
-      <button id="btn-send">보내기</button>
-      <button id="btn-next" hidden>다음 →</button>
-      <button id="btn-end" class="ghost">세션 끝내기</button>
+    <div id="mic-dock">
+      <button id="btn-mic" class="mic" aria-label="말하기"></button>
+      <p id="mic-hint" class="hint">누르고 말하면 자동으로 전송됩니다</p>
+      <div id="controls">
+        <input id="text-input" type="text" placeholder="직접 입력해도 됩니다">
+        <button id="btn-send">보내기</button>
+        <button id="btn-next" hidden>다음 →</button>
+        <button id="btn-end" class="ghost">세션 끝내기</button>
+      </div>
     </div>
-    <p id="notice" class="notice" hidden></p>
   </section>
-
-  <aside id="feedback" hidden>
-    <h2>피드백</h2>
-    <div id="feedback-list"></div>
-  </aside>
 
   <section id="report" hidden>
     <h2>수업 리포트</h2>

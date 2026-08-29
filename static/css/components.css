@@ -45,10 +45,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #controls { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 #controls input { flex: 1; min-width: 220px; margin-top: 0; }
 
-#feedback {
-  margin-top: var(--space-6); border-top: 1px solid var(--line);
-  padding-top: var(--space-4);
-}
 .fb {
   border-left: 2px solid var(--accent); padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-3); background: var(--surface-sunken);
@@ -63,9 +59,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   font-size: var(--text-sm);
 }
 
-#script-lines li { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
-#script-lines li.current { background: var(--accent-soft); font-weight: 600; }
-#script-lines li.done { opacity: .5; }
+#panel-body li { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
+#panel-body li.current { background: var(--accent-soft); font-weight: 600; }
+#panel-body li.done { opacity: .5; }
 
 #report-body {
   white-space: pre-wrap; font: inherit; background: var(--surface);
@@ -81,3 +77,83 @@ dialog {
 dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .voice { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) 0; }
 .voice label { margin: 0; flex: 1; }
+
+/* --- session screen --- */
+
+.session-grid {
+  display: grid;
+  grid-template-columns: 1fr var(--panel-w);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.conversation-col { min-width: 0; }  /* let long words wrap instead of stretching the grid */
+
+.side-panel {
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  position: sticky;
+  top: var(--space-4);
+}
+
+/* The bot is thinking. Without this the screen is frozen for the seconds the
+   local model takes, which reads as a hang rather than as waiting. */
+.thinking { display: flex; gap: var(--space-1); padding: var(--space-2) var(--space-3); }
+.thinking i {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--text-faint); display: block;
+  animation: thinking-pulse 1.2s infinite ease-in-out;
+}
+.thinking i:nth-child(2) { animation-delay: .15s; }
+.thinking i:nth-child(3) { animation-delay: .3s; }
+@keyframes thinking-pulse {
+  0%, 60%, 100% { opacity: .25; }
+  30%           { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking i, .mic.listening { animation: none; opacity: .5; }
+}
+
+#mic-dock {
+  position: sticky; bottom: 0;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  padding: var(--space-3) 0 var(--space-4);
+  margin-top: var(--space-4);
+  text-align: center;
+}
+
+.mic {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: var(--accent); border-color: var(--accent);
+  padding: 0; position: relative;
+  box-shadow: 0 2px 10px rgba(76, 95, 215, .3);
+}
+.mic::after {
+  content: ""; position: absolute; inset: 18px 21px;
+  border-radius: 3px; background: #fff;
+}
+/* Listening is a status, not a stop control -- the state machine has no
+   cancel-from-listening event, so pressing the mic here does nothing. Same
+   accent hue as idle, dimmed, and pulsing like .thinking; the hint text
+   below is what actually tells the learner what's happening. */
+.mic.listening {
+  opacity: .6;
+  box-shadow: none;
+  animation: thinking-pulse 1.4s infinite ease-in-out;
+  cursor: default;
+}
+.mic:disabled { opacity: .4; }
+
+#mic-hint { font-size: var(--text-xs); color: var(--text-faint); margin: var(--space-2) 0 0; }
+
+#controls { justify-content: center; margin-top: var(--space-3); }
+#controls input { max-width: 420px; flex: 0 1 420px; }
+
+@media (max-width: 720px) {
+  .session-grid { grid-template-columns: 1fr; }
+  .side-panel { position: static; }
+}
