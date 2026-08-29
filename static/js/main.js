@@ -1,6 +1,6 @@
 import { $, postJSON, notify, state } from './api.js';
 import { recognition, BCP47, startRecording, stopRecording, setRespeakHandler } from './audio.js';
-import { refreshHealth, loadChips, startFromHome,
+import { refreshHealth, loadChips, loadHome, resumeSession, startFromHome,
          sendTurn, nextScriptLine, endSession, undoLastTurn, setTurnState, canDo } from './session.js';
 import { renderVoiceList, previewVoice } from './settings.js';
 import * as router from './router.js';
@@ -21,6 +21,10 @@ $('language-seg').addEventListener('click', (e) => {
   [...$('language-seg').children].forEach((b) => b.classList.toggle('on', b === btn));
   loadChips();
   refreshHealth();
+  // Both GET /sessions/resumable and GET /stats/home are scoped by
+  // language: without this, switching languages leaves the previous
+  // language's resume card and counters on screen under the new selection.
+  loadHome();
 });
 
 $('modes').addEventListener('click', (e) => {
@@ -40,6 +44,7 @@ $('chips').addEventListener('click', (e) => {
 });
 
 $('btn-start').addEventListener('click', () => startFromHome());
+$('btn-resume').addEventListener('click', resumeSession);
 $('wish').addEventListener('keydown', (e) => { if (e.key === 'Enter') startFromHome(); });
 $('btn-send').addEventListener('click', sendTurn);
 $('btn-next').addEventListener('click', nextScriptLine);
@@ -95,6 +100,7 @@ $('conversation').addEventListener('click', (e) => {
 
 loadChips();
 refreshHealth();
+loadHome();
 
 /* ---------- settings ---------- */
 

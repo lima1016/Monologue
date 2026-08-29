@@ -101,6 +101,73 @@ export async function refreshHealth() {
 // the other half hasn't declared yet.
 let resumeTarget = null;
 
+/* Everything on the home screen that depends on history. Fails quietly: a
+   learner who wants to practise should never be stopped by a counter.
+
+   `session.turns` here comes from GET /sessions/resumable, which counts
+   *every* message in the session (bot and learner) -- not the same "turns"
+   db.session_stats reports on the end-of-session screen, which counts only
+   the learner's own messages. Relabelling this as "말한 횟수" (times you
+   spoke) would overstate the learner's count by roughly double, since every
+   learner line in a live conversation is followed by a bot reply. Getting
+   the learner-only count would mean fetching this session's full message
+   list just to count it, on a load that must stay best-effort and cheap --
+   so instead this reads as a plain exchange count ("대화 N턴"), which is
+   what the payload actually measures, rather than silently mislabelling it
+   as effort. */
+export async function loadHome() {
+  try {
+    const [{ session }, stats] = await Promise.all([
+      getJSON(`/sessions/resumable?language=${state.language}`),
+      getJSON(`/stats/home?language=${state.language}`),
+    ]);
+
+    $('resume-card').hidden = !session;
+    if (session) {
+      resumeTarget = session;
+      $('resume-title').textContent = `이어서 하기 — ${session.title}`;
+      $('resume-sub').textContent = `대화 ${session.turns}턴에서 멈췄습니다`;
+    }
+
+    $('stat-streak').textContent = stats.streak;
+    $('stat-week').textContent = stats.week_turns;
+    $('stat-fixed').textContent = stats.fixed_total;
+    $('home-stats').hidden = !(stats.streak || stats.week_turns || stats.fixed_total);
+
+    $('recommend').hidden = !stats.top_tag;
+    if (stats.top_tag) {
+      $('recommend').textContent = `요즘 ${stats.top_tag}에서 자주 걸립니다. 오늘은 그쪽을 노려볼까요?`;
+    }
+  } catch {
+    /* history is a nicety -- never block the learner from starting */
+  }
+}
+
+/* 이어서 하기: attach to the existing session rather than starting a new one.
+   GET /sessions/{id} already returns every message, so replaying them is
+   enough to restore the conversation on screen.
+
+   resumable_session (db.py) already excludes mode === 'script' sessions --
+   the learner's position in a script (scriptIndex) lives only in the
+   browser and is never persisted, so there is nothing server-side to place
+   them back into. That exclusion predates this task (it shipped with
+   GET /sessions/resumable itself); resumeSession does not need its own
+   guard for it because resumeTarget can never hold a script session. */
+export async function resumeSession() {
+  if (!resumeTarget) return;
+  try {
+    const { messages } = await getJSON(`/sessions/${resumeTarget.id}`);
+    state.sessionId = resumeTarget.id;
+    state.mode = resumeTarget.mode;
+    router.show('session');
+    $('conversation').replaceChildren();
+    for (const m of messages) addMessage(m.speaker, m.text);
+    notify('');
+  } catch (err) {
+    notify(`이어서 하지 못했습니다: ${err.message}`);
+  }
+}
+
 /* The chips are the catalogue, not a required choice. A learner who knows what
    they want types it; the chips are for the ones they have used before and for
    the days they have no idea. */
