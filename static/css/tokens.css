@@ -16,6 +16,12 @@
   --accent: #4c5fd7;
   --accent-soft: #eef1fd;
   --accent-ink: #4453c4;
+  /* Ink for anything painted on an --accent fill: the primary button, the
+     resume card, the mic glyph, and the focus ring on a control that sits on
+     the card (an --accent ring on an --accent background is invisible).
+     Restated in the dark block on purpose -- the accent fill stays a saturated
+     blue in both schemes, so the ink on it stays white in both. */
+  --on-accent: #ffffff;
 
   /* Correction and suggestion are toned down on purpose: a learner sees these
      every single turn, and red/green reads as being told off. */
@@ -58,6 +64,7 @@
     --accent: #7c8bea;
     --accent-soft: #232640;
     --accent-ink: #96a2f0;
+    --on-accent: #ffffff;
     --correct-bg: #2a1e1a;
     --correct-ink: #f0b49c;
     --suggest-bg: #17251d;
