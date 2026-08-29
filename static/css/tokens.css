@@ -1,6 +1,10 @@
 /* Design tokens. Light first, with dark handled by redefining the same names --
    never define a colour only inside the dark block. */
 :root {
+  /* Lets native widgets -- select popups, radios, scrollbars -- follow the OS
+     scheme. Our own tokens only cover what we paint ourselves. */
+  color-scheme: light dark;
+
   --bg: #fbfbfe;
   --surface: #ffffff;
   --surface-sunken: #f6f7fb;

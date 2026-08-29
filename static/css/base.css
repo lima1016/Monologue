@@ -16,7 +16,7 @@ body {
 main { max-width: 900px; margin: 0 auto; }
 
 h1 { font-size: var(--text-lg); margin: 0; letter-spacing: -.3px; }
-h2 { font-size: var(--text-base); margin: 0 0 var(--space-3); letter-spacing: -.2px; }
+h2 { font-size: var(--text-base); color: var(--text-dim); margin: 0 0 var(--space-3); letter-spacing: -.2px; }
 
 .label {
   font-size: 9px; text-transform: uppercase; letter-spacing: .7px;
