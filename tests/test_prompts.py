@@ -161,6 +161,22 @@ def test_report_prompt_hands_the_model_counts_rather_than_asking_it_to_count():
     assert "I am interested in music." in joined
 
 
+def test_report_prompt_warns_against_reading_ungraded_turns_as_flawless():
+    """The bug this guards: `wrong == 0` alone reads as a flawless session even
+    when every grading call actually failed. The ungraded count and the
+    caution against that reading must both reach the model."""
+    stats = {"turns": 3, "wrong": 0, "ungraded": 2, "tags": {}, "sentences": []}
+    joined = " ".join(m["content"] for m in prompts.build_report_messages("en", "t", stats))
+    assert "채점하지 못한 횟수: 2" in joined
+    assert "완벽한 세션" in joined
+
+
+def test_report_prompt_omits_the_ungraded_warning_when_nothing_went_ungraded():
+    stats = {"turns": 3, "wrong": 1, "ungraded": 0, "tags": {}, "sentences": []}
+    joined = " ".join(m["content"] for m in prompts.build_report_messages("en", "t", stats))
+    assert "채점하지 못한" not in joined
+
+
 def test_beginner_lesson_includes_korean_scaffolding_but_advanced_does_not():
     beginner = prompts.build_system_prompt("lesson", "en", level="beginner")
     advanced = prompts.build_system_prompt("lesson", "en", level="advanced")

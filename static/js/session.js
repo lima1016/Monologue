@@ -486,8 +486,13 @@ export async function endSession() {
    sessions -- this function just does not render it. */
 function renderReport(data) {
   const s = data.stats || {};
-  $('report-counts').textContent =
-    `말한 횟수 ${s.turns ?? 0} · 고칠 곳이 있던 횟수 ${s.wrong ?? 0}`;
+  let counts = `말한 횟수 ${s.turns ?? 0} · 고칠 곳이 있던 횟수 ${s.wrong ?? 0}`;
+  // A turn the model never graded (an Ollama/JSON failure) is neither right
+  // nor wrong -- surfacing it is what stops a session where every grading
+  // call failed from reading as a flawless one, since "고칠 곳이 있던 횟수 0"
+  // alone looks exactly like a perfect session.
+  if (s.ungraded) counts += ` · 교정을 받지 못한 발화 ${s.ungraded}회`;
+  $('report-counts').textContent = counts;
 
   const body = $('report-body');
   body.replaceChildren();

@@ -361,6 +361,17 @@ def build_report_messages(language, transcript, stats) -> list[dict]:
     lines = ["이번 세션 통계 (코드가 집계한 정확한 숫자입니다)",
              f"- 학생이 말한 횟수: {stats['turns']}",
              f"- 그중 고칠 곳이 있었던 횟수: {stats['wrong']}"]
+    # A turn can go ungraded when the grading call itself failed -- it is
+    # neither right nor wrong. Handed only "고칠 곳이 있었던 횟수: 0" the model
+    # writes a congratulatory summary for a session that was never actually
+    # checked, so the ungraded count and the caution against that reading both
+    # need to reach the prompt.
+    if stats.get("ungraded"):
+        lines.append(f"- 채점하지 못한 횟수: {stats['ungraded']}")
+        lines.append(
+            "고칠 곳이 있었던 횟수가 0이라 해도, 채점하지 못한 횟수가 있다면 "
+            "완벽한 세션이었다고 쓰지 마세요."
+        )
     if stats["tags"]:
         ranked = sorted(stats["tags"].items(), key=lambda kv: -kv[1])
         lines.append("- 오류 종류별 횟수: " + ", ".join(f"{t} {n}회" for t, n in ranked))

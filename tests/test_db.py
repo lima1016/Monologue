@@ -351,3 +351,21 @@ def test_session_stats_ignores_turns_that_never_got_feedback(store):
     store.add_message(sid, "user", "no feedback was obtained")
     stats = store.session_stats(sid)
     assert stats["turns"] == 1 and stats["wrong"] == 0 and stats["tags"] == {}
+    assert stats["ungraded"] == 1
+
+
+def test_session_stats_counts_ungraded_separately_from_wrong(store):
+    """The property the report screen depends on: a turn whose grading call
+    failed (ok is NULL) must not silently disappear into `wrong == 0`, or a
+    session where every grading call failed reads as flawless."""
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "no feedback was obtained")
+    store.add_message(sid, "user", "I go store yesterday.", ok=False,
+                      fixed="I went to the store yesterday.", tag="시제")
+    store.add_message(sid, "user", "My father is a doctor.", ok=True,
+                      fixed="My father is a doctor.", tag="없음")
+
+    stats = store.session_stats(sid)
+    assert stats["turns"] == 3
+    assert stats["wrong"] == 1
+    assert stats["ungraded"] == 1

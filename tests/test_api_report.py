@@ -175,6 +175,20 @@ def test_a_report_failure_still_closes_the_session(client, session, monkeypatch)
     assert "리포트" in stored["summary"]
 
 
+def test_report_stats_include_ungraded_count(client, monkeypatch):
+    """The report screen's only cue that a turn was never actually graded --
+    without it, a session where every grading call failed reads as flawless
+    (wrong == 0) instead of as ungraded."""
+    sid = db.create_session("en", "free", scenario_id="airport-checkin-en")
+    db.add_message(sid, "bot", "Hello there!")
+    db.add_message(sid, "user", "no feedback was obtained")  # ok left NULL
+    monkeypatch.setattr("app.api.llm.chat_json",
+                        lambda messages, schema, **kw: dict(REPORT_RESULT))
+    body = client.post(f"/api/sessions/{sid}/end").json()
+    assert body["stats"]["wrong"] == 0
+    assert body["stats"]["ungraded"] == 1
+
+
 def test_history_lists_sessions_newest_first(client, session):
     later = db.create_session("ja", "lesson", topic="て form")
     ids = [s["id"] for s in client.get("/api/sessions").json()["sessions"]]

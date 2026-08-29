@@ -282,7 +282,9 @@ def session_stats(session_id) -> dict:
     `없음` is a stored tag meaning the sentence was already correct, so it is
     excluded from the weakness counts rather than ranked as one. A turn whose
     `ok` is NULL never got feedback at all -- the model call failed -- and is
-    counted as neither right nor wrong.
+    counted as neither right nor wrong, but separately as `ungraded`: without
+    that count a session where every grading call failed reads as flawless
+    (wrong == 0) instead of as ungraded.
     """
     rows = [m for m in get_messages(session_id) if m["speaker"] == "user"]
     tags, sentences = {}, []
@@ -295,6 +297,7 @@ def session_stats(session_id) -> dict:
             sentences.append({"said": m["text"], "fixed": m["fixed"], "tag": m["tag"]})
     return {"turns": len(rows),
             "wrong": sum(1 for m in rows if m["ok"] == 0),
+            "ungraded": sum(1 for m in rows if m["ok"] is None),
             "tags": tags,
             "sentences": sentences}
 
