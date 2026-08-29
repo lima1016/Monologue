@@ -2,7 +2,18 @@ import json
 
 import pytest
 
-from app import scenarios
+from app import db, scenarios
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db(tmp_path, monkeypatch):
+    """scenarios_for/get_scenario now read the user_scenarios table on every
+    call, so even tests that never touch generated scenarios need a real,
+    migrated database underneath them rather than the repo's own
+    monologue.db (which may not exist, or may predate this table, on a
+    fresh checkout)."""
+    monkeypatch.setattr(db.config, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
 
 
 def test_seed_file_loads():
@@ -75,3 +86,27 @@ def test_malformed_json_file_raises_scenario_error(tmp_path):
     bad.write_text("{not valid json", encoding="utf-8")
     with pytest.raises(scenarios.ScenarioError):
         scenarios.load_scenarios(bad)
+
+
+def test_generated_scenarios_join_the_catalogue_and_come_first(tmp_path, monkeypatch):
+    """The learner's own scenarios are the ones they meant; the built-in
+    catalogue is the fallback behind them."""
+    monkeypatch.setattr(db.config, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
+    db.add_user_scenario({"id": "user-x", "language": "en", "type": "free",
+                          "title": "구직 면접", "goal": "g",
+                          "persona_prompt": "p", "max_turns": 8})
+
+    ids = [s["id"] for s in scenarios.scenarios_for("en", "free")]
+    assert ids[0] == "user-x"
+    assert "restaurant-seating-en" in ids
+
+
+def test_get_scenario_finds_a_generated_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(db.config, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
+    db.add_user_scenario({"id": "user-y", "language": "en", "type": "free",
+                          "title": "t", "goal": "g", "persona_prompt": "p", "max_turns": 8})
+    assert scenarios.get_scenario("user-y")["title"] == "t"
+    assert scenarios.get_scenario("restaurant-seating-en")["language"] == "en"
+    assert scenarios.get_scenario("nope") is None

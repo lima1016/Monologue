@@ -385,3 +385,39 @@ def test_session_stats_counts_ungraded_separately_from_wrong(store):
     assert stats["turns"] == 3
     assert stats["wrong"] == 1
     assert stats["ungraded"] == 1
+
+
+FREE_SCENARIO = {
+    "id": "user-interview-1", "language": "en", "type": "free",
+    "title": "구직 면접", "goal": "경력을 설명하고 질문에 답한다",
+    "persona_prompt": "You are a hiring manager.", "max_turns": 8,
+}
+
+
+def test_user_scenario_round_trips_in_the_catalogue_shape(store):
+    store.add_user_scenario(FREE_SCENARIO)
+    got = store.get_user_scenario("user-interview-1")
+    assert got == {**FREE_SCENARIO, "lines": None, "used_count": 0}
+
+
+def test_user_scenarios_are_filtered_by_language_and_kind(store):
+    store.add_user_scenario(FREE_SCENARIO)
+    store.add_user_scenario({**FREE_SCENARIO, "id": "user-ja-1", "language": "ja"})
+    assert [s["id"] for s in store.user_scenarios("en")] == ["user-interview-1"]
+    assert [s["id"] for s in store.user_scenarios("en", "script")] == []
+
+
+def test_script_scenario_round_trips_its_lines(store):
+    script = {"id": "user-standup-1", "language": "en", "type": "script",
+              "title": "스탠드업", "goal": None,
+              "lines": [{"speaker": "bot", "text": "Morning!"},
+                        {"speaker": "user", "text": "Morning."}]}
+    store.add_user_scenario(script)
+    assert store.get_user_scenario("user-standup-1")["lines"] == script["lines"]
+
+
+def test_touch_counts_uses(store):
+    store.add_user_scenario(FREE_SCENARIO)
+    store.touch_user_scenario("user-interview-1")
+    store.touch_user_scenario("user-interview-1")
+    assert store.get_user_scenario("user-interview-1")["used_count"] == 2

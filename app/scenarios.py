@@ -6,7 +6,7 @@ request time and have no catalogue entry.
 import json
 from functools import lru_cache
 
-from app import config
+from app import config, db
 
 
 class ScenarioError(Exception):
@@ -64,15 +64,19 @@ def _load_default() -> tuple:
 
 
 def scenarios_for(language, mode=None) -> list[dict]:
-    """Catalogue entries for a language, optionally narrowed to one type."""
+    """Catalogue entries for a language, optionally narrowed to one type.
+
+    Generated scenarios come first: the learner asked for those by name, while
+    the built-in catalogue is what we offer when they have not.
+    """
     items = [s for s in load_scenarios() if s["language"] == language]
     if mode is not None:
         items = [s for s in items if s["type"] == mode]
-    return items
+    return db.user_scenarios(language, mode) + items
 
 
 def get_scenario(scenario_id):
     for s in load_scenarios():
         if s["id"] == scenario_id:
             return s
-    return None
+    return db.get_user_scenario(scenario_id)
