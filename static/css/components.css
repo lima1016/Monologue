@@ -103,11 +103,23 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #panel-body li.current { background: var(--accent-soft); font-weight: 600; }
 #panel-body li.done { opacity: .5; }
 
-#report-body {
-  white-space: pre-wrap; font: inherit; background: var(--surface);
-  border: 1px solid var(--line); padding: var(--space-4);
-  border-radius: var(--radius);
+#report-head { margin-bottom: var(--space-4); }
+#report-counts { font-size: var(--text-sm); margin: var(--space-1) 0 0; }
+
+.report-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
 }
+.report-card p { margin: 0 0 var(--space-2); line-height: 1.55; }
+.report-card p:last-child { margin-bottom: 0; }
+
+.fix-row { padding: var(--space-2) 0; border-bottom: 1px solid var(--line); }
+.fix-row:last-child { border-bottom: 0; }
+/* Struck-through beside the corrected line: the pair is the point, and it
+   reads at a glance without a label. */
+.fix-row .said { color: var(--text-dim); text-decoration: line-through; }
+.fix-row .fixed { color: var(--suggest-ink); font-weight: 600; }
 
 dialog {
   border: 1px solid var(--line); border-radius: var(--radius-lg);

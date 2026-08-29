@@ -451,11 +451,77 @@ export async function endSession() {
   try {
     const data = await postJSON(`/sessions/${state.sessionId}/end`);
     router.show('report');
-    $('report-level').textContent = `추정 수준: ${data.level}`;
-    $('report-body').textContent = data.report;
+    renderReport(data);
   } catch (err) {
     notify(`리포트 생성 실패: ${err.message}`);
   } finally {
     ending = false;
   }
+}
+
+/* The report is what the learner is left with when the session ends, so it is
+   laid out rather than dumped. The counts come from code and are exact; the
+   prose comes from the model and is fallible; the sentences to re-practise are
+   the part they will actually act on, so they get their own card.
+
+   `data.level` is deliberately never shown here: Task 11 ran the same
+   transcript through the model three times and got three different levels,
+   matching what a few real sessions on one scenario already show in the
+   database. A single session cannot support a verdict, so displaying one
+   would just be a coin flip the learner believes. The value is still stored
+   -- a later phase needs the history to compute a level over several
+   sessions -- this function just does not render it. */
+function renderReport(data) {
+  const s = data.stats || {};
+  $('report-counts').textContent =
+    `말한 횟수 ${s.turns ?? 0} · 고칠 곳이 있던 횟수 ${s.wrong ?? 0}`;
+
+  const body = $('report-body');
+  body.replaceChildren();
+  body.append(reportCard('총평', [data.summary]));
+  if (data.weak_points && data.weak_points.length) {
+    body.append(reportCard('부족한 부분', data.weak_points));
+  }
+  if (data.expressions && data.expressions.length) {
+    body.append(reportCard('외워둘 표현', data.expressions));
+  }
+  if (data.next_focus) body.append(reportCard('다음엔 이것을', [data.next_focus]));
+  if (s.sentences && s.sentences.length) body.append(sentenceCard(s.sentences));
+}
+
+function reportCard(title, items) {
+  const card = document.createElement('section');
+  card.className = 'report-card';
+  const heading = document.createElement('p');
+  heading.className = 'label';
+  heading.textContent = title;
+  card.append(heading);
+  for (const item of items) {
+    const p = document.createElement('p');
+    p.textContent = item;
+    card.append(p);
+  }
+  return card;
+}
+
+function sentenceCard(sentences) {
+  const card = document.createElement('section');
+  card.className = 'report-card';
+  const heading = document.createElement('p');
+  heading.className = 'label';
+  heading.textContent = '다시 말해볼 문장';
+  card.append(heading);
+  for (const s of sentences) {
+    const row = document.createElement('div');
+    row.className = 'fix-row';
+    const said = document.createElement('p');
+    said.className = 'said';
+    said.textContent = s.said;
+    const fixed = document.createElement('p');
+    fixed.className = 'fixed';
+    fixed.textContent = s.fixed;
+    row.append(said, fixed);
+    card.append(row);
+  }
+  return card;
 }
