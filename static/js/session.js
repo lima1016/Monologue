@@ -52,12 +52,20 @@ export function setTurnState(event) {
    returns control to the learner. Re-speak (Task 8) takes priority over this
    handler via audio.js's `deliver` and never reaches it. */
 function handleHeard(transcript) {
-  if (transcript) {
-    setTurnState('HEARD');
-    sendText(transcript);
-  } else {
-    setTurnState('HEARD_NOTHING');
+  if (!transcript) { setTurnState('HEARD_NOTHING'); return; }
+  // Script mode owns its own turn cycle: nextScriptLine is the only thing
+  // that advances scriptIndex and suppresses the LLM's reply, so a spoken
+  // line must go through it rather than through sendText. Routing the mic
+  // straight to sendText would post to /chat and speak an off-script LLM
+  // reply over a script panel that never advances.
+  if (state.mode === 'script') {
+    $('text-input').value = transcript;
+    setTurnState('HEARD_NOTHING'); // release `listening`; nextScriptLine runs its own cycle
+    nextScriptLine();
+    return;
   }
+  setTurnState('HEARD');
+  sendText(transcript);
 }
 setHeardHandler(handleHeard);
 
@@ -360,7 +368,12 @@ function advanceScript() {
 export async function nextScriptLine() {
   const line = state.scriptLines[state.scriptIndex];
   if (line && line.speaker === 'user') {
-    if (!canDo('send')) return;
+    // Gated on 'next', not 'send': 'next' is what the button that calls this
+    // is gated on (via canDo in main.js and syncControls), and 'send' answers
+    // a different question -- it is true in `speaking`, where `next` is not.
+    // Two different answers to "may this run" is exactly what the turn state
+    // machine exists to prevent.
+    if (!canDo('next')) return;
     setTurnState('SEND');
     const spoken = $('text-input').value.trim() || line.text;
     $('text-input').value = '';
