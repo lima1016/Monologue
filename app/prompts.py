@@ -218,12 +218,22 @@ def build_feedback_messages(language, user_text) -> list[dict]:
     model, which kept dropping into the target language, especially on
     already-correct lines. Showing both failure shapes worked in Korean is
     the next rung up, not more emphasis on the same instruction.
+
+    The opening clause deliberately anchors identity in Korean rather than in
+    the target language. "You are a Japanese teacher" plus a Japanese learner
+    sentence pulls the whole context toward Japanese output; one clause asking
+    for Korean cannot win that pull. Framing the speaker as a Korean tutor for
+    whom the target language is the subject under discussion, not the
+    language they speak, fixed this for English -- worth trying for Japanese
+    too.
     """
     language_name = LANGUAGE_NAMES[language]
     system = (
-        f"You are a {language_name} teacher reviewing one line a learner just spoke, "
-        "writing your feedback in Korean.\n"
-        "Return two things:\n"
+        f"You are a Korean tutor: you think and write in Korean. A Korean "
+        f"student just spoke one line of {language_name}, and your job is to "
+        f"explain it to them in Korean -- {language_name} is the subject you "
+        "are discussing, not the language you speak.\n"
+        "Return two things, both written in Korean:\n"
         "- correction: what was grammatically wrong and the fixed sentence. "
         "If it was already correct, say so briefly -- still in Korean.\n"
         "- suggestion: a more natural way a native speaker would say it.\n"
