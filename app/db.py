@@ -452,6 +452,12 @@ def home_stats(language) -> dict:
     so a session at 08:00 and another at 20:00 the same Korean day would
     count as two different streak days, and the streak would silently reset
     every morning before the learner has had a chance to practise.
+
+    That conversion assumes created_at always holds _now()'s ISO shape, and
+    _now() is the only writer of it. If that ever stops being true,
+    datetime(created_at, 'localtime') returns NULL for every row rather than
+    raising, the day list fills with NULLs, and the streak reads 0 forever
+    with no error anywhere to say why.
     """
     week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat(timespec="seconds")
     with connect() as conn:
