@@ -84,6 +84,20 @@ model, so a change that breaks feedback quality still shows green there. Run
 `-m engine` after any change to the feedback prompt, not just before a
 release.
 
+프론트엔드 순수 로직은 Node 내장 러너로 돌립니다. 의존성이 없습니다.
+
+```powershell
+node --test static/js/*.test.js
+```
+
+(Node's test runner has had a regression since Node 21 where a bare directory
+argument like `static/js/` is treated as a module to `require` instead of
+being searched recursively — it throws `MODULE_NOT_FOUND` instead of running
+anything. Confirmed on the Node version this repo was built against
+(v24.12.0). The glob form above finds `*.test.js` files directly under
+`static/js/` and works; `node --test` with no path at all also works if you
+`cd static/js` first.)
+
 ## Voices
 
 English uses Kokoro with US-accent voices only — British voices are excluded on
