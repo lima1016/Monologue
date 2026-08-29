@@ -7,20 +7,29 @@ import * as turn from './turnstate.js';
 
 let turnState = turn.INITIAL;
 
+/* Set once a script's last line has been reached. The turn state machine has
+   no notion of scripts, so `next` staying enabled after the script ends is
+   not something `turnstate.js` can express -- this flag is the one place
+   that knows, and `canDo`/`syncControls` are the only things that read it. */
+let scriptExhausted = false;
+
 /* The one place that knows what is in flight. Callers ask it rather than
    keeping their own copy -- two sources of truth about "is a turn running"
    is exactly the bug the old re-entrancy flag produced. */
 export function canDo(control) {
-  return turn.controls(turnState)[control];
+  const c = turn.controls(turnState);
+  if (control === 'next') return c.next && !scriptExhausted;
+  return c[control];
 }
 
-export function setTurnState(event) {
-  turnState = turn.next(turnState, event);
-  const c = turn.controls(turnState);
-  $('btn-mic').disabled = !c.mic;
-  $('btn-send').disabled = !c.send;
-  $('btn-next').disabled = !c.next;
-  $('btn-end').disabled = !c.end;
+/* Applies the current turn state (and `scriptExhausted`) to the DOM. The only
+   function that writes `disabled` on these buttons -- nothing else may, or
+   two places could disagree about what's enabled. */
+function syncControls() {
+  $('btn-mic').disabled = !canDo('mic');
+  $('btn-send').disabled = !canDo('send');
+  $('btn-next').disabled = !canDo('next');
+  $('btn-end').disabled = !canDo('end');
   const listening = turnState === 'listening' || turnState === 'respeaking';
   $('btn-mic').classList.toggle('listening', listening);
   // The mic's glyph is a CSS ::after pseudo-element, not a DOM child, so it
@@ -30,6 +39,11 @@ export function setTurnState(event) {
     ? '듣고 있습니다...'
     : '누르고 말하면 자동으로 전송됩니다';
   $('thinking').hidden = turnState !== 'sending';
+}
+
+export function setTurnState(event) {
+  turnState = turn.next(turnState, event);
+  syncControls();
   return turnState;
 }
 
@@ -130,32 +144,43 @@ export function addFeedback(said, correction, suggestion) {
 }
 
 export async function sendText(text) {
-  // Only the most recent learner bubble is undoable -- deleting a middle turn
-  // would leave the conversation after it referring to something gone.
-  const prev = $('conversation').querySelector('.msg.user.undoable');
-  if (prev) { prev.classList.remove('undoable'); prev.removeAttribute('title'); }
-
   $('text-input').value = '';
   const bubble = addMessage('user', text);
+
+  // Scoped to the request alone: nothing below this point may throw (see the
+  // comments on each call), so a throw here can only mean the turn never
+  // reached the server. `.undoable` is applied only past this point too --
+  // marking it earlier would leave a bubble that represents no real server
+  // turn wired up to delete the previous, real one.
+  let data;
+  try {
+    data = await postJSON('/chat', { session_id: state.sessionId, text });
+  } catch (err) {
+    bubble.remove();
+    $('text-input').value = text;
+    notify(`전송 실패: ${err.message}`);
+    state.chunks = []; // a failed turn has no message to attach a recording to
+    setTurnState('SEND_FAILED');
+    return;
+  }
+
+  // Only the most recent learner bubble is undoable -- deleting a middle turn
+  // would leave the conversation after it referring to something gone. Only
+  // touched now that the turn is confirmed real.
+  const prev = $('conversation').querySelector('.msg.user.undoable');
+  if (prev) { prev.classList.remove('undoable'); prev.removeAttribute('title'); }
   bubble.classList.add('undoable');
   bubble.title = '잘못 인식됐다면 눌러서 고치세요';
   bubble.dataset.turnText = text;
-  try {
-    const data = await postJSON('/chat', { session_id: state.sessionId, text });
-    setTurnState('REPLY');
-    addMessage('bot', data.bot_reply);
-    addFeedback(text, data.correction, data.suggestion);
-    // AUDIO_DONE returns the turn to `idle` once the bot's clip actually
-    // finishes -- until then `speaking` still permits starting a new turn
-    // (barge-in) but blocks undo/next/respeak (see turnstate.js).
-    play(data.audio_key, data.bot_reply, () => setTurnState('AUDIO_DONE'));
-    await uploadPendingRecording();
-  } catch (err) {
-    notify(`전송 실패: ${err.message}`);
-    setTurnState('SEND_FAILED');
-  } finally {
-    state.chunks = []; // a failed turn has no message to attach a recording to
-  }
+
+  setTurnState('REPLY');
+  addMessage('bot', data.bot_reply);
+  addFeedback(text, data.correction, data.suggestion);
+  // AUDIO_DONE returns the turn to `idle` once the bot's clip actually
+  // finishes -- until then `speaking` still permits starting a new turn
+  // (barge-in) but blocks undo/next/respeak (see turnstate.js).
+  play(data.audio_key, data.bot_reply, () => setTurnState('AUDIO_DONE'));
+  await uploadPendingRecording(); // clears state.chunks itself on this path
 }
 
 export async function sendTurn() {
@@ -193,6 +218,7 @@ export async function undoLastTurn(bubble) {
 function startScript(lines) {
   state.scriptLines = lines;
   state.scriptIndex = 0;
+  scriptExhausted = false;
   $('btn-next').hidden = false;
   $('btn-send').hidden = true;
   $('panel-title').textContent = '대본';
@@ -211,7 +237,12 @@ function advanceScript() {
   const line = state.scriptLines[state.scriptIndex];
   if (!line) {
     notify('대본이 끝났습니다. 세션을 끝내면 리포트를 받을 수 있습니다.');
-    $('btn-next').disabled = true;
+    // `turnstate.js` has no notion of scripts, so this is the one flag that
+    // knows -- `syncControls` (the only writer of `disabled`) reads it too,
+    // so a later unrelated setTurnState call can't accidentally re-enable
+    // `next` for a script that has already ended.
+    scriptExhausted = true;
+    syncControls();
     return;
   }
   if (line.speaker === 'bot') play(line.audio_key, line.text);
@@ -224,24 +255,31 @@ export async function nextScriptLine() {
     setTurnState('SEND');
     const spoken = $('text-input').value.trim() || line.text;
     $('text-input').value = '';
-    addMessage('user', spoken);
+    const bubble = addMessage('user', spoken);
+
+    // Scoped to the request alone -- see sendText for why.
+    let data;
     try {
-      const data = await postJSON('/chat', { session_id: state.sessionId, text: spoken });
-      setTurnState('REPLY');
-      addFeedback(spoken, data.correction, data.suggestion);
-      await uploadPendingRecording();
-      state.scriptIndex += 1; // only advance past a turn that was actually recorded
-      // Unlike sendText, nothing from this /chat reply is played as audio --
-      // the script's own pre-recorded line audio plays via advanceScript()
-      // below, uncoupled from turn state. So there is no clip to wait on:
-      // return to idle immediately or `next`/`undo` would stay disabled.
-      setTurnState('AUDIO_DONE');
+      data = await postJSON('/chat', { session_id: state.sessionId, text: spoken });
     } catch (err) {
+      bubble.remove();
+      $('text-input').value = spoken;
       notify(`저장 실패: ${err.message}`);
-      setTurnState('SEND_FAILED');
-    } finally {
       state.chunks = []; // a failed turn has no message to attach a recording to
+      setTurnState('SEND_FAILED');
+      advanceScript();
+      return;
     }
+
+    setTurnState('REPLY');
+    addFeedback(spoken, data.correction, data.suggestion);
+    await uploadPendingRecording(); // clears state.chunks itself on this path
+    state.scriptIndex += 1; // only advance past a turn that was actually recorded
+    // Unlike sendText, nothing from this /chat reply is played as audio --
+    // the script's own pre-recorded line audio plays via advanceScript()
+    // below, uncoupled from turn state. So there is no clip to wait on:
+    // return to idle immediately or `next`/`undo` would stay disabled.
+    setTurnState('AUDIO_DONE');
   } else if (line) {
     addMessage('bot', line.text);
     state.scriptIndex += 1;
@@ -270,7 +308,11 @@ export async function uploadPendingRecording() {
 
 export async function endSession() {
   if (!state.sessionId) return;
-  $('btn-end').disabled = true;
+  // No disabled-write here: the turn state machine deliberately keeps `end`
+  // always enabled (a hung request must never trap the learner in the
+  // session), and writing it directly here would fight that -- an AUDIO_DONE
+  // landing mid-request would silently re-enable a button this function had
+  // just disabled.
   try {
     const data = await postJSON(`/sessions/${state.sessionId}/end`);
     router.show('report');
@@ -278,7 +320,5 @@ export async function endSession() {
     $('report-body').textContent = data.report;
   } catch (err) {
     notify(`리포트 생성 실패: ${err.message}`);
-  } finally {
-    $('btn-end').disabled = false;
   }
 }

@@ -1,7 +1,7 @@
 import { $, postJSON, notify } from './api.js';
 import { recognition, BCP47, startRecording } from './audio.js';
 import { refreshHealth, loadScenarios, startSession,
-         sendTurn, nextScriptLine, endSession, undoLastTurn, setTurnState } from './session.js';
+         sendTurn, nextScriptLine, endSession, undoLastTurn, setTurnState, canDo } from './session.js';
 import { renderVoiceList, previewVoice } from './settings.js';
 import * as router from './router.js';
 
@@ -23,11 +23,12 @@ $('btn-end').addEventListener('click', endSession);
 $('btn-restart').addEventListener('click', () => window.location.reload());
 $('text-input').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
-  // Route the same way the visible button would, and respect its disabled state too —
-  // Enter should not be able to start work the UI is currently showing as unavailable.
+  // Route the same way the visible button would, and ask the same authority
+  // it does too -- the turn state machine, via canDo, not the button's own
+  // disabled attribute (which is just a reflection of the same answer).
   if ($('btn-next').hidden) {
-    if (!$('btn-send').disabled) sendTurn();
-  } else if (!$('btn-next').disabled) {
+    if (canDo('send')) sendTurn();
+  } else if (canDo('next')) {
     nextScriptLine();
   }
 });
@@ -40,7 +41,16 @@ $('btn-mic').addEventListener('click', () => {
   setTurnState('MIC');
   startRecording();
   recognition.lang = BCP47[$('language').value];
-  recognition.start();
+  try {
+    recognition.start();
+  } catch (err) {
+    // e.g. an InvalidStateError from a recognition that's already running.
+    // onend never fires when start() itself throws, so nothing would
+    // otherwise return the machine from `listening` -- HEARD_NOTHING does
+    // the same thing a real "heard nothing" result would.
+    notify(`음성 인식을 시작하지 못했습니다: ${err.message}`);
+    setTurnState('HEARD_NOTHING');
+  }
 });
 $('conversation').addEventListener('click', (e) => {
   const bubble = e.target.closest('.msg.user.undoable');
