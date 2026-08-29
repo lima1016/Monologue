@@ -389,6 +389,20 @@ def test_resumable_is_not_swallowed_by_the_session_id_route(client):
     assert client.get("/api/sessions/resumable?language=en").status_code == 200
 
 
+def test_resumable_reports_the_scenarios_goal(client):
+    sid = db.create_session("en", "free", scenario_id="airport-checkin-en")
+    db.add_message(sid, "user", "hi")
+    r = client.get("/api/sessions/resumable?language=en")
+    assert r.json()["session"]["goal"] == "체크인하고 좌석을 배정받는다"
+
+
+def test_resumable_goal_is_none_without_a_scenario(client):
+    sid = db.create_session("en", "free")
+    db.add_message(sid, "user", "hi")
+    r = client.get("/api/sessions/resumable?language=en")
+    assert r.json()["session"]["goal"] is None
+
+
 def test_resumable_sweep_deletes_a_stale_sessions_recording_before_closing_it(client):
     """db.abandon_stale_sessions stamps ended_at on a strict superset of what
     db.stale_open_sessions finds (same cutoff, minus the audio restriction).

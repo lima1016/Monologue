@@ -470,6 +470,9 @@ def resumable(language: Language):
     return {"session": {
         "id": session["id"], "mode": session["mode"], "turns": session["turns"],
         "title": scenario["title"] if scenario else (session["topic"] or "수업"),
+        # Same rule as POST /sessions' opening response: the scenario's goal
+        # when there is a scenario, None for a lesson or scenario-less session.
+        "goal": scenario.get("goal") if scenario else None,
     }}
 
 

@@ -116,11 +116,25 @@ let resumeTarget = null;
    what the payload actually measures, rather than silently mislabelling it
    as effort. */
 export async function loadHome() {
+  // Hidden before the await, on every path (including catch below): a failed
+  // request must never leave the previous language's card/counters on screen
+  // under the newly selected language button. A missing card is honest; a
+  // stale one silently lies, and the learner has no way to tell the two apart.
+  $('resume-card').hidden = true;
+  $('home-stats').hidden = true;
+  $('recommend').hidden = true;
+
+  // Captured at call time: two quick language-switch clicks start two
+  // overlapping loads, and without this an older response that resolves last
+  // would paint its (now wrong) language's data over the newer, correct one.
+  const lang = state.language;
   try {
     const [{ session }, stats] = await Promise.all([
-      getJSON(`/sessions/resumable?language=${state.language}`),
-      getJSON(`/stats/home?language=${state.language}`),
+      getJSON(`/sessions/resumable?language=${lang}`),
+      getJSON(`/stats/home?language=${lang}`),
     ]);
+
+    if (state.language !== lang) return; // a newer switch already won
 
     $('resume-card').hidden = !session;
     if (session) {
@@ -139,7 +153,13 @@ export async function loadHome() {
       $('recommend').textContent = `요즘 ${stats.top_tag}에서 자주 걸립니다. 오늘은 그쪽을 노려볼까요?`;
     }
   } catch {
-    /* history is a nicety -- never block the learner from starting */
+    // history is a nicety -- never block the learner from starting. But the
+    // three elements above must stay hidden on this path too: a later
+    // refactor that moves the initial hide out of this function must not be
+    // able to silently reopen the stale-data bug this guards against.
+    $('resume-card').hidden = true;
+    $('home-stats').hidden = true;
+    $('recommend').hidden = true;
   }
 }
 
@@ -162,6 +182,13 @@ export async function resumeSession() {
     router.show('session');
     $('conversation').replaceChildren();
     for (const m of messages) addMessage(m.speaker, m.text);
+    // Same rule as startSession: the side panel holds only 목표 or 대본, so a
+    // resumed session with no goal (lesson mode, or free mode with none set)
+    // hides the panel rather than showing the "목표" heading over nothing.
+    const goal = resumeTarget.goal || '';
+    $('panel-title').textContent = '목표';
+    $('panel-body').textContent = goal;
+    $('side-panel').hidden = !goal;
     notify('');
   } catch (err) {
     notify(`이어서 하지 못했습니다: ${err.message}`);
