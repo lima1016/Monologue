@@ -502,6 +502,46 @@ def chat_turn(payload: ChatTurn):
     }
 
 
+class ScriptLineStore(BaseModel):
+    index: int
+
+
+@router.post("/sessions/{session_id}/script-line")
+def store_script_line(session_id: int, payload: ScriptLineStore):
+    """Record a bot script line at the moment it is actually shown.
+
+    Script mode's own /sessions response never stores anything -- the learner
+    has not seen a single line yet at that point (see start_session's script
+    branch) -- so without this call the database never learns what the
+    learner was actually shown, and resume/report have nothing true to work
+    from. Storing every line up front instead was considered and rejected:
+    that would put lines the learner has not reached yet into the record, and
+    resuming would show them the future.
+    """
+    session = db.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "no such session")
+    if session["mode"] != "script":
+        raise HTTPException(400, "not a script session")
+    scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
+    lines = scenario["lines"] if scenario else []
+    if payload.index < 0 or payload.index >= len(lines):
+        raise HTTPException(400, "line index out of range")
+    line = lines[payload.index]
+    if line["speaker"] != "bot":
+        raise HTTPException(400, "only bot lines are stored through this route")
+
+    # Idempotent: a refresh or a retried request landing on the same index
+    # must not double the record. Messages accumulate in script order (one
+    # per line, bot lines through this route and learner lines through
+    # /script-turn), so the count already stored is exactly the index of the
+    # next line still to record -- an index already covered is a repeat.
+    if payload.index < len(db.get_messages(session_id)):
+        return {"stored": False}
+    db.add_message(session_id, "bot", line["text"])
+    return {"stored": True}
+
+
 @router.delete("/sessions/{session_id}/last-turn")
 def undo_last_turn(session_id: int):
     """Discard the most recent learner turn so it can be spoken again."""
