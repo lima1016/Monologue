@@ -325,7 +325,10 @@ def start_session(payload: SessionStart):
     if payload.mode == "script":
         lines = []
         for line in scenario["lines"]:
-            key = _speak(line["text"], payload.language) if line["speaker"] == "bot" else None
+            # 화자를 가리지 않는다. 학습자가 자기 차례 줄을 미리 듣고 따라 읽는 것이
+            # 대본 모드의 핵심 동작이고, 그러려면 내 줄에도 음성이 있어야 한다. 대본은
+            # 8줄 남짓이고 tts는 캐시되므로 전부 선합성해도 비용은 무시할 만하다.
+            key = _speak(line["text"], payload.language)
             lines.append({"speaker": line["speaker"], "text": line["text"], "audio_key": key})
         return {"session_id": session_id, "mode": "script", "lines": lines}
 

@@ -60,13 +60,24 @@ def test_free_session_starts_and_returns_an_opening_line(client):
     assert db.get_messages(body["session_id"])[0]["speaker"] == "bot"
 
 
-def test_script_session_returns_all_lines_with_audio_for_bot_lines(client):
+def test_script_session_returns_all_lines_with_audio(client):
     body = client.post("/api/sessions", json={"language": "en", "mode": "script",
                                               "scenario_id": "standup-meeting-en"}).json()
     lines = body["lines"]
     assert len(lines) == 8
-    assert all(l["audio_key"] for l in lines if l["speaker"] == "bot")
-    assert all(l["audio_key"] is None for l in lines if l["speaker"] == "user")
+    assert all(l["audio_key"] for l in lines)
+
+
+def test_a_script_gives_the_learner_their_own_lines_as_audio(client):
+    """내 차례 줄을 미리 듣고 따라 읽는 것이 클릭해서 듣기의 목적이다.
+    봇 줄에만 음성이 있으면 기능이 반쪽이 된다."""
+    res = client.post("/api/sessions", json={
+        "language": "en", "mode": "script", "scenario_id": "standup-meeting-en",
+    })
+    assert res.status_code == 200
+    lines = res.json()["lines"]
+    assert any(line["speaker"] == "user" for line in lines)
+    assert all(line["audio_key"] for line in lines)
 
 
 def test_lesson_session_stores_topic_and_needs_no_scenario(client):
