@@ -506,3 +506,22 @@ def build_scenario_messages(language, kind, wish) -> list[dict]:
         {"role": "system", "content": system},
         {"role": "user", "content": f"학습자가 연습하고 싶다고 한 것: {wish}"},
     ]
+
+
+TRANSLATE_SYSTEM = """당신은 일본어를 한국어로 옮기는 번역가입니다.
+
+주어진 일본어 문장의 뜻을 자연스러운 한국어 한 줄로만 답하세요.
+설명, 문법 풀이, 로마자, 원문 반복을 넣지 마세요. 번역문만 답하세요."""
+
+
+def build_translate_messages(text) -> list[dict]:
+    """한 줄짜리 뜻을 요청한다.
+
+    시스템 프롬프트가 한국어인 것은 style이 아니라 fix다 -- build_feedback_messages의
+    docstring에 적힌 것과 같은 이유로, 이 로컬 모델은 자기가 불린 언어로 답한다.
+    영어로 "answer in Korean"이라고 쓰면 영어 답이 섞여 나온다.
+    """
+    return [
+        {"role": "system", "content": TRANSLATE_SYSTEM},
+        {"role": "user", "content": text},
+    ]

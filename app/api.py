@@ -155,6 +155,39 @@ def _cached_reading(text: str) -> list[dict]:
     return reading.analyse(text)
 
 
+class TranslateRequest(BaseModel):
+    language: Language
+    text: str
+
+
+@router.post("/translate")
+def translate_line(payload: TranslateRequest):
+    """한 줄의 한국어 뜻. 학습자가 펼칠 때만 불린다.
+
+    미리 번역하지 않는 이유는 두 가지다: 대본 8줄을 선번역하면 시작이 그만큼
+    느려지고, 펼쳐보지도 않을 줄까지 번역하게 된다. 먼저 짐작하고 확인하는
+    편이 학습에 남는다는 것도 같은 방향이다.
+    """
+    if payload.language != "ja":
+        raise HTTPException(400, "translation is only offered for Japanese")
+    meaning = _cached_translation(payload.text)
+    if meaning is None:
+        raise HTTPException(503, "번역할 수 없습니다")
+    return {"meaning": meaning}
+
+
+@functools.lru_cache(maxsize=512)
+def _cached_translation(text: str) -> str | None:
+    """None은 캐시되지 않아야 할 것 같지만, 캐시된다 -- 그리고 그래도 된다.
+    모델이 죽어 있는 동안 같은 줄을 반복해서 펼쳐도 매번 14b를 두드리지
+    않는다. 모델이 살아나면 서버를 재시작하거나 다른 줄을 펼치면 되고,
+    이것은 실패한 번역이지 잘못된 번역이 아니다."""
+    try:
+        return llm.chat(prompts.build_translate_messages(text), temperature=0.2).strip()
+    except Exception:
+        return None
+
+
 class SessionStart(BaseModel):
     language: Language
     mode: Mode
