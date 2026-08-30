@@ -136,6 +136,10 @@ export const document = {
   addEventListener() {},
   querySelector() { return null; },
   querySelectorAll() { return []; },
+  // reading.js toggles hide-furigana/hide-romaji on the real document.body;
+  // index.html has no id="body" for getElementById to find, so it needs its
+  // own stub. Only classList is exercised -- nothing else about <body> is.
+  body: new El('body'),
 };
 
 /* No SpeechRecognition and no speechSynthesis: that is a real browser

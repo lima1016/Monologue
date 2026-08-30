@@ -1,4 +1,5 @@
 """HTTP routes. Thin — every route delegates to a module and shapes the response."""
+import functools
 import json
 import uuid
 from pathlib import Path
@@ -7,7 +8,8 @@ from typing import Literal
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
 
-from app import config, db, llm, prompts, scenarios, tts
+from app import config, db, llm, prompts, reading, scenarios, tts
+from app.text_cleanup import clean_for_tts
 from app.tts import voicevox_backend
 
 router = APIRouter(prefix="/api")
@@ -122,6 +124,111 @@ def preview_voice(payload: VoiceSelection):
     except tts.TTSError as exc:
         raise HTTPException(503, str(exc)) from exc
     return Response(content=audio, media_type="audio/wav")
+
+
+class ReadingRequest(BaseModel):
+    language: Language
+    texts: list[str]
+
+
+@router.post("/reading")
+def line_readings(payload: ReadingRequest):
+    """그리려는 일본어 줄들의 후리가나·로마자.
+
+    줄 단위가 아니라 화면 단위로 받는 이유는, 세션 payload마다 reading 필드를
+    붙이는 대신 이 하나만 두기 위해서다 -- 이어서 하기 재생이 addMessage를
+    그대로 쓰므로 그 경로가 공짜로 덮인다.
+    """
+    if payload.language != "ja":
+        raise HTTPException(400, "reading aids are only for Japanese")
+    return {"readings": [_cached_reading(t) for t in payload.texts]}
+
+
+@functools.lru_cache(maxsize=512)
+def _cached_reading(text: str) -> list[dict]:
+    # 읽기는 결정적이고 텍스트는 반복된다(이어서 하기 때 같은 줄이 다시 온다).
+    # 상한이 있어야 한다 -- 자유 대화는 매 턴 새 문장을 만들므로 무제한 캐시는
+    # 세션이 길어질수록 자라기만 한다.
+    #
+    # 반환된 리스트는 캐시가 들고 있는 바로 그 객체다. 호출자는 이것을
+    # 변형하면 안 된다 -- 제자리에서 고치면 그 텍스트의 이후 응답이 전부
+    # 오염된다. 지금은 라우트가 FastAPI 직렬화기에 그대로 넘길 뿐이다.
+    return reading.analyse(text)
+
+
+class TranslateRequest(BaseModel):
+    language: Language
+    text: str
+
+
+@router.post("/translate")
+def translate_line(payload: TranslateRequest):
+    """한 줄의 한국어 뜻. 학습자가 펼칠 때만 불린다.
+
+    미리 번역하지 않는 이유는 두 가지다: 대본 8줄을 선번역하면 시작이 그만큼
+    느려지고, 펼쳐보지도 않을 줄까지 번역하게 된다. 먼저 짐작하고 확인하는
+    편이 학습에 남는다는 것도 같은 방향이다.
+    """
+    if payload.language != "ja":
+        raise HTTPException(400, "translation is only offered for Japanese")
+    meaning = _cached_translation(payload.text)
+    if meaning is None:
+        raise HTTPException(503, "번역할 수 없습니다")
+    return {"meaning": meaning}
+
+
+@functools.lru_cache(maxsize=512)
+def _cached_translation(text: str) -> str | None:
+    """None은 캐시되지 않아야 할 것 같지만, 캐시된다 -- 그리고 그래도 된다.
+    모델이 죽어 있는 동안 같은 줄을 반복해서 펼쳐도 매번 14b를 두드리지
+    않는다. 모델이 살아나면 서버를 재시작하거나 다른 줄을 펼치면 되고,
+    이것은 실패한 번역이지 잘못된 번역이 아니다."""
+    try:
+        raw = llm.chat(prompts.build_translate_messages(text), temperature=0.2)
+        # An empty (or whitespace-only) completion is a success by llm.chat's
+        # contract -- it did not raise -- but it is exactly the string the 503
+        # exists to prevent: a line whose meaning renders as genuinely absent,
+        # indistinguishable on screen from a broken feature. Falling through to
+        # `return None` here folds that case into the same failure path as a
+        # model that is down.
+        #
+        # Taking only the first non-empty line also enforces the "one line"
+        # contract server-side: a model that appends a parenthetical aside or a
+        # second sentence still yields a single clean line here. This is
+        # deliberately not more clever than that -- no attempt is made to
+        # detect or strip an echoed Japanese source line, since a heuristic for
+        # that would also mangle a legitimate translation that quotes a
+        # loanword, place name, or term in quotation marks. An echo is visible
+        # on screen and reportable; an empty string was not, which is the only
+        # reason one of these is worth guarding against here and the other isn't.
+        for line in raw.strip().splitlines():
+            line = line.strip()
+            if line:
+                return line
+        return None
+    except Exception:
+        return None
+
+
+class ReadingPrefs(BaseModel):
+    furigana: bool
+    romaji: bool
+
+
+_PREF_KEYS = {"furigana": "reading_furigana", "romaji": "reading_romaji"}
+
+
+@router.get("/reading-prefs")
+def get_reading_prefs():
+    # 기본은 둘 다 켜짐 -- 완전 초보가 아무것도 설정하지 않고 읽을 수 있어야 한다.
+    return {name: db.get_setting(key, "1") == "1" for name, key in _PREF_KEYS.items()}
+
+
+@router.post("/reading-prefs")
+def set_reading_prefs(payload: ReadingPrefs):
+    for name, key in _PREF_KEYS.items():
+        db.set_setting(key, "1" if getattr(payload, name) else "0")
+    return {"furigana": payload.furigana, "romaji": payload.romaji}
 
 
 class SessionStart(BaseModel):
@@ -240,7 +347,10 @@ def start_session(payload: SessionStart):
     if payload.mode == "script":
         lines = []
         for line in scenario["lines"]:
-            key = _speak(line["text"], payload.language) if line["speaker"] == "bot" else None
+            # 화자를 가리지 않는다. 학습자가 자기 차례 줄을 미리 듣고 따라 읽는 것이
+            # 대본 모드의 핵심 동작이고, 그러려면 내 줄에도 음성이 있어야 한다. 대본은
+            # 8줄 남짓이고 tts는 캐시되므로 전부 선합성해도 비용은 무시할 만하다.
+            key = _speak(line["text"], payload.language)
             lines.append({"speaker": line["speaker"], "text": line["text"], "audio_key": key})
         return {"session_id": session_id, "mode": "script", "lines": lines}
 
@@ -519,9 +629,33 @@ def home_stats(language: Language):
     return db.home_stats(language)
 
 
+def _resumable_audio_key(text: str, language: str, voice: str) -> str | None:
+    """The clip's cache key if it is already on disk, else None -- never
+    synthesises.
+
+    Only reachable for bot messages: those are the only ones this app ever
+    hands to TTS, and their clip (if it still exists) was made while the
+    session was live. Deliberately never calls synthesize/synthesize_to_cache
+    here -- this backs the resume path, which replays every message in the
+    conversation at once, and putting N TTS calls on that path could stall
+    reopening a long session on a cold cache. A missing clip just means the
+    learner hears nothing when they click that bubble again, which is the
+    honest answer -- nothing failed just now, nothing was attempted.
+    """
+    key = tts.cache_key(clean_for_tts(text), language, voice)
+    return key if tts.cached_path(key).exists() else None
+
+
 @router.get("/sessions/{session_id}")
 def session_detail(session_id: int):
     session = db.get_session(session_id)
     if session is None:
         raise HTTPException(404, "no such session")
-    return {"session": session, "messages": db.get_messages(session_id)}
+    messages = db.get_messages(session_id)
+    voice = selected_voice(session["language"])
+    for m in messages:
+        m["audio_key"] = (
+            _resumable_audio_key(m["text"], session["language"], voice)
+            if m["speaker"] == "bot" else None
+        )
+    return {"session": session, "messages": messages}

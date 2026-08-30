@@ -1,9 +1,10 @@
 import { $, postJSON, notify, state } from './api.js';
-import { recognition, BCP47, startRecording, stopRecording, setRespeakHandler } from './audio.js';
+import { play, recognition, BCP47, startRecording, stopRecording, setRespeakHandler } from './audio.js';
 import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo } from './session.js';
 import { loadChips, loadHome, resumeSession, startFromHome } from './home.js';
-import { renderVoiceList, previewVoice } from './settings.js';
+import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs } from './settings.js';
+import { toggleMeaning } from './reading.js';
 import * as router from './router.js';
 
 /* ---------- screens ---------- */
@@ -99,15 +100,54 @@ $('conversation').addEventListener('click', (e) => {
   if (bubble) undoLastTurn(bubble);
 });
 
+// 봇 말풍선만이다. 내 말풍선의 클릭은 이미 되돌리기가 쓰고 있고(위 핸들러),
+// 한 클릭에 두 동작을 얹으면 되돌리려다 소리가 나거나 그 반대가 된다.
+// 대본 패널에는 되돌리기가 없으므로 거기서는 양쪽 줄 다 눌러 들을 수 있다.
+$('conversation').addEventListener('click', (e) => {
+  // 뜻 토글이 먼저다. renderTokens가 말풍선 안에도 '▸ 뜻' 버튼을 그리므로,
+  // 대본 패널과 똑같이 여기서도 받아줘야 한다 -- 안 그러면 대화창의 뜻만
+  // 눌러도 아무 일이 없는 반쪽짜리가 된다.
+  const meaning = e.target.closest('button.meaning');
+  if (meaning) {
+    const bubble = meaning.closest('.msg.bot');
+    toggleMeaning(bubble, bubble.querySelector('.meaning-body'));
+    return;
+  }
+  const bubble = e.target.closest('.msg.bot');
+  if (!bubble || e.target.closest('button')) return;
+  // No key means nothing to play, not a failed synthesis -- a resumed bubble
+  // never had a TTS key of its own attempted on it (GET /sessions/{id} only
+  // ever hands back a key for a clip already on disk). Calling play(null,
+  // ...) here would tell the learner "서버 음성 생성에 실패해" for a clip that
+  // was never asked for, and fall them back to browser speech for nothing.
+  if (!bubble.dataset.audioKey) return;
+  play(bubble.dataset.audioKey, bubble.dataset.ja || bubble.textContent);
+});
+
+$('panel-body').addEventListener('click', (e) => {
+  const meaning = e.target.closest('button.meaning');
+  if (meaning) {
+    const li = meaning.closest('li');
+    toggleMeaning(li.querySelector('.line'), li.querySelector('.meaning-body'));
+    return;
+  }
+  const li = e.target.closest('li[data-i]');
+  if (!li) return;
+  const line = state.scriptLines[Number(li.dataset.i)];
+  if (line) play(line.audio_key, line.text);
+});
+
 loadChips();
 refreshHealth();
 loadHome();
+loadReadingPrefs();
 
 /* ---------- settings ---------- */
 
 $('btn-settings').addEventListener('click', async () => {
   $('settings-language').value = state.language;
   await renderVoiceList();
+  await loadReadingPrefs();
   $('settings').showModal();
 });
 $('settings-language').addEventListener('change', renderVoiceList);
@@ -116,6 +156,7 @@ $('voice-list').addEventListener('click', (e) => {
   const preview = e.target.dataset.preview;
   if (preview) previewVoice(preview);
 });
+$('reading-prefs').addEventListener('change', saveReadingPrefs);
 $('voice-list').addEventListener('change', async (e) => {
   if (e.target.name !== 'voice') return;
   try {

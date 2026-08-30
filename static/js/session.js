@@ -3,6 +3,7 @@ import { play, setHeardHandler, recognition, BCP47, setRespeakHandler } from './
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
+import { annotate, escapeHtml } from './reading.js';
 
 /* ---------- turn state ---------- */
 
@@ -143,7 +144,7 @@ export async function startSession({ language, mode, scenarioId, topic } = {}) {
       $('side-panel').hidden = !goal;
       $('btn-next').hidden = true;
       $('btn-send').hidden = false;
-      addMessage('bot', data.opening);
+      addMessage('bot', data.opening, data.opening_audio);
       play(data.opening_audio, data.opening);
     }
   } catch (err) {
@@ -155,12 +156,18 @@ export async function startSession({ language, mode, scenarioId, topic } = {}) {
 
 /* ---------- conversation ---------- */
 
-export function addMessage(who, text) {
+export function addMessage(who, text, audioKey = null) {
   const div = document.createElement('div');
   div.className = `msg ${who}`;
   div.textContent = text;
+  if (audioKey) div.dataset.audioKey = audioKey;
   $('conversation').appendChild(div);
   div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  // 자유·수업 모드의 봇 문장도 학습자가 못 읽는 것은 대본과 똑같다.
+  // 이어서 하기 재생도 이 함수를 그대로 쓰므로 그 경로가 함께 덮인다.
+  if (who === 'bot' && state.language === 'ja') {
+    annotate([{ el: div, text }]);
+  }
   return div;
 }
 
@@ -302,7 +309,7 @@ export async function sendText(text) {
   bubble.dataset.turnText = text;
 
   setTurnState('REPLY');
-  addMessage('bot', data.bot_reply);
+  addMessage('bot', data.bot_reply, data.audio_key);
   addChip(bubble, data);
   // AUDIO_DONE returns the turn to `idle` once the bot's clip actually
   // finishes -- until then `speaking` still permits starting a new turn
@@ -353,9 +360,17 @@ function startScript(lines) {
   // startSession) -- a script always has content, so restore it here.
   $('side-panel').hidden = false;
   $('panel-title').textContent = '대본';
+  // l.text can now come from a local LLM (POST /scenarios/generate), not just
+  // this codebase's own built-in scenarios -- escaped the same way
+  // renderTokens (reading.js) escapes every token it draws into innerHTML.
   $('panel-body').innerHTML = `<ol>${lines
-    .map((l, i) => `<li data-i="${i}"><b>${l.speaker === 'bot' ? '봇' : '나'}</b> ${l.text}</li>`)
+    .map((l, i) => `<li data-i="${i}"><b>${l.speaker === 'bot' ? '봇' : '나'}</b> `
+      + `<span class="line">${escapeHtml(l.text)}</span></li>`)
     .join('')}</ol>`;
+  if (state.language === 'ja') {
+    const items = [...$('panel-body').querySelectorAll('li .line')];
+    annotate(items.map((el, i) => ({ el, text: lines[i].text })));
+  }
   advanceScript();
 }
 
@@ -417,7 +432,7 @@ export async function nextScriptLine() {
     // return to idle immediately or `next`/`undo` would stay disabled.
     setTurnState('AUDIO_DONE');
   } else if (line) {
-    addMessage('bot', line.text);
+    addMessage('bot', line.text, line.audio_key);
     state.scriptIndex += 1;
   }
   advanceScript();

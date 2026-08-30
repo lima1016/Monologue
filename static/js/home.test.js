@@ -12,6 +12,7 @@ import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { $, state } from './api.js';
+import * as router from './router.js';
 import { jsonResponse, resetDom, stubFetch } from './dom-shim.js';
 
 /* home.js keeps `busy` and `resumeTarget` as module globals and node evaluates
@@ -147,7 +148,10 @@ test('시작 during a resume does not overwrite the conversation being restored'
   const messages = new Promise((r) => { releaseMessages = r; });
   let sessionPosts = 0;
   stubFetch(async (url) => {
-    if (url === '/api/sessions/42') { await messages; return jsonResponse({ messages: [] }); }
+    if (url === '/api/sessions/42') {
+      await messages;
+      return jsonResponse({ session: { id: 42, language: 'en' }, messages: [] });
+    }
     if (url.startsWith('/api/scenarios?')) return jsonResponse({ scenarios: [{ id: 'x', title: 't' }] });
     if (url === '/api/sessions') { sessionPosts += 1; return jsonResponse({ session_id: 9, mode: 'free' }); }
     return jsonResponse({});
@@ -183,6 +187,64 @@ test('a failed resume releases the guard', async () => {
   release();
   await started;
   assert.ok(seen.sessionBody, 'the home screen was still locked after a failed resume');
+});
+
+/* session.js's startSession sets state.language from the session it actually
+   created rather than trusting the language button, because a switch can
+   land between the request and the response. addMessage's reading-aids gate
+   reads state.language directly, and today resumeSession never touches it --
+   correct only because loadHome scopes the resume card to the current
+   language, which is a coincidence this test does not rely on: it sets
+   state.language to something *other* than the resumed session's language
+   before resuming, and asserts resumeSession corrects it. */
+test('resumeSession sets state.language from the session actually being resumed', async () => {
+  router.register('session', 'session');
+  state.language = 'ja'; // deliberately wrong, to prove resumeSession corrects it
+  state.mode = 'free';
+  state.sessionId = null;
+  await armResumeCard(); // resume card is offered under "ja" per loadHome's own scoping
+
+  stubFetch(async (url) => {
+    if (url === '/api/sessions/42') {
+      return jsonResponse({ session: { id: 42, language: 'en' }, messages: [] });
+    }
+    return jsonResponse({});
+  });
+
+  await home.resumeSession();
+  assert.equal(state.language, 'en');
+});
+
+/* GET /sessions/{id} hands back a cache-only audio_key per bot message (never
+   freshly synthesised -- see _resumable_audio_key in app/api.py). Without
+   this passthrough, every replayed bot bubble has no audio key at all, and
+   main.js's play branch would report a synthesis failure that never
+   happened the moment the learner clicks one to hear it again. */
+test('resumeSession carries each message\'s cached audio key into its bubble', async () => {
+  router.register('session', 'session'); // main.js does this in the real app; this test drives home.js alone
+  state.language = 'en';
+  state.mode = 'free';
+  state.sessionId = null;
+  await armResumeCard();
+
+  stubFetch(async (url) => {
+    if (url === '/api/sessions/42') {
+      return jsonResponse({
+        session: { id: 42, language: 'en' },
+        messages: [
+          { speaker: 'bot', text: 'Hi.', audio_key: 'cachedkey123' },
+          { speaker: 'user', text: 'Hello.', audio_key: null },
+        ],
+      });
+    }
+    return jsonResponse({});
+  });
+
+  await home.resumeSession();
+  const [botBubble, userBubble] = $('conversation').children;
+  assert.equal(botBubble.dataset.audioKey, 'cachedkey123');
+  assert.equal(userBubble.dataset.audioKey, undefined,
+    'a message with no cached clip must not get a dataset.audioKey the click handler would try to play');
 });
 
 /* The third door: nothing typed, so the catalogue picks for the learner. Same
