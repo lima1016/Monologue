@@ -29,7 +29,11 @@ const HTML_URL = new URL('../index.html', import.meta.url);
    instead of failing silently in a browser. */
 export function htmlIds() {
   const html = readFileSync(HTML_URL, 'utf8');
-  return new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
+  // `\s`, not `\b`: a word boundary also matches after the `-` in `data-id="…"`,
+  // so a future data-id would register a phantom id here and mask a real miss --
+  // the same quiet failure the shim exists to prevent. Attributes are always
+  // preceded by whitespace, so this loses nothing.
+  return new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
 }
 
 class ClassList {
