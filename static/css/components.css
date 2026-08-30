@@ -380,3 +380,15 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .stat .k { font-size: var(--text-xs); color: var(--text-dim); }
 
 @media (max-width: 560px) { .modes { grid-template-columns: 1fr; } }
+
+/* 읽기 보조. 루비는 브라우저 기본 기능이라 라이브러리가 필요 없다. */
+rt { font-size: .55em; color: var(--text-dim); font-weight: 400; }
+.romaji { display: block; font-size: var(--text-xs); color: var(--text-dim);
+          letter-spacing: .01em; margin-top: 2px; }
+/* 루비가 붙은 줄은 위로 자란다. 줄 간격을 넉넉히 주지 않으면 윗줄의
+   후리가나와 아랫줄의 본문이 서로 닿는다. */
+.line, .msg.bot { line-height: 2.1; }
+button.meaning { font-size: var(--text-xs); padding: 0 var(--space-1);
+                 background: none; border: none; color: var(--text-dim); }
+button.meaning:hover { color: var(--accent-ink); }
+.meaning-body { display: block; font-size: var(--text-sm); color: var(--text); }
