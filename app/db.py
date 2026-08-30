@@ -99,6 +99,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _cutoff(hours=0, days=0) -> str:
+    """A timestamp `hours`/`days` ago, in exactly the shape _now() writes.
+
+    One definition on purpose: every caller compares it against a created_at or
+    started_at column that _now() wrote, and a string comparison against a
+    differently-formatted timestamp does not raise -- it silently matches
+    nothing (or everything). The staleness sweep, the resume offer and the
+    7-day counter all rest on this expression agreeing with _now(), so it is
+    written down once next to it."""
+    return (datetime.now(timezone.utc)
+            - timedelta(hours=hours, days=days)).isoformat(timespec="seconds")
+
+
 @contextmanager
 def connect():
     """Yield a connection with WAL enabled and rows accessible by column name.
@@ -296,7 +309,7 @@ def stale_open_sessions(hours=24) -> list[int]:
     these rows drop out of the `ended_at IS NULL` filter below with their
     recordings never collected -- stranding that audio on disk forever.
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    cutoff = _cutoff(hours=hours)
     with connect() as conn:
         rows = conn.execute(
             "SELECT s.id FROM sessions s"
@@ -330,7 +343,7 @@ def resumable_session(language):
     where they left off -- and re-reading a short script from the top is
     natural anyway.
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    cutoff = _cutoff(hours=24)
     with connect() as conn:
         row = conn.execute(
             "SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS turns"
@@ -348,7 +361,7 @@ def resumable_session(language):
 def abandon_stale_sessions(hours=24) -> int:
     """Close sessions nobody came back to, so they stop being offered and stop
     being swept for recordings on every /end."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    cutoff = _cutoff(hours=hours)
     with connect() as conn:
         cur = conn.execute(
             "UPDATE sessions SET ended_at = ?"
@@ -465,7 +478,7 @@ def home_stats(language) -> dict:
     raising, the day list fills with NULLs, and the streak reads 0 forever
     with no error anywhere to say why.
     """
-    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat(timespec="seconds")
+    week_ago = _cutoff(days=7)
     with connect() as conn:
         week_turns = conn.execute(
             "SELECT COUNT(*) FROM messages m JOIN sessions s ON s.id = m.session_id"
