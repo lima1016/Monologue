@@ -395,8 +395,20 @@ def test_a_finished_session_is_not_resumable(store):
 
 
 def test_a_session_with_no_messages_is_not_worth_resuming(store):
-    """Pressing 시작 and closing the tab leaves one of these. There is nothing
-    to come back to."""
+    """A session row with no messages at all. There is nothing to come back to.
+
+    Not what "pressing 시작 and closing the tab" leaves behind, which is what
+    this docstring used to say: POST /sessions writes the bot's opening line
+    before it returns, so that gesture always leaves a session with one
+    message -- see test_a_session_started_and_abandoned_through_the_route
+    _is_not_offered (tests/test_api_chat.py:483), which covers that production
+    shape and is why resumable_session filters on a *learner* message.
+
+    What does still produce this row: app/api.py calls llm.chat for the opening
+    line with no guard before db.add_message, so an Ollama failure 500s to the
+    client with the session row already written and empty. Confirmed by making
+    llm.chat raise -- the route returns 500 and leaves session 1 holding zero
+    messages."""
     store.create_session("en", "free")
     assert store.resumable_session("en") is None
 
