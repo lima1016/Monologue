@@ -310,14 +310,22 @@ FEEDBACK_SYSTEM = """당신은 한국인 학생을 가르치는 한국어 원어
 당신이 말하고 쓰는 언어는 오직 한국어입니다. {lang}은(는) 당신이 설명하는 '대상'일 뿐,
 당신이 사용하는 언어가 아닙니다.
 
-학생이 {lang} 문장을 한 줄 말했습니다. 아래 다섯 항목을 채우세요.
+학생이 {lang} 문장을 한 줄 말했습니다. 이 문장은 학생이 소리 내어 말한 것을 음성
+인식이 받아쓴 것입니다 — 잘못 알아들은 단어나 'uh', 'um' 같은 말버릇이 섞여 있을 수
+있습니다. 그렇게 받아쓰기 오류로 보이는 부분은 문법 오류로 지적하지 마세요. 확신이
+서지 않으면 ok를 true로 두세요. 없는 오류를 지어내는 것이 진짜 오류 하나를 놓치는
+것보다 나쁩니다.
+
+아래 다섯 항목을 채우세요.
 
 - ok: 문법적으로 맞으면 true, 틀린 곳이 있으면 false
 - fixed: 고친 문장 하나만. 이미 맞으면 원문 그대로. {lang}으로 씁니다
 - tag: 틀린 부분의 종류. 아래 정의를 보고 정확히 하나만 고릅니다
 {defs}
 - correction: 무엇이 왜 틀렸는지. 한국어로 두 문장 이내
-- suggestion: 원어민이라면 어떻게 말할지. 한국어로 두 문장 이내
+- suggestion: 원어민이라면 어떻게 말할지. correction과 같은 지적을 다른 말로
+  반복하지 말고, 문장이 이미 맞을 때도 쓸 수 있는 다른 표현으로 씁니다. 한국어로
+  두 문장 이내
 
 tag는 correction에서 실제로 지적한 내용과 일치해야 합니다.
 
@@ -325,7 +333,33 @@ correction과 suggestion은 반드시 한국어로 씁니다. 인용하는 {lang
 마크다운과 이모지는 쓰지 않습니다."""
 
 
-def build_feedback_messages(language, user_text) -> list[dict]:
+def _feedback_context(*, scenario_title=None, scenario_goal=None,
+                      bot_last=None, topic=None) -> str:
+    """Build the optional context paragraph for the feedback system prompt.
+
+    Returns "" when there is nothing to say (first turn, scenario-less lesson
+    mode) so the caller can append it unconditionally without ever leaving a
+    "Scene goal: None"-shaped hole in the prompt -- this file already learned
+    that lesson once, in build_system_prompt's free-mode branch.
+    """
+    lines = []
+    if scenario_title:
+        goal_part = f" (목표: {scenario_goal})" if scenario_goal else ""
+        lines.append(f"- 지금 상황: {scenario_title}{goal_part}")
+    if bot_last:
+        lines.append(f"- 상대방(봇)이 바로 직전에 한 말: \"{bot_last}\"")
+    if topic:
+        lines.append(f"- 오늘 수업 주제: {topic}")
+    if not lines:
+        return ""
+    return (
+        "\n\n참고할 문맥입니다. 학생이 무엇을 말하려 했는지 판단하는 데만 쓰고,"
+        " 답변에 그대로 옮기지 마세요.\n" + "\n".join(lines)
+    )
+
+
+def build_feedback_messages(language, user_text, *, scenario_title=None,
+                            scenario_goal=None, bot_last=None, topic=None) -> list[dict]:
     """Ask for structured grammar feedback on one learner line.
 
     The system prompt is written in Korean, and that is the fix, not a style
@@ -336,10 +370,24 @@ def build_feedback_messages(language, user_text) -> list[dict]:
 
     Few-shot examples stay -- a stated rule alone was not enough to hold the
     local model, especially on already-correct lines.
+
+    Context (scenario, the bot's last line, lesson topic) goes into the system
+    prompt as its own trailing paragraph, never into the few-shot user turns.
+    Those turns are a fixed "학생이 말한 문장: ..." shape with no context of
+    their own; giving only the real query that extra shape would make it look
+    different from every worked example the model just saw, and the local
+    model latches onto that structural mismatch rather than the content. All
+    context is optional and any piece that's missing (first turn, a
+    scenario-less lesson) is simply left out of the paragraph -- see
+    _feedback_context.
     """
     language_name = KOREAN_LANGUAGE_NAMES[language]
     system = FEEDBACK_SYSTEM.format(
         lang=language_name, defs=FEEDBACK_TAG_DEFINITIONS[language]
+    )
+    system += _feedback_context(
+        scenario_title=scenario_title, scenario_goal=scenario_goal,
+        bot_last=bot_last, topic=topic,
     )
     if language == "ja":
         system += "\n" + JAPANESE_SCRIPT_ONLY_RULE

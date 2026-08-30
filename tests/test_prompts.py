@@ -154,6 +154,70 @@ def test_feedback_system_prompt_is_written_in_korean():
         assert hangul > 100, f"{language} system prompt is not Korean"
 
 
+def test_feedback_system_warns_the_text_is_a_speech_recognition_transcript():
+    """The learner's window-seat case: the model needs to know the line came
+    from speech recognition, or it treats a mis-heard word as a real one."""
+    system = prompts.build_feedback_messages("en", "test")[0]["content"]
+    assert "음성" in system
+    assert "확신" in system  # the "if unsure, ok: true" permission
+
+
+def test_feedback_system_tells_suggestion_not_to_restate_correction():
+    system = prompts.build_feedback_messages("en", "test")[0]["content"]
+    assert "다른 표현" in system
+
+
+def test_feedback_context_paragraph_carries_scenario_and_bot_last_line():
+    system = prompts.build_feedback_messages(
+        "en", "I'd like to take a seat Uh Windows",
+        scenario_title="식당 자리 안내", scenario_goal="창가 자리를 요청하고 안내받는다",
+        bot_last="Would you like a table by the window?",
+    )[0]["content"]
+    assert "식당 자리 안내" in system
+    assert "창가 자리를 요청하고 안내받는다" in system
+    assert "Would you like a table by the window?" in system
+
+
+def test_feedback_context_paragraph_absent_without_any_context():
+    """No scenario, no prior bot line, no topic (first turn / scenario-less
+    lesson mode): the context paragraph must be left out entirely, not filled
+    in with a None-shaped hole -- this file already learned that lesson once
+    for build_system_prompt's free-mode branch."""
+    system = prompts.build_feedback_messages("en", "test")[0]["content"]
+    assert "None" not in system
+    assert "참고할 문맥" not in system
+
+
+def test_feedback_context_only_fills_in_the_pieces_it_has():
+    system = prompts.build_feedback_messages(
+        "en", "test", bot_last="Checking in today?",
+    )[0]["content"]
+    assert "Checking in today?" in system
+    assert "지금 상황" not in system  # no scenario_title given
+    assert "None" not in system
+
+
+def test_feedback_context_goes_in_the_system_prompt_not_the_few_shot_turns():
+    """Context must land only in the system message. If it also reshaped the
+    few-shot user turns, the real query would look structurally different from
+    every worked example the model just saw -- the local model latches onto
+    that mismatch rather than the content."""
+    with_context = prompts.build_feedback_messages(
+        "en", "I go store yesterday.",
+        scenario_title="식당 자리 안내", scenario_goal="창가 자리를 요청받는다",
+        bot_last="Would you like a table by the window?", topic="past tense",
+    )
+    without_context = prompts.build_feedback_messages("en", "I go store yesterday.")
+
+    with_shots = [m["content"] for m in with_context if m["role"] == "user"][:-1]
+    without_shots = [m["content"] for m in without_context if m["role"] == "user"][:-1]
+    assert with_shots == without_shots
+    for content in with_shots:
+        assert content.startswith("학생이 말한 문장: ")
+        assert "식당" not in content
+        assert "window" not in content
+
+
 def test_feedback_examples_carry_the_full_five_field_shape():
     import json
     for language in ("en", "ja"):

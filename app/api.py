@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
 
-from app import config, db, llm, prompts, reading, scenarios, tts
+from app import config, db, llm, prompts, reading, scenarios, text_cleanup, tts
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
@@ -253,6 +253,19 @@ def _history(session_id: int) -> list[dict]:
     ]
 
 
+def _last_bot_message(session_id: int) -> str | None:
+    """The bot's most recent line, for the feedback prompt's context paragraph.
+
+    Called before the current learner turn is stored, so in practice this is
+    just the last message in the session -- but filtering by speaker rather
+    than assuming that keeps it correct even if that ordering ever changes.
+    """
+    for m in reversed(db.get_messages(session_id)):
+        if m["speaker"] == "bot":
+            return m["text"]
+    return None
+
+
 def _speak(text: str, language: str) -> str | None:
     """Synthesise to the cache and return its key, or None if TTS is unavailable.
 
@@ -269,7 +282,8 @@ _NO_FEEDBACK = {"ok": None, "fixed": None, "tag": None,
                 "correction": None, "suggestion": None}
 
 
-def _feedback(language: str, text: str) -> dict:
+def _feedback(language: str, text: str, *, scenario_title=None,
+             scenario_goal=None, bot_last=None, topic=None) -> dict:
     """Structured grammar feedback for one learner line.
 
     Never raises. A model hiccup must not cost the learner their turn -- the
@@ -278,25 +292,40 @@ def _feedback(language: str, text: str) -> dict:
     response parsed as JSON, not that it parsed as an *object*, so a stray
     array or string would otherwise reach .get() and propagate an
     AttributeError out of here.
+
+    `text` is graded after text_cleanup.strip_fillers removes standalone
+    speech-disfluency fillers (uh, um, ...) -- the caller's `text` argument is
+    never shown or stored, only what reaches the model here. If stripping
+    empties it (the learner said nothing but filler), grading is skipped
+    entirely: there is nothing to grade, and sending an empty string to the
+    model would just invite it to invent something.
     """
+    graded_text = text_cleanup.strip_fillers(text, language)
+    if not graded_text:
+        return dict(_NO_FEEDBACK)
     try:
-        result = llm.chat_json(prompts.build_feedback_messages(language, text),
-                               prompts.feedback_schema(language))
+        result = llm.chat_json(
+            prompts.build_feedback_messages(
+                language, graded_text, scenario_title=scenario_title,
+                scenario_goal=scenario_goal, bot_last=bot_last, topic=topic,
+            ),
+            prompts.feedback_schema(language),
+        )
         ok = result.get("ok")
         fixed = result.get("fixed")
         # Browser speech recognition never returns punctuation, so the model
         # routinely "corrects" a perfectly correct sentence by adding commas
-        # and a full stop. If the only difference from what the learner said
-        # is punctuation/casing (app.text_match.normalize, the Python twin of
-        # static/js/match.js's normalize()), that is an artifact of speech
-        # recognition, not the learner's mistake -- it must not be stored as
-        # one. `suggestion` survives: it is not a correction but "a native
-        # speaker might also say it this way", worth keeping even when the
-        # sentence was fine. isinstance guards normalize(fixed): the schema
-        # makes a non-string `fixed` unlikely, but if it ever happens this
-        # must skip neutralisation, not raise into the outer except and
+        # and a full stop. If the only difference from what was sent for
+        # grading is punctuation/casing (app.text_match.normalize, the Python
+        # twin of static/js/match.js's normalize()), that is an artifact of
+        # speech recognition, not the learner's mistake -- it must not be
+        # stored as one. `suggestion` survives: it is not a correction but "a
+        # native speaker might also say it this way", worth keeping even when
+        # the sentence was fine. isinstance guards normalize(fixed): the
+        # schema makes a non-string `fixed` unlikely, but if it ever happens
+        # this must skip neutralisation, not raise into the outer except and
         # discard a tag/correction the model actually gave.
-        if ok is False and isinstance(fixed, str) and fixed and normalize(text) == normalize(fixed):
+        if ok is False and isinstance(fixed, str) and fixed and normalize(graded_text) == normalize(fixed):
             return {
                 "ok": True,
                 "fixed": None,
@@ -412,7 +441,13 @@ def chat_turn(payload: ChatTurn):
     scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
     turns_used = sum(1 for m in db.get_messages(payload.session_id) if m["speaker"] == "user")
 
-    feedback = _feedback(language, text)
+    feedback = _feedback(
+        language, text,
+        scenario_title=scenario.get("title") if scenario else None,
+        scenario_goal=scenario.get("goal") if scenario else None,
+        bot_last=_last_bot_message(payload.session_id),
+        topic=session["topic"] if session["mode"] == "lesson" else None,
+    )
     db.add_message(payload.session_id, "user", text,
                    correction=feedback["correction"],
                    suggestion=feedback["suggestion"],

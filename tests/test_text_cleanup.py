@@ -1,4 +1,4 @@
-from app.text_cleanup import clean_for_tts
+from app.text_cleanup import clean_for_tts, strip_fillers
 
 
 def test_strips_markdown_emphasis_but_keeps_words():
@@ -48,3 +48,51 @@ def test_japanese_sentence_truncation_uses_ideographic_period():
 def test_empty_and_whitespace_input_return_empty():
     assert clean_for_tts("") == ""
     assert clean_for_tts("   \n  ") == ""
+
+
+# The learner's actual failing case: speech recognition heard a stray "Uh"
+# before the mis-heard word, and the grading model read "Windows" as the
+# operating system rather than a mis-hearing of "window".
+def test_strip_fillers_removes_the_learners_actual_stray_uh():
+    text = "I'd like to take a seat Uh Windows"
+    assert strip_fillers(text, "en") == "I'd like to take a seat Windows"
+
+
+def test_strip_fillers_removes_standalone_english_disfluencies():
+    # Browser speech recognition never returns punctuation (see api._feedback),
+    # so a filler sits between bare words with no comma either side.
+    assert strip_fillers("Um I think so", "en") == "I think so"
+    assert strip_fillers("It was uh really good", "en") == "It was really good"
+    assert strip_fillers("Er hmm let me think", "en") == "let me think"
+
+
+def test_strip_fillers_leaves_real_english_words_alone():
+    """like, well, so are real words doing real work -- never strip them."""
+    assert strip_fillers("I like it", "en") == "I like it"
+    assert strip_fillers("Well done", "en") == "Well done"
+    assert strip_fillers("I was so tired", "en") == "I was so tired"
+
+
+def test_strip_fillers_does_not_touch_filler_substrings_inside_real_words():
+    assert strip_fillers("Grab an umbrella", "en") == "Grab an umbrella"
+    assert strip_fillers("Run faster", "en") == "Run faster"
+
+
+def test_strip_fillers_removes_narrow_japanese_disfluencies():
+    assert strip_fillers("えーと、レストランに行きたいです", "ja") == "、レストランに行きたいです"
+    assert strip_fillers("えっとわかりません", "ja") == "わかりません"
+
+
+def test_strip_fillers_leaves_ano_alone():
+    """あの is a real demonstrative/hedge, indistinguishable from a filler
+    token by text alone -- stripping it would delete meaning some of the time."""
+    assert strip_fillers("あの人は先生です", "ja") == "あの人は先生です"
+
+
+def test_strip_fillers_of_pure_filler_returns_empty():
+    assert strip_fillers("Uh um", "en") == ""
+    assert strip_fillers("えーと", "ja") == ""
+
+
+def test_strip_fillers_empty_input_returns_empty():
+    assert strip_fillers("", "en") == ""
