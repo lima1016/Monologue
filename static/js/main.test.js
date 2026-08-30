@@ -53,6 +53,12 @@ test('every id the JS looks up is declared in index.html', () => {
     const looked = [
       ...source.matchAll(/\$\('([^']+)'\)/g),
       ...source.matchAll(/getElementById\('([^']+)'\)/g),
+      // Screen ids never appear as a literal at the lookup -- router.show
+      // reads them back out of its map through a variable -- so the two
+      // patterns above cannot see them. router.show now throws on a missing
+      // screen, which is the real guard; this is the scan catching up, since
+      // seeing ids is the one thing it is for.
+      ...source.matchAll(/router\.register\('[^']+',\s*'([^']+)'\)/g),
     ].map((m) => m[1]);
     for (const id of new Set(looked)) {
       if (!ids.has(id)) missing.push(`${file}: #${id}`);
