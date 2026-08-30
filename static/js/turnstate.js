@@ -43,5 +43,15 @@ export function controls(state) {
     // Ending must never be blocked -- a hung request should not trap the
     // learner in a session with no exit.
     end: true,
+    // `stop` is how a turn now ends: nothing sends on a timer any more
+    // (utterance.js just accumulates), so pressing the mic again while
+    // `listening` is the learner's only way to say "that's everything".
+    // It has no `STOP` event of its own in TRANSITIONS -- the caller
+    // responds to it by calling recognition.stop(), and Chrome's `onend`
+    // raises HEARD or HEARD_NOTHING same as any other end of listening,
+    // both of which already have transitions out of `listening` above.
+    // Not offered from `respeaking`: re-speak has its own UI and result
+    // handling (session.js), and widening this here would blur that.
+    stop: state === 'listening',
   };
 }
