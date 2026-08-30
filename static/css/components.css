@@ -392,8 +392,11 @@ body.hide-furigana rt { display: none; }
           letter-spacing: .01em; margin-top: 2px; }
 body.hide-romaji .romaji { display: none; }
 /* 루비가 붙은 줄은 위로 자란다. 줄 간격을 넉넉히 주지 않으면 윗줄의
-   후리가나와 아랫줄의 본문이 서로 닿는다. */
-.line[data-ja], .msg.bot[data-ja] { line-height: 2.1; }
+   후리가나와 아랫줄의 본문이 서로 닿는다. 후리가나가 꺼져 있으면 그릴 루비가
+   없으므로 이 여백도 필요 없다 -- body.hide-furigana일 때까지 적용되면
+   그리지도 않는 루비를 위한 자리만 남아 줄 사이가 비어 보인다. */
+body:not(.hide-furigana) .line[data-ja],
+body:not(.hide-furigana) .msg.bot[data-ja] { line-height: 2.1; }
 button.meaning { font-size: var(--text-xs); padding: 0 var(--space-1);
                  background: none; border: none; color: var(--text-dim); }
 button.meaning:hover { color: var(--accent-ink); }
