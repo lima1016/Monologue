@@ -209,6 +209,30 @@ def start_session(payload: SessionStart):
                 f"scenario {payload.scenario_id} is {scenario['language']},"
                 f" not {payload.language}",
             )
+        # The same class of mismatch on the other axis, and the one that was
+        # left open because it was believed to fail loudly. It does not: only
+        # two of its three shapes crash (`script` mode on a free scenario dies
+        # on scenario["lines"], `free` mode on a *built-in* script scenario
+        # dies on scenario["persona_prompt"]). A `free` request naming a
+        # *generated* script scenario returns 200, because db._scenario_row
+        # materialises persona_prompt for script rows too -- NULL for any the
+        # generator never gave one -- and prompts.py reads it with a bracket,
+        # so the `or`-fallback that defuses `goal` never applies. The prompt
+        # then carries the literal line "Your character: None" and the session
+        # is written anyway: silent, permanent, nothing on screen to say so.
+        # Not reachable from today's home screen (loadChips clears #chips
+        # synchronously before any await), which is exactly the reasoning that
+        # made the language mismatch invisible for a whole phase.
+        #
+        # Before create_session on purpose: the two crashing shapes above blow
+        # up *after* the row is written, so each has been leaving an orphaned
+        # empty session behind. Rejecting here removes both.
+        if scenario["type"] != payload.mode:
+            raise HTTPException(
+                400,
+                f"scenario {payload.scenario_id} is a {scenario['type']} scenario,"
+                f" not {payload.mode}",
+            )
 
     session_id = db.create_session(payload.language, payload.mode,
                                    scenario_id=payload.scenario_id, topic=payload.topic)

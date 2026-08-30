@@ -107,6 +107,60 @@ def test_a_matching_language_still_starts(client):
                        ).status_code == 200
 
 
+def test_a_free_request_naming_a_script_scenario_is_rejected(client):
+    """The other axis of the same mismatch, and the one that was left open
+    because it was believed to fail loudly. A *built-in* script scenario dies
+    on scenario["persona_prompt"] -- a 500, but a 500 after db.create_session
+    has already written the row."""
+    r = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                           "scenario_id": "standup-meeting-en"})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "script" in detail and "free" in detail  # names both sides
+    assert db.list_sessions() == []                 # and nothing was created
+
+
+def test_a_free_request_naming_a_generated_script_scenario_is_rejected(client):
+    """This is the one that made the check Important rather than tidy-up: it
+    used to return 200. db._scenario_row materialises persona_prompt for script
+    rows too -- NULL for any script the generator never gave one -- and
+    prompts.py reads it with a bracket, so the `or`-fallback that defuses
+    `goal` never fires. The session was written, the prompt carried the literal
+    line "Your character: None", and nothing anywhere said so."""
+    db.add_user_scenario({
+        "id": "user-script-en", "language": "en", "type": "script",
+        "title": "made-up script", "goal": None, "persona_prompt": None,
+        "max_turns": None,
+        "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hello."}],
+    })
+    r = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                           "scenario_id": "user-script-en"})
+    assert r.status_code == 400
+    assert db.list_sessions() == []
+
+
+def test_a_script_request_naming_a_free_scenario_is_rejected(client):
+    """The third shape: this one died on scenario["lines"], again only after
+    the session row existed."""
+    r = client.post("/api/sessions", json={"language": "en", "mode": "script",
+                                           "scenario_id": "airport-checkin-en"})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "free" in detail and "script" in detail
+    assert db.list_sessions() == []
+
+
+def test_a_matching_mode_still_starts(client):
+    """The guard above must reject only the mismatch, not the ordinary case --
+    both directions, since script and free take different code paths after it."""
+    assert client.post("/api/sessions", json={"language": "en", "mode": "script",
+                                              "scenario_id": "standup-meeting-en"}
+                       ).status_code == 200
+    assert client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                              "scenario_id": "airport-checkin-en"}
+                       ).status_code == 200
+
+
 def test_lesson_session_response_has_no_goal(client):
     """Lesson mode has no scenario to draw a goal from -- the frontend falls
     back to the learner's own typed topic instead."""
