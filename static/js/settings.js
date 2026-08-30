@@ -1,4 +1,5 @@
-import { $, api, getJSON, notify } from './api.js';
+import { $, api, getJSON, notify, postJSON } from './api.js';
+import { setPrefs } from './reading.js';
 
 let currentPreviewAudio = null;
 let currentPreviewUrl = null;
@@ -46,5 +47,30 @@ export async function previewVoice(voice) {
     await audio.play();
   } catch (err) {
     notify(`미리듣기 실패: ${err.message}`);
+  }
+}
+
+export async function loadReadingPrefs() {
+  try {
+    const prefs = await getJSON('/reading-prefs');
+    $('pref-furigana').checked = prefs.furigana;
+    $('pref-romaji').checked = prefs.romaji;
+    setPrefs(prefs);
+  } catch {
+    // 기본값(둘 다 켜짐)이 이미 reading.js 안에 있다. 설정을 못 읽는 것이
+    // 보조를 끄는 이유가 되어서는 안 된다.
+  }
+}
+
+export async function saveReadingPrefs() {
+  const prefs = {
+    furigana: $('pref-furigana').checked,
+    romaji: $('pref-romaji').checked,
+  };
+  setPrefs(prefs);
+  try {
+    await postJSON('/reading-prefs', prefs);
+  } catch (err) {
+    notify(`읽기 보조 설정을 저장하지 못했습니다: ${err.message}`);
   }
 }

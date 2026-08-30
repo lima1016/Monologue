@@ -114,3 +114,20 @@ def test_translate_keeps_only_the_first_line(client, monkeypatch):
 def test_translate_rejects_a_language_that_needs_no_translation(client):
     res = client.post("/api/translate", json={"language": "en", "text": "hello"})
     assert res.status_code == 400
+
+
+def test_reading_prefs_default_to_both_on(client):
+    """기본은 셋 다 켜짐이다(뜻만 접힘). 완전 초보가 첫 화면에서
+    아무것도 설정하지 않고도 읽을 수 있어야 한다."""
+    res = client.get("/api/reading-prefs")
+    assert res.status_code == 200
+    assert res.json() == {"furigana": True, "romaji": True}
+
+
+def test_reading_prefs_round_trip(client):
+    """로마자를 끄는 것은 '가나를 읽을 수 있게 됐다'는 신호다.
+    목발을 순서대로 치우는 것이 이 기능의 설계다."""
+    client.post("/api/reading-prefs", json={"furigana": True, "romaji": False})
+    assert client.get("/api/reading-prefs").json() == {
+        "furigana": True, "romaji": False,
+    }

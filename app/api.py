@@ -209,6 +209,27 @@ def _cached_translation(text: str) -> str | None:
         return None
 
 
+class ReadingPrefs(BaseModel):
+    furigana: bool
+    romaji: bool
+
+
+_PREF_KEYS = {"furigana": "reading_furigana", "romaji": "reading_romaji"}
+
+
+@router.get("/reading-prefs")
+def get_reading_prefs():
+    # 기본은 둘 다 켜짐 -- 완전 초보가 아무것도 설정하지 않고 읽을 수 있어야 한다.
+    return {name: db.get_setting(key, "1") == "1" for name, key in _PREF_KEYS.items()}
+
+
+@router.post("/reading-prefs")
+def set_reading_prefs(payload: ReadingPrefs):
+    for name, key in _PREF_KEYS.items():
+        db.set_setting(key, "1" if getattr(payload, name) else "0")
+    return {"furigana": payload.furigana, "romaji": payload.romaji}
+
+
 class SessionStart(BaseModel):
     language: Language
     mode: Mode
