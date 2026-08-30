@@ -387,7 +387,7 @@ rt { font-size: .55em; color: var(--text-dim); font-weight: 400; }
           letter-spacing: .01em; margin-top: 2px; }
 /* 루비가 붙은 줄은 위로 자란다. 줄 간격을 넉넉히 주지 않으면 윗줄의
    후리가나와 아랫줄의 본문이 서로 닿는다. */
-.line, .msg.bot { line-height: 2.1; }
+.line[data-ja], .msg.bot[data-ja] { line-height: 2.1; }
 button.meaning { font-size: var(--text-xs); padding: 0 var(--space-1);
                  background: none; border: none; color: var(--text-dim); }
 button.meaning:hover { color: var(--accent-ink); }

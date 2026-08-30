@@ -3,7 +3,7 @@ import { play, setHeardHandler, recognition, BCP47, setRespeakHandler } from './
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
-import { annotate, toggleMeaning } from './reading.js';
+import { annotate } from './reading.js';
 
 /* ---------- turn state ---------- */
 
