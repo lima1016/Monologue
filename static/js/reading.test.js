@@ -131,6 +131,22 @@ test('a failed reading request leaves the line readable', async () => {
   assert.equal(el.innerHTML, '', '덧입히기가 실패하면 아무것도 덮어쓰지 않는다');
 });
 
+test('a well-formed 200 with no readings key leaves the line readable instead of throwing', async () => {
+  /* annotate's own comment promises it "returns quietly" on failure, but the
+     readings[i] read happened outside the try/catch -- a 200 whose body has
+     no readings array threw a TypeError as an unhandled rejection instead. */
+  resetDom();
+  const { annotate } = await import('./reading.js');
+  stubFetch(async () => jsonResponse({})); // 200, but no `readings`
+
+  const el = document.createElement('li');
+  el.textContent = 'いらっしゃいませ';
+  await assert.doesNotReject(annotate([{ el, text: 'いらっしゃいませ' }]));
+
+  assert.equal(el.textContent, 'いらっしゃいませ');
+  assert.equal(el.innerHTML, '', '덧입히기가 실패하면 아무것도 덮어쓰지 않는다');
+});
+
 test('annotate asks for nothing when there is nothing to annotate', async () => {
   resetDom();
   const { annotate } = await import('./reading.js');

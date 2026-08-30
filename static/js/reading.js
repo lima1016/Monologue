@@ -61,6 +61,11 @@ export async function annotate(entries) {
   } catch {
     return; // 평문이 그대로 남는다
   }
+  // 형식이 맞지 않는 200(예: readings 필드가 아예 없는 응답)도 여기서 조용히
+  // 돌아간다 -- 이 가드가 없으면 아래 readings[i]가 TypeError를 던지고, 그
+  // catch가 감싸는 것은 fetch뿐이라 처리되지 않은 거부(unhandled rejection)로
+  // 새 나간다.
+  if (!Array.isArray(readings)) return;
   entries.forEach((entry, i) => {
     const tokens = readings[i];
     if (!tokens || !tokens.length) return;
