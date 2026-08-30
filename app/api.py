@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app import config, db, llm, prompts, reading, scenarios, tts
 from app.text_cleanup import clean_for_tts
+from app.text_match import normalize
 from app.tts import voicevox_backend
 
 router = APIRouter(prefix="/api")
@@ -282,9 +283,30 @@ def _feedback(language: str, text: str) -> dict:
         result = llm.chat_json(prompts.build_feedback_messages(language, text),
                                prompts.feedback_schema(language))
         ok = result.get("ok")
+        fixed = result.get("fixed")
+        # Browser speech recognition never returns punctuation, so the model
+        # routinely "corrects" a perfectly correct sentence by adding commas
+        # and a full stop. If the only difference from what the learner said
+        # is punctuation/casing (app.text_match.normalize, the Python twin of
+        # static/js/match.js's normalize()), that is an artifact of speech
+        # recognition, not the learner's mistake -- it must not be stored as
+        # one. `suggestion` survives: it is not a correction but "a native
+        # speaker might also say it this way", worth keeping even when the
+        # sentence was fine. isinstance guards normalize(fixed): the schema
+        # makes a non-string `fixed` unlikely, but if it ever happens this
+        # must skip neutralisation, not raise into the outer except and
+        # discard a tag/correction the model actually gave.
+        if ok is False and isinstance(fixed, str) and fixed and normalize(text) == normalize(fixed):
+            return {
+                "ok": True,
+                "fixed": None,
+                "tag": None,
+                "correction": None,
+                "suggestion": result.get("suggestion"),
+            }
         return {
             "ok": None if ok is None else bool(ok),
-            "fixed": result.get("fixed"),
+            "fixed": fixed,
             "tag": result.get("tag"),
             "correction": result.get("correction"),
             "suggestion": result.get("suggestion"),

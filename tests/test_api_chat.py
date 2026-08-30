@@ -296,6 +296,163 @@ def test_chat_returns_and_stores_structured_feedback(client):
     assert stored["tag"] == "시제"
 
 
+# A real learner's session: browser speech recognition returns no punctuation,
+# so the model "corrects" a perfectly correct sentence by adding commas and a
+# period. Comparing what was said against `fixed` after static/js/match.js's
+# normalize()-equivalent shows the words never changed -- these pairs must
+# not be recorded as the learner's mistake. static/js/match.js's own
+# normalize() is exercised by tests/test_text_match.py; these are the exact
+# strings from that learner's stored data.
+PUNCTUATION_ONLY_PAIRS = [
+    ("I finished the login bug and started on the report screen",
+     "I finished the login bug and started on the report screen."),
+    ("Yeah give me a sec okay I'm ready",
+     "Yeah, give me a sec, okay? I'm ready."),
+    ("Card please", "Card, please."),
+    ("i went there", "I went there."),  # casing only
+]
+
+# Genuinely different corrections from the same learner's data -- these must
+# keep counting as mistakes.
+GENUINELY_DIFFERENT_PAIRS = [
+    ("Will do thanks", "I will do it, thanks."),
+    ("Not really I might need a review on the pool recastulator",
+     "Not really, I might need a review of the pool recirculator."),
+]
+
+
+def test_chat_neutralizes_punctuation_only_corrections(client, monkeypatch):
+    """The words never changed -- only punctuation and casing did. That is an
+    artifact of browser speech recognition (which returns neither), not the
+    learner's mistake, so it must not be stored as one."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    for spoken, fixed in PUNCTUATION_ONLY_PAIRS:
+        def fake_chat_json(messages, schema, fixed=fixed, **kw):
+            return {"ok": False, "fixed": fixed, "tag": "어순",
+                    "correction": "어순이 잘못되었습니다.", "suggestion": "이렇게도 말할 수 있어요."}
+        monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+        body = client.post("/api/chat", json={"session_id": sid, "text": spoken}).json()
+        assert body["ok"] is True, (spoken, fixed, body)
+        assert body["fixed"] is None, (spoken, fixed)
+        assert body["tag"] is None, (spoken, fixed)
+        assert body["correction"] is None, (spoken, fixed)
+        # suggestion is not a correction -- it's "a native speaker might also
+        # say it this way", worth keeping even when the sentence was fine.
+        assert body["suggestion"] == "이렇게도 말할 수 있어요."
+
+
+def test_chat_neutralizes_a_punctuation_only_japanese_correction(client, monkeypatch):
+    sid = client.post("/api/sessions", json={"language": "ja", "mode": "lesson",
+                                              "topic": "greetings"}).json()["session_id"]
+
+    def fake_chat_json(messages, schema, **kw):
+        return {"ok": False, "fixed": "おはようございます。", "tag": "활용",
+                "correction": "활용이 잘못되었습니다.", "suggestion": "제안"}
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+    body = client.post("/api/chat", json={"session_id": sid, "text": "おはようございます"}).json()
+    assert body["ok"] is True
+    assert body["fixed"] is None
+    assert body["tag"] is None
+    assert body["correction"] is None
+
+
+def test_chat_does_not_neutralize_a_genuinely_different_correction(client, monkeypatch):
+    """The guard above must not swallow real mistakes -- only ones that
+    normalize to the same text."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    for spoken, fixed in GENUINELY_DIFFERENT_PAIRS:
+        def fake_chat_json(messages, schema, fixed=fixed, **kw):
+            return {"ok": False, "fixed": fixed, "tag": "어순",
+                    "correction": "어순이 잘못되었습니다.", "suggestion": "제안"}
+        monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+        body = client.post("/api/chat", json={"session_id": sid, "text": spoken}).json()
+        assert body["ok"] is False, (spoken, fixed)
+        assert body["fixed"] == fixed, (spoken, fixed)
+        assert body["tag"] == "어순", (spoken, fixed)
+        assert body["correction"] == "어순이 잘못되었습니다.", (spoken, fixed)
+
+
+def test_chat_does_not_neutralize_when_fixed_is_none(client, monkeypatch):
+    """Nothing to compare against -- leave ok=False alone rather than treat a
+    missing `fixed` as a match."""
+    def fake_chat_json(messages, schema, **kw):
+        return {"ok": False, "fixed": None, "tag": "어순",
+                "correction": "어순이 잘못되었습니다.", "suggestion": None}
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    body = client.post("/api/chat", json={"session_id": sid, "text": "Card please"}).json()
+    assert body["ok"] is False
+    assert body["fixed"] is None
+    assert body["tag"] == "어순"
+    assert body["correction"] == "어순이 잘못되었습니다."
+
+
+def test_chat_leaves_an_ok_true_response_untouched(client, monkeypatch):
+    def fake_chat_json(messages, schema, **kw):
+        return {"ok": True, "fixed": None, "tag": "없음",
+                "correction": None, "suggestion": "제안"}
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    body = client.post("/api/chat", json={"session_id": sid, "text": "Card, please."}).json()
+    assert body["ok"] is True
+    assert body["tag"] == "없음"
+    assert body["suggestion"] == "제안"
+
+
+def test_chat_survives_a_non_string_fixed_value(client, monkeypatch):
+    """The schema makes this unlikely, but if a model hiccup ever yields a
+    non-string `fixed`, normalize(fixed) must not be allowed to raise into
+    _feedback's outer except and discard a tag/correction the model actually
+    gave. A non-string `fixed` should just skip neutralisation -- the
+    optimisation fails, not the whole turn's feedback."""
+    def fake_chat_json(messages, schema, **kw):
+        return {"ok": False, "fixed": 42, "tag": "시제",
+                "correction": "설명", "suggestion": "제안"}
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    body = client.post("/api/chat", json={"session_id": sid, "text": "I go there."}).json()
+    assert body["ok"] is False
+    assert body["tag"] == "시제"
+    assert body["correction"] == "설명"
+    assert body["suggestion"] == "제안"
+
+
+def test_chat_stores_a_neutralized_punctuation_only_correction_correctly(client, monkeypatch):
+    """The point of this fix is what lands in the database, not just the HTTP
+    response -- ok/tag/correction feed home_stats, the top_tag recommendation,
+    and the end-of-session report. A test that only checks the response body
+    would miss a bug where the route neutralizes the reply but still stores
+    the model's original ok=0."""
+    def fake_chat_json(messages, schema, **kw):
+        return {"ok": False,
+                "fixed": "I finished the login bug and started on the report screen.",
+                "tag": "어순", "correction": "어순이 잘못되었습니다.", "suggestion": None}
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={
+        "session_id": sid,
+        "text": "I finished the login bug and started on the report screen",
+    })
+
+    stored = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+    assert stored["ok"] == 1
+    assert stored["tag"] is None
+    assert stored["correction"] is None
+
+
 def test_chat_for_a_japanese_session_uses_the_japanese_tag_vocabulary(client, fake_engines):
     """Guards the single most valuable thing Phase 2A added: per-language tag
     vocabularies. A hardcoded feedback_schema("en") in app/api.py would pass
