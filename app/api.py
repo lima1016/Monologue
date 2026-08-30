@@ -542,6 +542,36 @@ def store_script_line(session_id: int, payload: ScriptLineStore):
     return {"stored": True}
 
 
+class ScriptTurn(BaseModel):
+    session_id: int
+    text: str
+
+
+@router.post("/script-turn")
+def script_turn(payload: ScriptTurn):
+    """The learner's line in script mode: read from a fixed script, not
+    composed on the spot. Unlike /chat, this never calls the LLM -- the bot's
+    next line already exists in the script, and the learner did not write the
+    sentence they just read, so there is nothing here for grammar feedback to
+    judge. The client compares what was said against the script line itself
+    (static/js/match.js's matches()) and shows accuracy, not correctness.
+    """
+    session = db.get_session(payload.session_id)
+    if session is None:
+        raise HTTPException(404, "no such session")
+    if session["ended_at"] is not None:
+        raise HTTPException(409, "this session has already ended")
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(400, "text is empty")
+    if session["mode"] != "script":
+        raise HTTPException(400, "not a script session")
+
+    turns_used = sum(1 for m in db.get_messages(payload.session_id) if m["speaker"] == "user")
+    db.add_message(payload.session_id, "user", text)
+    return {"turn": turns_used + 1}
+
+
 @router.delete("/sessions/{session_id}/last-turn")
 def undo_last_turn(session_id: int):
     """Discard the most recent learner turn so it can be spoken again."""
