@@ -198,9 +198,13 @@ export async function startFromHome(scenarioId = null) {
   // language's history forever with nothing on screen to say so.
   const language = state.language;
   const mode = state.mode;
-  busy = true;
-  $('btn-start').disabled = true;
+  // Inside the try, not before it: a throw between setting `busy` and the
+  // `finally` that clears it latches the flag true for the life of the page,
+  // and every home-screen button then silently stops working. #btn-start
+  // going missing is exactly such a throw. resumeSession has no such gap.
   try {
+    busy = true;
+    $('btn-start').disabled = true;
     let id = scenarioId;
     if (!id && mode !== 'lesson' && wish) {
       const { scenarios } = await fetchScenarios(language, mode);
