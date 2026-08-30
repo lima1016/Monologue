@@ -1,6 +1,7 @@
 """HTTP routes. Thin — every route delegates to a module and shapes the response."""
 import functools
 import json
+import re
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -281,6 +282,37 @@ def _speak(text: str, language: str) -> str | None:
 _NO_FEEDBACK = {"ok": None, "fixed": None, "tag": None,
                 "correction": None, "suggestion": None}
 
+# Quote styles the model actually uses when quoting an example sentence back:
+# straight and curly single/double quotes, and Japanese corner brackets.
+_QUOTED_SPAN = re.compile(
+    r"'([^']*)'|\"([^\"]*)\"|‘([^’]*)’|“([^”]*)”|"
+    r"「([^」]*)」"
+)
+
+
+def _drop_self_quoting_suggestion(suggestion, learner_text: str):
+    """A neutralised correction's `suggestion` is the one field that survives
+    to the screen, and the model wrote it while it still believed in a fix
+    that has since been discarded -- so it sometimes quotes back exactly what
+    the learner already said ("say 'Card, please.'" when the learner said
+    "Card please"), which tells them nothing. Drop it only when a *quoted
+    span* is equal (not merely contains) the learner's own normalised text:
+    a genuine alternative like "Could I have the card, please?" contains
+    "card please" as a substring and must survive.
+
+    Applies only inside neutralisation -- a suggestion attached to a real
+    correction is never touched here. Never raises: a non-string suggestion
+    (schema makes it unlikely, not impossible) is returned unchanged.
+    """
+    if not isinstance(suggestion, str):
+        return suggestion
+    target = normalize(learner_text)
+    for match in _QUOTED_SPAN.finditer(suggestion):
+        span = next(g for g in match.groups() if g is not None)
+        if normalize(span) == target:
+            return None
+    return suggestion
+
 
 def _feedback(language: str, text: str, *, scenario_title=None,
              scenario_goal=None, bot_last=None, topic=None) -> dict:
@@ -331,7 +363,9 @@ def _feedback(language: str, text: str, *, scenario_title=None,
                 "fixed": None,
                 "tag": None,
                 "correction": None,
-                "suggestion": result.get("suggestion"),
+                "suggestion": _drop_self_quoting_suggestion(
+                    result.get("suggestion"), graded_text
+                ),
             }
         return {
             "ok": None if ok is None else bool(ok),

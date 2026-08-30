@@ -367,6 +367,68 @@ GENUINELY_DIFFERENT_PAIRS = [
 ]
 
 
+# Drop a neutralised correction's suggestion when it just quotes back what the
+# learner already said (residue from the model believing in a fix that was
+# since discarded) -- but keep it when the quoted span is a genuine
+# alternative, even one that contains the learner's words as a substring.
+DROP_SELF_QUOTING_CASES = [
+    ("card please", "좀 더 자연스럽게 말하려면 'Card, please.'라고 해보세요.", None),
+    ("card please", "'Could I have the card, please?'라고도 할 수 있어요.",
+     "'Could I have the card, please?'라고도 할 수 있어요."),
+    ("すみません駅はどこですか",
+     "원어민이라면 'すみません、駅はどこですか。'처럼 말할 거예요.", None),
+    ("すみません駅はどこですか",
+     "다른 상황에서는 '駅はどこですか。すみません。'라고도 하고, "
+     "'すみません、駅はどちらですか。'라고도 해요.",
+     "다른 상황에서는 '駅はどこですか。すみません。'라고도 하고, "
+     "'すみません、駅はどちらですか。'라고도 해요."),
+    ("card please", "이 표현을 자주 연습해보세요.", "이 표현을 자주 연습해보세요."),  # no quotes at all
+    ("card please", "''", "''"),  # only an empty quote
+    ("card please", None, None),  # not a string -- must not raise
+]
+
+
+def test_drop_self_quoting_suggestion_only_drops_an_exact_quoted_match():
+    from app import api
+    for learner_text, suggestion, expected in DROP_SELF_QUOTING_CASES:
+        assert api._drop_self_quoting_suggestion(suggestion, learner_text) == expected, \
+            (learner_text, suggestion)
+
+
+def test_chat_drops_a_suggestion_that_only_restates_the_discarded_fix(client, monkeypatch):
+    """Integration: the model believed 'Card, please.' was a real fix, then
+    the punctuation-only check discarded it -- but the suggestion field still
+    quotes it back verbatim, which the learner already said. It must not
+    reach the screen."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+
+    def fake_chat_json(messages, schema, **kw):
+        return {"ok": False, "fixed": "Card, please.", "tag": "어순",
+                "correction": "어순이 잘못되었습니다.",
+                "suggestion": "카드를 받을 때 'Card, please.'라고 말하면 더 자연스러워요."}
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+    body = client.post("/api/chat", json={"session_id": sid, "text": "Card please"}).json()
+    assert body["ok"] is True
+    assert body["suggestion"] is None
+
+
+def test_chat_keeps_a_genuinely_alternative_suggestion_on_a_neutralized_turn(client, monkeypatch):
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+
+    def fake_chat_json(messages, schema, **kw):
+        return {"ok": False, "fixed": "Card, please.", "tag": "어순",
+                "correction": "어순이 잘못되었습니다.",
+                "suggestion": "좀 더 자연스럽게 말하려면 'Could I have the card, please?'라고도 할 수 있어요."}
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+    body = client.post("/api/chat", json={"session_id": sid, "text": "Card please"}).json()
+    assert body["ok"] is True
+    assert body["suggestion"] == "좀 더 자연스럽게 말하려면 'Could I have the card, please?'라고도 할 수 있어요."
+
+
 def test_chat_neutralizes_punctuation_only_corrections(client, monkeypatch):
     """The words never changed -- only punctuation and casing did. That is an
     artifact of browser speech recognition (which returns neither), not the

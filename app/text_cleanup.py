@@ -73,4 +73,7 @@ def strip_fillers(text: str, language: str) -> str:
     if pattern is None:
         return text
     out = pattern.sub("", text)
-    return re.sub(r"\s+", " ", out).strip()
+    out = re.sub(r"\s+", " ", out).strip()
+    # A filler removed from the front can leave the separator that followed
+    # it stranded at the start, e.g. "er, I think so" -> ", I think so".
+    return re.sub(r"^[,、]\s*", "", out)

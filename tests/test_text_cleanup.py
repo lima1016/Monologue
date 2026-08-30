@@ -79,7 +79,15 @@ def test_strip_fillers_does_not_touch_filler_substrings_inside_real_words():
 
 
 def test_strip_fillers_removes_narrow_japanese_disfluencies():
-    assert strip_fillers("えーと、レストランに行きたいです", "ja") == "、レストランに行きたいです"
+    assert strip_fillers("えーと、レストランに行きたいです", "ja") == "レストランに行きたいです"
+
+
+def test_strip_fillers_drops_the_separator_stranded_by_a_removed_filler():
+    """A filler removed from the front can leave the punctuation that
+    followed it stranded, e.g. "er, I think so" -> ", I think so" without
+    this cleanup. ASR never actually returns punctuation (see api._feedback),
+    so this should not arise in practice, but the leftover is tidied anyway."""
+    assert strip_fillers("er, I think so", "en") == "I think so"
     assert strip_fillers("えっとわかりません", "ja") == "わかりません"
 
 
