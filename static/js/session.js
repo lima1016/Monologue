@@ -1,5 +1,5 @@
 import { $, api, getJSON, postJSON, state, notify } from './api.js';
-import { play, setHeardHandler, recognition, BCP47, setRespeakHandler } from './audio.js';
+import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler } from './audio.js';
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
@@ -22,6 +22,13 @@ let scriptExhausted = false;
    an unsupported browser and only explains itself once clicked. */
 const micUnsupported = !recognition;
 
+/* The live transcript while listening -- audio.js streams it in (finalised
+   fragments + whatever is currently interim) via setInterimHandler below.
+   Read only by syncControls, and reset wherever a fresh listen begins, or a
+   stale value from the PREVIOUS utterance would flash in #mic-hint for the
+   instant between pressing the mic and the first onresult of the new one. */
+let liveHeard = '';
+
 /* The one place that knows what is in flight. Callers ask it rather than
    keeping their own copy -- two sources of truth about "is a turn running"
    is exactly the bug the old re-entrancy flag produced. */
@@ -36,7 +43,10 @@ export function canDo(control) {
    function that writes `disabled` on these buttons -- nothing else may, or
    two places could disagree about what's enabled. */
 function syncControls() {
-  $('btn-mic').disabled = !canDo('mic');
+  // Live while listening too (canDo('stop')) -- pressing the mic again is
+  // what ends a turn now, so the button must not go dead the moment a
+  // recognition session starts.
+  $('btn-mic').disabled = !(canDo('mic') || canDo('stop'));
   $('btn-send').disabled = !canDo('send');
   $('btn-next').disabled = !canDo('next');
   $('btn-end').disabled = !canDo('end');
@@ -44,15 +54,25 @@ function syncControls() {
   $('btn-mic').classList.toggle('listening', listening);
   // The mic's glyph is a CSS ::after pseudo-element, not a DOM child, so it
   // cannot carry status text itself -- this hint line is what actually tells
-  // the learner what's happening (carried from Task 4/5's ruling).
+  // the learner what's happening (carried from Task 4/5's ruling). While
+  // listening, showing the live transcript as it's recognised is what lets a
+  // learner actually notice a cut-off before it's sent, instead of only
+  // finding out after. The non-listening text matches index.html's initial
+  // markup so returning to idle doesn't visibly change the wording.
   $('mic-hint').textContent = listening
-    ? '듣고 있습니다...'
-    : '누르고 말하면 자동으로 전송됩니다';
+    ? (liveHeard || '듣고 있습니다...')
+    : '누르고 말한 뒤, 다 말하면 다시 눌러서 전송하세요';
   $('thinking').hidden = turnState !== 'sending';
 }
 
 export function setTurnState(event) {
+  const wasListening = turnState === 'listening' || turnState === 'respeaking';
   turnState = turn.next(turnState, event);
+  const isListening = turnState === 'listening' || turnState === 'respeaking';
+  // A fresh listen must not open on the previous utterance's leftover text --
+  // audio.js's onstart clears its own utterance object the same way, for the
+  // same reason.
+  if (isListening && !wasListening) liveHeard = '';
   syncControls();
   return turnState;
 }
@@ -77,6 +97,9 @@ function handleHeard(transcript) {
   sendText(transcript);
 }
 setHeardHandler(handleHeard);
+// Streams the live transcript into #mic-hint via syncControls -- see
+// `liveHeard`'s own comment for why it's reset separately, in setTurnState.
+setInterimHandler((text) => { liveHeard = text; syncControls(); });
 
 /* ---------- status ---------- */
 
