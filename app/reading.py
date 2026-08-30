@@ -150,3 +150,41 @@ def align(surface, reading_kana):
     if tail:
         parts.append({"text": surface[len(surface) - tail:], "ruby": None})
     return parts
+
+
+@functools.lru_cache(maxsize=1)
+def _tagger():
+    """Tagger는 사전을 통째로 메모리에 올리므로 한 번만 만든다.
+    lru_cache가 프로세스당 1회를 보장한다."""
+    from fugashi import Tagger
+    return Tagger()
+
+
+def analyse(text):
+    """일본어 문장을 토큰 목록으로. 절대 raise하지 않는다."""
+    if not text:
+        return []
+    try:
+        words = list(_tagger()(text))
+    except Exception:
+        return [_plain(text)]
+
+    tokens = []
+    for word in words:
+        kana = getattr(word.feature, "kana", None)
+        if not kana or kana == "*":
+            tokens.append(_plain(word.surface))
+            continue
+        hira = _to_hiragana(kana)
+        tokens.append({
+            "surface": word.surface,
+            "reading": hira,
+            "romaji": to_romaji(kana),
+            "parts": align(word.surface, hira),
+        })
+    return tokens
+
+
+def _plain(text):
+    return {"surface": text, "reading": None, "romaji": None,
+            "parts": [{"text": text, "ruby": None}]}

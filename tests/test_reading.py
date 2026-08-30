@@ -75,3 +75,30 @@ def test_a_reading_that_does_not_match_the_surface_falls_back():
 
 def test_align_with_no_reading_gives_plain_text():
     assert reading.align("ABC", None) == [{"text": "ABC", "ruby": None}]
+
+
+def test_analyse_returns_one_token_per_word_with_parts():
+    tokens = reading.analyse("寿司を食べる")
+    assert [t["surface"] for t in tokens] == ["寿司", "を", "食べる"]
+    assert tokens[0]["parts"] == [{"text": "寿司", "ruby": "すし"}]
+    assert tokens[1]["parts"] == [{"text": "を", "ruby": None}]
+    assert tokens[2]["parts"] == [{"text": "食", "ruby": "た"},
+                                  {"text": "べる", "ruby": None}]
+    assert tokens[0]["romaji"] == "sushi"
+
+
+def test_analyse_never_raises_when_the_dictionary_is_unavailable(monkeypatch):
+    """사전이 없다고 학습자의 줄이 비면 안 된다. 보조가 없는 것과
+    줄이 사라지는 것은 다른 문제다."""
+    monkeypatch.setattr(reading, "_tagger", _boom)
+    tokens = reading.analyse("寿司を食べる")
+    assert tokens == [{"surface": "寿司を食べる", "reading": None, "romaji": None,
+                       "parts": [{"text": "寿司を食べる", "ruby": None}]}]
+
+
+def _boom():
+    raise RuntimeError("no dictionary")
+
+
+def test_analyse_of_empty_text_is_empty():
+    assert reading.analyse("") == []
