@@ -8,7 +8,13 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-from app import config
+from app import config, scenarios
+
+# scenarios.py imports this module back, so these two form an import cycle.
+# It resolves because neither module *calls* into the other at module-body
+# time -- only inside functions. Adding a scenarios.* call at the top level of
+# this file (or a db.* call at the top level of that one) breaks the import
+# outright, so don't.
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -529,24 +535,6 @@ def set_setting(key, value) -> None:
         )
 
 
-def _scenario_row(row) -> dict:
-    """Return a generated scenario in the same shape data/scenarios.json uses,
-    so callers cannot tell a generated one from a built-in one."""
-    item = {
-        "id": row["id"], "language": row["language"], "type": row["type"],
-        "title": row["title"], "goal": row["goal"],
-    }
-    if row["type"] == "free":
-        item["persona_prompt"] = row["persona_prompt"]
-        item["max_turns"] = row["max_turns"]
-        item["lines"] = None
-    else:
-        item["lines"] = json.loads(row["lines_json"]) if row["lines_json"] else None
-        item["persona_prompt"] = row["persona_prompt"]
-        item["max_turns"] = row["max_turns"]
-    return item
-
-
 def add_user_scenario(item) -> None:
     with connect() as conn:
         conn.execute(
@@ -570,7 +558,7 @@ def user_scenarios(language, kind=None) -> list[dict]:
         args.append(kind)
     sql += " ORDER BY created_at DESC, id DESC"
     with connect() as conn:
-        return [_scenario_row(r) for r in conn.execute(sql, args)]
+        return [scenarios.from_row(r) for r in conn.execute(sql, args)]
 
 
 def get_user_scenario(scenario_id):
@@ -578,4 +566,4 @@ def get_user_scenario(scenario_id):
         row = conn.execute(
             "SELECT * FROM user_scenarios WHERE id = ?", (scenario_id,)
         ).fetchone()
-    return _scenario_row(row) if row else None
+    return scenarios.from_row(row) if row else None

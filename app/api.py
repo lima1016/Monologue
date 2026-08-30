@@ -214,7 +214,7 @@ def start_session(payload: SessionStart):
         # two of its three shapes crash (`script` mode on a free scenario dies
         # on scenario["lines"], `free` mode on a *built-in* script scenario
         # dies on scenario["persona_prompt"]). A `free` request naming a
-        # *generated* script scenario returns 200, because db._scenario_row
+        # *generated* script scenario returns 200, because scenarios.from_row
         # materialises persona_prompt for script rows too -- NULL for any the
         # generator never gave one -- and prompts.py reads it with a bracket,
         # so the `or`-fallback that defuses `goal` never applies. The prompt

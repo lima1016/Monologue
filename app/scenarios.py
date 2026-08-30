@@ -48,6 +48,34 @@ def validate_item(item) -> None:
             raise ScenarioError(f"{where}: script speakers must alternate")
 
 
+def from_row(row) -> dict:
+    """Return a stored scenario in the same shape data/scenarios.json uses, so
+    callers cannot tell a generated one from a built-in one.
+
+    Lives here rather than in db.py because that shape is this module's
+    knowledge, not the database layer's -- and the leak was already visible:
+    two other modules' comments (app/prompts.py, tests/test_prompts.py) had to
+    name a private function of db.py to explain themselves.
+
+    Every key is materialised, including the ones that are None. That is what
+    makes a `.get(key, default)` on a stored scenario silently useless -- the
+    key is present, so the default never fires -- and it is why prompts.py uses
+    `or` rather than a get-default for goal and max_turns."""
+    item = {
+        "id": row["id"], "language": row["language"], "type": row["type"],
+        "title": row["title"], "goal": row["goal"],
+    }
+    if row["type"] == "free":
+        item["persona_prompt"] = row["persona_prompt"]
+        item["max_turns"] = row["max_turns"]
+        item["lines"] = None
+    else:
+        item["lines"] = json.loads(row["lines_json"]) if row["lines_json"] else None
+        item["persona_prompt"] = row["persona_prompt"]
+        item["max_turns"] = row["max_turns"]
+    return item
+
+
 def load_scenarios(path=None) -> list[dict]:
     """Read and validate the catalogue. Raises ScenarioError on bad content."""
     if path is None:

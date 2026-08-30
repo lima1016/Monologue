@@ -122,7 +122,7 @@ def test_a_free_request_naming_a_script_scenario_is_rejected(client):
 
 def test_a_free_request_naming_a_generated_script_scenario_is_rejected(client):
     """This is the one that made the check Important rather than tidy-up: it
-    used to return 200. db._scenario_row materialises persona_prompt for script
+    used to return 200. scenarios.from_row materialises persona_prompt for script
     rows too -- NULL for any script the generator never gave one -- and
     prompts.py reads it with a bracket, so the `or`-fallback that defuses
     `goal` never fires. The session was written, the prompt carried the literal

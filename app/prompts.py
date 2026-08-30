@@ -203,7 +203,7 @@ def build_system_prompt(mode, language, *, scenario=None, topic=None,
         if not scenario:
             raise ValueError("free mode needs a scenario")
         # `or`, not a .get default: a built-in scenario omits `goal` entirely,
-        # but a generated one round-trips through db._scenario_row, which
+        # but a generated one round-trips through scenarios.from_row, which
         # always materialises the key -- so a scenario with no goal reads back
         # as {"goal": None}, the key is present, and a default keyed on absence
         # never fires. That put the literal text "Scene goal: None" into the

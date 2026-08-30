@@ -24,7 +24,7 @@ def test_free_mode_embeds_persona_and_goal():
 
 
 def test_a_stored_scenario_with_no_goal_falls_back_instead_of_saying_None():
-    """db._scenario_row always materialises `goal`, so a generated scenario
+    """scenarios.from_row always materialises `goal`, so a generated scenario
     with none reads back as {"goal": None} -- the key is present and a default
     keyed on its absence never fires. The prompt then literally told the model
     "Scene goal: None". A built-in scenario omits the key entirely, which is
