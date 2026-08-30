@@ -184,3 +184,56 @@ test('a failed resume releases the guard', async () => {
   await started;
   assert.ok(seen.sessionBody, 'the home screen was still locked after a failed resume');
 });
+
+/* The third door: nothing typed, so the catalogue picks for the learner. Same
+   capture rule as the two tests at the top of this file, through a shorter
+   window -- a local GET rather than the multi-second generate call -- and the
+   branch that had no test of its own.
+
+   Where the window actually is, on this path: not on the catalogue request.
+   With an empty wish nothing is awaited between capturing `language` and
+   building that URL, so it is already in flight as `en` before any switch can
+   land -- the first assertion below pins exactly that. The window opens once
+   the GET resolves, and closes at POST /sessions: a scenario drawn from the
+   captured language must be posted under it, not under whatever the language
+   segment says by the time the POST is built. */
+test('an empty wish posts a scenario from the language it was captured under', async () => {
+  state.language = 'en';
+  state.mode = 'free';
+  state.sessionId = null;
+  $('wish').value = '';                          // nothing typed: pick one for me
+
+  let releaseCatalogue;
+  const held = new Promise((r) => { releaseCatalogue = r; });
+  const seen = { sessionBody: null, catalogue: [] };
+  stubFetch(async (url, options) => {
+    if (url.startsWith('/api/scenarios?')) {
+      seen.catalogue.push(url);
+      await held;                                // the catalogue GET, held open
+      // Each language's catalogue is disjoint, so the posted id says which one
+      // the scenario was drawn from -- and every scenario in a list is the
+      // same answer, so the random pick cannot make this flaky.
+      return jsonResponse({ scenarios: url.includes('language=ja')
+        ? [{ id: 'ja-1', title: '受付' }, { id: 'ja-2', title: '道案内' }]
+        : [{ id: 'en-1', title: 'reception' }, { id: 'en-2', title: 'directions' }] });
+    }
+    if (url === '/api/sessions') {
+      seen.sessionBody = JSON.parse(options.body);
+      return jsonResponse({ session_id: 7, mode: 'free', opening: 'Hi.',
+                            opening_audio: null, goal: 'g' });
+    }
+    return jsonResponse({});
+  });
+
+  const started = home.startFromHome();
+  await new Promise((r) => setTimeout(r, 0));    // let it reach the catalogue await
+  state.language = 'ja';                         // 日本語 pressed while it waits
+  releaseCatalogue();
+  await started;
+
+  assert.deepEqual(seen.catalogue, ['/api/scenarios?language=en&mode=free'],
+    'the catalogue was fetched for a language other than the captured one');
+  assert.equal(seen.sessionBody.language, 'en');
+  assert.match(seen.sessionBody.scenario_id, /^en-/,
+    'POST /sessions bound an en session to a scenario from the switched-to language');
+});
