@@ -16,7 +16,8 @@ export function getPrefs() { return { ...prefs }; }
 export function setPrefs(next) { prefs = { ...prefs, ...next }; }
 
 const escapeHtml = (s) => String(s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 export function renderTokens(tokens, options = prefs) {
   const body = tokens.map((t) => t.parts.map((p) => {

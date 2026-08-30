@@ -1,13 +1,30 @@
 /* 읽기 보조의 렌더러. 가장 중요한 테스트는 마지막 것이다 -- 요청이 실패해도
    줄이 평문으로 남아야 한다. 학습자가 읽어야 할 줄이 비는 것은 보조가 없는
    것보다 나쁘다. */
-import { test } from 'node:test';
+import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { jsonResponse, resetDom, stubFetch } from './dom-shim.js';
-import { renderTokens } from './reading.js';
+import { renderTokens, getPrefs, setPrefs } from './reading.js';
 
 const ALL = { furigana: true, romaji: true };
+
+/* `prefs` is a module global, and every `await import('./reading.js')` below
+   (no query string) resolves to the exact same cached instance as this
+   file's static import above -- there is only ever one `reading.js` in this
+   process. That is fine as long as nothing sets it, but Task 7 wires the
+   settings checkboxes to `setPrefs`, and the moment a test calls it the
+   value leaks into whatever test runs next in this same file (node's test
+   runner runs a file's top-level tests in source order, not in parallel
+   isolated processes). Reset explicitly before each test rather than via a
+   fresh-URL re-import: a fresh import would hand back a *second* module
+   instance whose `prefs` a `setPrefs` call here would never touch, while the
+   tests above keep reading the first, statically-imported instance -- silently
+   asserting against the wrong object. An explicit reset stays correct as
+   long as it lists every key `prefs` has; that's the accepted cost. */
+beforeEach(() => {
+  setPrefs({ furigana: true, romaji: true });
+});
 
 test('a kanji token gets ruby over the kanji only', () => {
   const tokens = [{
@@ -137,4 +154,33 @@ test('a failed translation says so instead of blanking the line', async () => {
 
   assert.match(body.textContent, /뜻을 가져오지 못했습니다/);
   assert.equal(el.dataset.ja, 'こんにちは', '원문은 그대로 남는다');
+});
+
+test('getPrefs returns the defaults, and a copy rather than a live reference', () => {
+  const prefs = getPrefs();
+  assert.deepEqual(prefs, { furigana: true, romaji: true });
+
+  prefs.furigana = false; // mutating the returned object must not reach the module
+  assert.deepEqual(getPrefs(), { furigana: true, romaji: true });
+});
+
+test('setPrefs changes what renderTokens defaults to when no options are given', () => {
+  const tokens = [{
+    surface: '寿司', reading: 'すし', romaji: 'sushi',
+    parts: [{ text: '寿司', ruby: 'すし' }],
+  }];
+  setPrefs({ romaji: false });
+  const html = renderTokens(tokens); // no options -- must fall back to the module's own prefs
+  assert.doesNotMatch(html, /sushi/);
+});
+
+test('the next test never sees a previous test\'s setPrefs call', () => {
+  /* Proof, not hope: this only passes if beforeEach actually restored the
+     defaults after the previous test set romaji:false. */
+  const tokens = [{
+    surface: '寿司', reading: 'すし', romaji: 'sushi',
+    parts: [{ text: '寿司', ruby: 'すし' }],
+  }];
+  const html = renderTokens(tokens); // no options
+  assert.match(html, /sushi/);
 });
