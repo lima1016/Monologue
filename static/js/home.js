@@ -11,6 +11,18 @@ import { $, getJSON, postJSON, state, notify } from './api.js';
 import * as router from './router.js';
 import { addMessage, startSession } from './session.js';
 
+/* One place that builds the catalogue request, so the three callers below
+   cannot drift apart on the query string. Deliberately not cached: a cache
+   here would have to be invalidated on language switch, on mode switch and on
+   every scenario generation, and getting that wrong recreates the
+   wrong-language-chip bug this screen already had once. The two calls inside
+   startFromHome are mutually exclusive per press, so nothing is fetched twice
+   in one gesture either -- this is duplicated code, not a duplicated round
+   trip. */
+function fetchScenarios(language, mode) {
+  return getJSON(`/scenarios?language=${language}&mode=${mode}`);
+}
+
 // Filled by loadHome (Task 8) once a resumable session is found; read by
 // resumeSession (Task 8). Declared here, ahead of either function, so a
 // module that only defines one of the two never references an identifier
@@ -126,7 +138,7 @@ export async function loadChips() {
   const mode = state.mode;
   if (mode === 'lesson') return;   // lesson takes a topic, not a scenario
   try {
-    const { scenarios } = await getJSON(`/scenarios?language=${lang}&mode=${mode}`);
+    const { scenarios } = await fetchScenarios(lang, mode);
     if (state.language !== lang || state.mode !== mode) return; // a newer switch already won
     for (const s of scenarios.slice(0, 8)) {
       const b = document.createElement('button');
@@ -174,7 +186,7 @@ export async function startFromHome(scenarioId = null) {
   try {
     let id = scenarioId;
     if (!id && mode !== 'lesson' && wish) {
-      const { scenarios } = await getJSON(`/scenarios?language=${language}&mode=${mode}`);
+      const { scenarios } = await fetchScenarios(language, mode);
       const hit = scenarios.find((s) => s.title.trim() === wish);
       if (hit) id = hit.id;
       else {
@@ -185,7 +197,7 @@ export async function startFromHome(scenarioId = null) {
       }
     }
     if (!id && mode !== 'lesson') {
-      const { scenarios } = await getJSON(`/scenarios?language=${language}&mode=${mode}`);
+      const { scenarios } = await fetchScenarios(language, mode);
       if (!scenarios.length) { notify('연습할 상황이 없습니다.'); return; }
       id = scenarios[Math.floor(Math.random() * scenarios.length)].id;
     }
