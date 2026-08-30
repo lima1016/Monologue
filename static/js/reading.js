@@ -57,3 +57,23 @@ export async function annotate(entries) {
     entry.el.dataset.ja = entry.text;
   });
 }
+
+/* 뜻은 el.dataset.meaning에 한 번만 담아두고, 그 뒤로는 열고 닫기만 한다.
+   서버도 캐시하지만 여기서 한 번 더 막는 이유는, 왕복 자체를 없애야 접었다
+   폈다 하는 동작이 즉각적으로 느껴지기 때문이다. */
+export async function toggleMeaning(el, body) {
+  if (body.textContent) {
+    body.hidden = !body.hidden;
+    return;
+  }
+  try {
+    const { meaning } = await postJSON('/translate', {
+      language: 'ja',
+      text: el.dataset.ja,
+    });
+    body.textContent = meaning;
+  } catch {
+    body.textContent = '뜻을 가져오지 못했습니다.';
+  }
+  body.hidden = false;
+}

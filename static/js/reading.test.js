@@ -95,3 +95,46 @@ test('annotate asks for nothing when there is nothing to annotate', async () => 
   await annotate([]);
   assert.equal(called, false);
 });
+
+test('the meaning toggle fetches once and then just reopens', async () => {
+  resetDom();
+  const { annotate, toggleMeaning } = await import('./reading.js');
+  let translateCalls = 0;
+  stubFetch(async (url) => {
+    if (String(url).includes('/translate')) {
+      translateCalls += 1;
+      return jsonResponse({ meaning: '어서 오세요' });
+    }
+    return jsonResponse({ readings: [[{
+      surface: 'いらっしゃいませ', reading: 'いらっしゃいませ', romaji: 'irasshaimase',
+      parts: [{ text: 'いらっしゃいませ', ruby: null }],
+    }]] });
+  });
+
+  const el = document.createElement('li');
+  await annotate([{ el, text: 'いらっしゃいませ' }]);
+
+  const body = document.createElement('span');
+  await toggleMeaning(el, body);
+  assert.equal(body.textContent, '어서 오세요');
+  assert.equal(body.hidden, false);
+
+  await toggleMeaning(el, body);          // 접는다
+  assert.equal(body.hidden, true);
+  await toggleMeaning(el, body);          // 다시 편다
+  assert.equal(translateCalls, 1, '두 번째 펼침은 요청 없이 열려야 한다');
+});
+
+test('a failed translation says so instead of blanking the line', async () => {
+  resetDom();
+  const { toggleMeaning } = await import('./reading.js');
+  stubFetch(async () => jsonResponse({ detail: 'down' }, { ok: false, status: 503 }));
+
+  const el = document.createElement('li');
+  el.dataset.ja = 'こんにちは';
+  const body = document.createElement('span');
+  await toggleMeaning(el, body);
+
+  assert.match(body.textContent, /뜻을 가져오지 못했습니다/);
+  assert.equal(el.dataset.ja, 'こんにちは', '원문은 그대로 남는다');
+});
