@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { $, state } from './api.js';
-import { startFromHome } from './session.js';
+import { startFromHome } from './home.js';
 import { jsonResponse, stubFetch } from './dom-shim.js';
 
 /* Answers every request the wish path makes, and hands back a handle on the

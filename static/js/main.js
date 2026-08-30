@@ -1,7 +1,8 @@
 import { $, postJSON, notify, state } from './api.js';
 import { recognition, BCP47, startRecording, stopRecording, setRespeakHandler } from './audio.js';
-import { refreshHealth, loadChips, loadHome, resumeSession, startFromHome,
-         sendTurn, nextScriptLine, endSession, undoLastTurn, setTurnState, canDo } from './session.js';
+import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
+         setTurnState, canDo } from './session.js';
+import { loadChips, loadHome, resumeSession, startFromHome } from './home.js';
 import { renderVoiceList, previewVoice } from './settings.js';
 import * as router from './router.js';
 
