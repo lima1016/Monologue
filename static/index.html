@@ -63,7 +63,12 @@
 
     <div class="stats" id="home-stats" hidden>
       <div class="stat"><span class="v" id="stat-streak">0</span><span class="k">연속 학습일</span></div>
-      <div class="stat"><span class="v" id="stat-week">0</span><span class="k">이번 주 발화</span></div>
+      <!-- "이번 주" until Phase C's review: db.home_stats counts learner
+           messages since now - 7 days, a rolling window, so on a Wednesday it
+           includes last Thursday. The label was the half that was wrong -- a
+           rolling window is the better number for a motivation counter because
+           it never collapses to near-zero every Monday morning. -->
+      <div class="stat"><span class="v" id="stat-week">0</span><span class="k">최근 7일 발화</span></div>
       <div class="stat"><span class="v" id="stat-fixed">0</span><span class="k">고친 표현</span></div>
     </div>
   </section>
