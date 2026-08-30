@@ -91,6 +91,30 @@ export async function loadHome() {
   }
 }
 
+/* The one thing that knows a session is already being opened -- by either door.
+
+   Opening one is a multi-second local-model call, and #wish (Enter) and the
+   chips both reach startFromHome while #btn-start is disabled, so disabling
+   that one button is not a guard. Two Enter presses, or a chip clicked during a
+   generation wait, create *two* sessions; the loser is left open holding only
+   its bot opening line, and would then be offered back as the resume card.
+   Same defect and same shape as the `ending` flag in session.js (and as commit
+   07caa64 for sendTurn): a flag, not a disabled attribute, because the entry
+   points are not all buttons.
+
+   One flag rather than one per door, because what is being guarded is one
+   resource -- state.sessionId and the session screen painted from it -- and two
+   flags could only ever give two answers to the single question "is a session
+   already being opened". 이어서 하기 pressed during a generation wait used to set
+   state.sessionId to the resume target and show the session screen, and the
+   in-flight startSession then overwrote it, re-showed the screen and wiped
+   #conversation: nothing corrupted, but the learner watched the conversation
+   they had just asked for be replaced by a different one.
+
+   Every path that sets it must clear it in a `finally`, or one failed start or
+   resume locks the home screen for the rest of the page's life. */
+let busy = false;
+
 /* 이어서 하기: attach to the existing session rather than starting a new one.
    GET /sessions/{id} already returns every message, so replaying them is
    enough to restore the conversation on screen.
@@ -102,7 +126,8 @@ export async function loadHome() {
    GET /sessions/resumable itself); resumeSession does not need its own
    guard for it because resumeTarget can never hold a script session. */
 export async function resumeSession() {
-  if (!resumeTarget) return;
+  if (!resumeTarget || busy) return;
+  busy = true;
   try {
     const { messages } = await getJSON(`/sessions/${resumeTarget.id}`);
     state.sessionId = resumeTarget.id;
@@ -120,6 +145,8 @@ export async function resumeSession() {
     notify('');
   } catch (err) {
     notify(`이어서 하지 못했습니다: ${err.message}`);
+  } finally {
+    busy = false;
   }
 }
 
@@ -155,22 +182,12 @@ export async function loadChips() {
   }
 }
 
-/* Starting is a multi-second local-model call, and #wish (Enter) and the chips
-   both reach it while #btn-start is disabled -- so disabling that one button is
-   not a guard. Two Enter presses, or a chip clicked during a generation wait,
-   create *two* sessions; the loser is left open holding only its bot opening
-   line, and would then be offered back as the resume card. Same defect and same
-   shape as the `ending` flag in session.js (and as commit 07caa64 for sendTurn):
-   a flag, not a disabled attribute, because the entry points are not all
-   buttons. */
-let starting = false;
-
 /* Three ways in, one button:
    - a chip, or text that names a scenario we already have -> reuse it
    - text we have never seen -> ask the model to build it
    - nothing typed -> pick one, because "고르세요" is what this screen removed */
 export async function startFromHome(scenarioId = null) {
-  if (starting) return;
+  if (busy) return;
   const wish = $('wish').value.trim();
   // Captured once, here, and used for every request below -- never re-read
   // from `state` after an await. /scenarios/generate is a local 14b call that
@@ -181,7 +198,7 @@ export async function startFromHome(scenarioId = null) {
   // language's history forever with nothing on screen to say so.
   const language = state.language;
   const mode = state.mode;
-  starting = true;
+  busy = true;
   $('btn-start').disabled = true;
   try {
     let id = scenarioId;
@@ -205,7 +222,7 @@ export async function startFromHome(scenarioId = null) {
   } catch (err) {
     notify(`시작하지 못했습니다: ${err.message}`);
   } finally {
-    starting = false;
+    busy = false;
     $('btn-start').disabled = false;
   }
 }
