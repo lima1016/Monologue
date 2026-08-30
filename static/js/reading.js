@@ -13,7 +13,17 @@ import { postJSON } from './api.js';
 let prefs = { furigana: true, romaji: true };
 
 export function getPrefs() { return { ...prefs }; }
-export function setPrefs(next) { prefs = { ...prefs, ...next }; }
+
+/* 켜고 끄는 것은 그리기가 아니라 CSS 클래스다 -- annotate는 항상 두 층을
+   다 그리고(아래), body의 클래스만 무엇이 보이는지 결정한다. 그래서 이미
+   화면에 있는 줄도 다음 렌더를 기다리지 않고 즉시 반응한다. 다시 켜는
+   방향도 마찬가지다: 꺼져 있는 동안 그려진 줄도 로마자 span과 rt는 이미
+   DOM에 있으므로, 클래스만 벗기면 그 자리에서 나타난다. */
+export function setPrefs(next) {
+  prefs = { ...prefs, ...next };
+  document.body.classList.toggle('hide-furigana', !prefs.furigana);
+  document.body.classList.toggle('hide-romaji', !prefs.romaji);
+}
 
 const escapeHtml = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -54,7 +64,10 @@ export async function annotate(entries) {
   entries.forEach((entry, i) => {
     const tokens = readings[i];
     if (!tokens || !tokens.length) return;
-    entry.el.innerHTML = renderTokens(tokens);
+    // 항상 둘 다 그린다 -- 지금 켜져 있는 것만 그리면, 나중에 반대로 토글할
+    // 때 이 줄에는 다시 그릴 계기가 없어서 켜도/꺼도 반응하지 않는다.
+    // 무엇을 보여줄지는 setPrefs가 바꾸는 body 클래스가 정한다.
+    entry.el.innerHTML = renderTokens(tokens, { furigana: true, romaji: true });
     entry.el.dataset.ja = entry.text;
   });
 }

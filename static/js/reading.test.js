@@ -4,7 +4,7 @@
 import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import './dom-shim.js';
-import { jsonResponse, resetDom, stubFetch } from './dom-shim.js';
+import { document, jsonResponse, resetDom, stubFetch } from './dom-shim.js';
 import { renderTokens, getPrefs, setPrefs } from './reading.js';
 
 const ALL = { furigana: true, romaji: true };
@@ -24,6 +24,12 @@ const ALL = { furigana: true, romaji: true };
    long as it lists every key `prefs` has; that's the accepted cost. */
 beforeEach(() => {
   setPrefs({ furigana: true, romaji: true });
+  // Belt and braces: setPrefs(ALL) already strips both hide-* classes as a
+  // side effect, but a body class is one more piece of module-adjacent state
+  // this file's tests share (dom-shim's `document.body` is a single instance
+  // for the whole process) -- clear it outright rather than depend on that
+  // side effect continuing to cover every class a future test might add.
+  document.body.className = '';
 });
 
 test('a kanji token gets ruby over the kanji only', () => {
@@ -87,6 +93,27 @@ test('annotate upgrades every element in one request', async () => {
   assert.deepEqual(requests[0].body.texts, ['寿司', '茶']);
   assert.match(a.innerHTML, /<rt>すし<\/rt>/);
   assert.match(b.innerHTML, /<rt>ちゃ<\/rt>/);
+});
+
+test('annotate always draws both layers, even with both prefs off', async () => {
+  /* 켜고 끄는 것은 CSS의 몫이지 렌더의 몫이 아니다. 지금 꺼져 있다고 해서
+     로마자 span이나 rt를 아예 그리지 않으면, 나중에 다시 켰을 때 이미
+     그려진 줄에는 되살릴 것이 DOM에 없다 -- 다음 줄이 그려질 때까지
+     반응하지 않는, 이 라운드가 고치는 바로 그 버그가 반대 방향으로
+     재현된다. */
+  resetDom();
+  setPrefs({ furigana: false, romaji: false });
+  const { annotate } = await import('./reading.js');
+  stubFetch(async () => jsonResponse({ readings: [
+    [{ surface: '寿司', reading: 'すし', romaji: 'sushi',
+       parts: [{ text: '寿司', ruby: 'すし' }] }],
+  ] }));
+
+  const el = document.createElement('li');
+  await annotate([{ el, text: '寿司' }]);
+
+  assert.match(el.innerHTML, /<rt>すし<\/rt>/, 'rt는 항상 그려져야 한다');
+  assert.match(el.innerHTML, /class="romaji">sushi</, 'romaji span도 항상 그려져야 한다');
 });
 
 test('a failed reading request leaves the line readable', async () => {
@@ -172,6 +199,20 @@ test('setPrefs changes what renderTokens defaults to when no options are given',
   setPrefs({ romaji: false });
   const html = renderTokens(tokens); // no options -- must fall back to the module's own prefs
   assert.doesNotMatch(html, /sushi/);
+});
+
+test('setPrefs toggles hide-romaji on the body element in both directions', () => {
+  setPrefs({ romaji: false });
+  assert.ok(document.body.classList.contains('hide-romaji'));
+  setPrefs({ romaji: true });
+  assert.ok(!document.body.classList.contains('hide-romaji'));
+});
+
+test('setPrefs toggles hide-furigana on the body element in both directions', () => {
+  setPrefs({ furigana: false });
+  assert.ok(document.body.classList.contains('hide-furigana'));
+  setPrefs({ furigana: true });
+  assert.ok(!document.body.classList.contains('hide-furigana'));
 });
 
 test('the next test never sees a previous test\'s setPrefs call', () => {

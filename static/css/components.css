@@ -381,10 +381,16 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 
 @media (max-width: 560px) { .modes { grid-template-columns: 1fr; } }
 
-/* 읽기 보조. 루비는 브라우저 기본 기능이라 라이브러리가 필요 없다. */
+/* 읽기 보조. 루비는 브라우저 기본 기능이라 라이브러리가 필요 없다.
+   후리가나·로마자는 항상 그려지고, 끄고 켜는 것은 CSS의 몫이다 -- 이미
+   그려진 줄이 설정 변경에 즉시 반응해야 하고(다음 줄이 그려질 때까지
+   기다리게 하면 안 된다), 다시 켜는 방향도 재요청 없이 그 자리에서
+   나타나야 하기 때문이다. */
 rt { font-size: .55em; color: var(--text-dim); font-weight: 400; }
+body.hide-furigana rt { display: none; }
 .romaji { display: block; font-size: var(--text-xs); color: var(--text-dim);
           letter-spacing: .01em; margin-top: 2px; }
+body.hide-romaji .romaji { display: none; }
 /* 루비가 붙은 줄은 위로 자란다. 줄 간격을 넉넉히 주지 않으면 윗줄의
    후리가나와 아랫줄의 본문이 서로 닿는다. */
 .line[data-ja], .msg.bot[data-ja] { line-height: 2.1; }
