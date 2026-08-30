@@ -5,6 +5,12 @@ roleplay, script roleplay, and a lesson with a teacher persona — plus grammar
 corrections, phrasing suggestions, and an end-of-session report that also
 estimates your level.
 
+You start from a home screen with one input: type what you want to practise and
+it either finds a matching situation or has the model build one on the spot, and
+leaving it blank picks one for you. The session you walked away from is offered
+back, and a small panel keeps your practice streak, how much you have spoken in
+the last 7 days, and how many expressions you have had corrected.
+
 Everything runs locally. Running cost is zero.
 
 ## What runs where
@@ -121,6 +127,12 @@ HTTP API로 직접 재현해 세션 시작 → 턴 진행 → 세션 종료까�
 통과시켰고, 매번 `audio_key`가 채워지는 것을 확인해 Kokoro/VOICEVOX 합성이
 실제로 동작함을 확인했습니다. 세션 종료 후 리포트가 한국어로 오고 레벨이
 저장되며, 그 레벨이 `db.latest_level()`에 그대로 반영되는 것도 확인했습니다.
+
+**위 문단은 Phase 1 시점의 기록입니다 — `db.latest_level()`은 Phase 2C에서
+삭제되었습니다.** 한 세션의 레벨 추정은 노이즈(같은 대본을 세 번 돌려
+beginner/intermediate/advanced가 모두 나왔습니다)라, 호출자 두 곳 모두 최근
+세션들의 최빈값을 보는 `db.stable_level()`로 옮겼습니다. 위에서 확인한 내용
+자체는 그대로이고, 그 값을 읽는 함수 이름만 바뀐 것입니다.
 
 확인하지 못한 것: 실제 오디오를 귀로 들어보는 것, 마이크 녹음 UX, 브라우저
 화면의 시각적 레이아웃(하이라이트 이동 등)은 API 호출만으로는 검증할 수
