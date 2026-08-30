@@ -1,4 +1,5 @@
 """HTTP routes. Thin — every route delegates to a module and shapes the response."""
+import functools
 import json
 import uuid
 from pathlib import Path
@@ -7,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
 
-from app import config, db, llm, prompts, scenarios, tts
+from app import config, db, llm, prompts, reading, scenarios, tts
 from app.tts import voicevox_backend
 
 router = APIRouter(prefix="/api")
@@ -122,6 +123,36 @@ def preview_voice(payload: VoiceSelection):
     except tts.TTSError as exc:
         raise HTTPException(503, str(exc)) from exc
     return Response(content=audio, media_type="audio/wav")
+
+
+class ReadingRequest(BaseModel):
+    language: Language
+    texts: list[str]
+
+
+@router.post("/reading")
+def line_readings(payload: ReadingRequest):
+    """그리려는 일본어 줄들의 후리가나·로마자.
+
+    줄 단위가 아니라 화면 단위로 받는 이유는, 세션 payload마다 reading 필드를
+    붙이는 대신 이 하나만 두기 위해서다 -- 이어서 하기 재생이 addMessage를
+    그대로 쓰므로 그 경로가 공짜로 덮인다.
+    """
+    if payload.language != "ja":
+        raise HTTPException(400, "reading aids are only for Japanese")
+    return {"readings": [_cached_reading(t) for t in payload.texts]}
+
+
+@functools.lru_cache(maxsize=512)
+def _cached_reading(text: str) -> list[dict]:
+    # 읽기는 결정적이고 텍스트는 반복된다(이어서 하기 때 같은 줄이 다시 온다).
+    # 상한이 있어야 한다 -- 자유 대화는 매 턴 새 문장을 만들므로 무제한 캐시는
+    # 세션이 길어질수록 자라기만 한다.
+    #
+    # 반환된 리스트는 캐시가 들고 있는 바로 그 객체다. 호출자는 이것을
+    # 변형하면 안 된다 -- 제자리에서 고치면 그 텍스트의 이후 응답이 전부
+    # 오염된다. 지금은 라우트가 FastAPI 직렬화기에 그대로 넘길 뿐이다.
+    return reading.analyse(text)
 
 
 class SessionStart(BaseModel):
