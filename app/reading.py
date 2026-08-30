@@ -97,3 +97,56 @@ def _to_hiragana(text):
     return "".join(
         chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in text
     )
+
+
+def _is_kana(ch):
+    return "ぁ" <= ch <= "ゖ" or "ァ" <= ch <= "ヺ" or ch == "ー"
+
+
+def align(surface, reading_kana):
+    """읽기를 표기 위에 앉힌다. 규칙은 설계 문서에 있다:
+
+    1. 읽기를 히라가나로 맞춘다
+    2. 표기와 읽기에서 앞뒤로 일치하는 가나를 벗겨낸다
+    3. 남은 표기가 한자 한 덩어리면 그 위에 남은 읽기를 올린다
+    4. 남은 표기에 한자가 없으면 루비를 붙이지 않는다
+    5. 그 밖의 모든 경우 -- 한자 덩어리가 둘 이상이거나, 읽기가 표기와
+       아귀가 안 맞거나 -- 토큰 전체 위에 읽기를 통째로 올린다
+
+    5번이 이 함수의 안전망이다. 어떤 입력에도 '틀린 위치의 읽기'를 만들지
+    않는다.
+    """
+    if not reading_kana:
+        return [{"text": surface, "ruby": None}]
+
+    kana_reading = _to_hiragana(reading_kana)
+    kana_surface = _to_hiragana(surface)
+
+    if kana_surface == kana_reading:  # 한자가 없다
+        return [{"text": surface, "ruby": None}]
+
+    head = 0
+    while (head < len(surface) and head < len(kana_reading)
+           and _is_kana(surface[head]) and kana_surface[head] == kana_reading[head]):
+        head += 1
+
+    tail = 0
+    while (tail < len(surface) - head and tail < len(kana_reading) - head
+           and _is_kana(surface[-1 - tail])
+           and kana_surface[-1 - tail] == kana_reading[-1 - tail]):
+        tail += 1
+
+    core = surface[head:len(surface) - tail]
+    core_reading = kana_reading[head:len(kana_reading) - tail]
+
+    # 남은 표기 안에 가나가 섞여 있으면 한자 덩어리가 둘 이상이라는 뜻이다.
+    if not core or not core_reading or any(_is_kana(c) for c in core):
+        return [{"text": surface, "ruby": kana_reading}]
+
+    parts = []
+    if head:
+        parts.append({"text": surface[:head], "ruby": None})
+    parts.append({"text": core, "ruby": core_reading})
+    if tail:
+        parts.append({"text": surface[len(surface) - tail:], "ruby": None})
+    return parts

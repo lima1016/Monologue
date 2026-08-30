@@ -33,3 +33,45 @@ def test_romaji_repeats_the_vowel_for_a_long_mark():
 def test_romaji_returns_none_for_nothing_to_convert():
     assert reading.to_romaji(None) is None
     assert reading.to_romaji("") is None
+
+
+def test_ruby_sits_only_over_the_kanji():
+    """사전은 토큰 전체의 읽기(タベル)를 준다. 그대로 올리면 이미 읽을 수 있는
+    'べる' 위에까지 가나가 붙어, 보조가 오히려 읽기를 방해한다."""
+    assert reading.align("食べる", "たべる") == [
+        {"text": "食", "ruby": "た"},
+        {"text": "べる", "ruby": None},
+    ]
+
+
+def test_ruby_is_not_added_when_there_is_no_kanji():
+    assert reading.align("よやく", "よやく") == [{"text": "よやく", "ruby": None}]
+
+
+def test_a_leading_kana_is_stripped_too():
+    assert reading.align("お店", "おみせ") == [
+        {"text": "お", "ruby": None},
+        {"text": "店", "ruby": "みせ"},
+    ]
+
+
+def test_two_kanji_runs_fall_back_to_rubying_the_whole_token():
+    """取り引き처럼 한자 덩어리가 둘이면 어느 읽기가 어느 덩어리 것인지
+    가나만으로는 가를 수 없다. 여기서 영리해지려다 틀린 읽기를 만드는 것이
+    최악이다 -- 틀린 읽기를 배우면 안 배우느니만 못하다. 통째로 올린 읽기는
+    정확하지 않아도 정직하고, 여전히 읽을 수 있다."""
+    assert reading.align("取り引き", "とりひき") == [
+        {"text": "取り引き", "ruby": "とりひき"}
+    ]
+
+
+def test_a_reading_that_does_not_match_the_surface_falls_back():
+    """읽기가 표기와 아귀가 안 맞으면(사전이 이상한 것을 줬거나 표기가 바뀌었거나)
+    억지로 자르지 않는다."""
+    assert reading.align("東京", "とうきょう") == [
+        {"text": "東京", "ruby": "とうきょう"}
+    ]
+
+
+def test_align_with_no_reading_gives_plain_text():
+    assert reading.align("ABC", None) == [{"text": "ABC", "ruby": None}]
