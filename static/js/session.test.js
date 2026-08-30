@@ -10,7 +10,7 @@ import './dom-shim.js';
 import { $, state } from './api.js';
 import * as router from './router.js';
 import { jsonResponse, resetDom, stubFetch } from './dom-shim.js';
-import { startSession, nextScriptLine } from './session.js';
+import { startSession, nextScriptLine, endSession } from './session.js';
 
 test('a script line with HTML-like text is escaped, not injected, into the panel', async () => {
   resetDom();
@@ -215,4 +215,60 @@ test('reading the script line differently shows the script original, not a gramm
   assert.match(result.textContent, /Hello there\./, 'must show the script line itself, not just "wrong"');
   // Not a grammar chip -- there is nothing to correct, the learner read the line.
   assert.equal($('conversation').children.some((n) => n.className.includes('chip')), false);
+});
+
+/* Fix 2 (fix round) -- a script session stores ok=None on every learner turn
+ * by design, so s.wrong is always 0 and s.ungraded always equals s.turns.
+ * The free-mode report line ("교정을 받지 못한 발화 N회") exists to flag a
+ * genuine grading outage; reused for script mode it would appear on every
+ * single script report and read as the app having broken. */
+test('a script session report does not use the free-mode grading-failure wording', async () => {
+  resetDom();
+  router.register('session', 'session');
+  router.register('report', 'report');
+  state.mode = 'script';
+  state.sessionId = 1;
+  stubFetch(async (url) => {
+    if (url === '/api/sessions/1/end') {
+      return jsonResponse({
+        summary: '요약', weak_points: [], expressions: [], next_focus: '',
+        stats: { turns: 4, wrong: 0, ungraded: 4, sentences: [] },
+      });
+    }
+    return jsonResponse({});
+  });
+
+  await endSession();
+
+  const text = $('report-counts').textContent;
+  assert.match(text, /말한 횟수 4/);
+  assert.doesNotMatch(
+    text, /교정을 받지 못한 발화/,
+    'a by-design ungraded script session must not read as a grading failure',
+  );
+});
+
+test('a free session with a genuine grading failure still reports it', async () => {
+  resetDom();
+  router.register('session', 'session');
+  router.register('report', 'report');
+  state.mode = 'free';
+  state.sessionId = 1;
+  stubFetch(async (url) => {
+    if (url === '/api/sessions/1/end') {
+      return jsonResponse({
+        summary: '요약', weak_points: [], expressions: [], next_focus: '',
+        stats: { turns: 3, wrong: 0, ungraded: 2, sentences: [] },
+      });
+    }
+    return jsonResponse({});
+  });
+
+  await endSession();
+
+  const text = $('report-counts').textContent;
+  assert.match(
+    text, /교정을 받지 못한 발화 2회/,
+    'a real grading outage in free mode must still be visible, not silently dropped',
+  );
 });

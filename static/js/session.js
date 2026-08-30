@@ -629,12 +629,23 @@ export async function endSession() {
    sessions -- this function just does not render it. */
 function renderReport(data) {
   const s = data.stats || {};
-  let counts = `말한 횟수 ${s.turns ?? 0} · 고칠 곳이 있던 횟수 ${s.wrong ?? 0}`;
-  // A turn the model never graded (an Ollama/JSON failure) is neither right
-  // nor wrong -- surfacing it is what stops a session where every grading
-  // call failed from reading as a flawless one, since "고칠 곳이 있던 횟수 0"
-  // alone looks exactly like a perfect session.
-  if (s.ungraded) counts += ` · 교정을 받지 못한 발화 ${s.ungraded}회`;
+  // Script mode stores ok=None on every learner turn by design (Fix 3): the
+  // learner read a line, they did not compose one, so there is nothing to
+  // grade. That makes s.wrong always 0 and s.ungraded always equal to
+  // s.turns -- for a free/lesson session those numbers mean "grading broke",
+  // but for a script session they are just what every normal session looks
+  // like. Reusing 고칠 곳/교정을 받지 못한 발화 here would either falsely claim
+  // grading happened (0 고칠 곳) or read as a failure on every single script
+  // report (교정을 받지 못한 발화 N회) -- so this mode gets its own line
+  // instead of the free-mode grading vocabulary.
+  const counts = state.mode === 'script'
+    ? `말한 횟수 ${s.turns ?? 0} · 대본 읽기는 문법 교정 없이 정확도만 확인합니다`
+    // A turn the model never graded (an Ollama/JSON failure) is neither
+    // right nor wrong -- surfacing it is what stops a session where every
+    // grading call failed from reading as a flawless one, since "고칠 곳이
+    // 있던 횟수 0" alone looks exactly like a perfect session.
+    : `말한 횟수 ${s.turns ?? 0} · 고칠 곳이 있던 횟수 ${s.wrong ?? 0}`
+      + (s.ungraded ? ` · 교정을 받지 못한 발화 ${s.ungraded}회` : '');
   $('report-counts').textContent = counts;
 
   const body = $('report-body');
