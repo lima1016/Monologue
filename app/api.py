@@ -292,8 +292,11 @@ def _feedback(language: str, text: str) -> dict:
         # recognition, not the learner's mistake -- it must not be stored as
         # one. `suggestion` survives: it is not a correction but "a native
         # speaker might also say it this way", worth keeping even when the
-        # sentence was fine.
-        if ok is False and fixed and normalize(text) == normalize(fixed):
+        # sentence was fine. isinstance guards normalize(fixed): the schema
+        # makes a non-string `fixed` unlikely, but if it ever happens this
+        # must skip neutralisation, not raise into the outer except and
+        # discard a tag/correction the model actually gave.
+        if ok is False and isinstance(fixed, str) and fixed and normalize(text) == normalize(fixed):
             return {
                 "ok": True,
                 "fixed": None,

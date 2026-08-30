@@ -408,6 +408,26 @@ def test_chat_leaves_an_ok_true_response_untouched(client, monkeypatch):
     assert body["suggestion"] == "제안"
 
 
+def test_chat_survives_a_non_string_fixed_value(client, monkeypatch):
+    """The schema makes this unlikely, but if a model hiccup ever yields a
+    non-string `fixed`, normalize(fixed) must not be allowed to raise into
+    _feedback's outer except and discard a tag/correction the model actually
+    gave. A non-string `fixed` should just skip neutralisation -- the
+    optimisation fails, not the whole turn's feedback."""
+    def fake_chat_json(messages, schema, **kw):
+        return {"ok": False, "fixed": 42, "tag": "시제",
+                "correction": "설명", "suggestion": "제안"}
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    body = client.post("/api/chat", json={"session_id": sid, "text": "I go there."}).json()
+    assert body["ok"] is False
+    assert body["tag"] == "시제"
+    assert body["correction"] == "설명"
+    assert body["suggestion"] == "제안"
+
+
 def test_chat_stores_a_neutralized_punctuation_only_correction_correctly(client, monkeypatch):
     """The point of this fix is what lands in the database, not just the HTTP
     response -- ok/tag/correction feed home_stats, the top_tag recommendation,
