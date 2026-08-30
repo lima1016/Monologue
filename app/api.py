@@ -183,7 +183,28 @@ def _cached_translation(text: str) -> str | None:
     않는다. 모델이 살아나면 서버를 재시작하거나 다른 줄을 펼치면 되고,
     이것은 실패한 번역이지 잘못된 번역이 아니다."""
     try:
-        return llm.chat(prompts.build_translate_messages(text), temperature=0.2).strip()
+        raw = llm.chat(prompts.build_translate_messages(text), temperature=0.2)
+        # An empty (or whitespace-only) completion is a success by llm.chat's
+        # contract -- it did not raise -- but it is exactly the string the 503
+        # exists to prevent: a line whose meaning renders as genuinely absent,
+        # indistinguishable on screen from a broken feature. Falling through to
+        # `return None` here folds that case into the same failure path as a
+        # model that is down.
+        #
+        # Taking only the first non-empty line also enforces the "one line"
+        # contract server-side: a model that appends a parenthetical aside or a
+        # second sentence still yields a single clean line here. This is
+        # deliberately not more clever than that -- no attempt is made to
+        # detect or strip an echoed Japanese source line, since a heuristic for
+        # that would also mangle a legitimate translation that quotes a
+        # loanword, place name, or term in quotation marks. An echo is visible
+        # on screen and reportable; an empty string was not, which is the only
+        # reason one of these is worth guarding against here and the other isn't.
+        for line in raw.strip().splitlines():
+            line = line.strip()
+            if line:
+                return line
+        return None
     except Exception:
         return None
 

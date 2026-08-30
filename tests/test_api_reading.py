@@ -40,7 +40,8 @@ def test_reading_of_an_empty_list_is_an_empty_list(client):
 
 
 def test_translate_returns_one_korean_line(client, monkeypatch):
-    from app import llm
+    from app import api, llm
+    api._cached_translation.cache_clear()
     monkeypatch.setattr(llm, "chat", lambda messages, **kw: "어서 오세요")
     res = client.post("/api/translate",
                       json={"language": "ja", "text": "いらっしゃいませ"})
@@ -77,6 +78,37 @@ def test_translate_says_so_when_the_model_is_down(client, monkeypatch):
     monkeypatch.setattr(llm, "chat", boom)
     res = client.post("/api/translate", json={"language": "ja", "text": "こんにちは"})
     assert res.status_code == 503
+
+
+def test_translate_says_so_when_the_model_returns_nothing(client, monkeypatch):
+    """빈 문자열은 실패가 아니라 성공처럼 보이지만, 뜻이 원래 없는 줄과
+    구분되지 않으므로 503으로 취급해야 한다."""
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    monkeypatch.setattr(llm, "chat", lambda messages, **kw: "")
+    res = client.post("/api/translate", json={"language": "ja", "text": "こんにちは"})
+    assert res.status_code == 503
+
+
+def test_translate_says_so_when_the_model_returns_only_whitespace(client, monkeypatch):
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    monkeypatch.setattr(llm, "chat", lambda messages, **kw: "   \n  \n")
+    res = client.post("/api/translate", json={"language": "ja", "text": "こんにちは"})
+    assert res.status_code == 503
+
+
+def test_translate_keeps_only_the_first_line(client, monkeypatch):
+    """모델이 뜻에 괄호 설명이나 두 번째 문장을 덧붙여도 첫 줄만 뜻으로 쓴다."""
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    monkeypatch.setattr(
+        llm, "chat",
+        lambda messages, **kw: "어서 오세요\n(직역: 잘 오셨습니다)",
+    )
+    res = client.post("/api/translate", json={"language": "ja", "text": "いらっしゃいませ"})
+    assert res.status_code == 200
+    assert res.json()["meaning"] == "어서 오세요"
 
 
 def test_translate_rejects_a_language_that_needs_no_translation(client):
