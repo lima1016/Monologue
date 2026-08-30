@@ -102,3 +102,39 @@ def _boom():
 
 def test_analyse_of_empty_text_is_empty():
     assert reading.analyse("") == []
+
+
+def test_analyse_recovers_from_a_bad_token_without_losing_the_rest(monkeypatch):
+    """토큰 하나의 정렬이 실패해도 문장 전체가 사라지면 안 된다 -- 그 토큰만
+    평문으로 떨어지고 나머지는 읽기를 그대로 유지해야 한다."""
+    real_align = reading.align
+
+    def flaky_align(surface, reading_kana):
+        if surface == "食べる":
+            raise RuntimeError("boom")
+        return real_align(surface, reading_kana)
+
+    monkeypatch.setattr(reading, "align", flaky_align)
+    tokens = reading.analyse("寿司を食べる")
+
+    assert tokens[0]["parts"] == [{"text": "寿司", "ruby": "すし"}]
+    assert tokens[1]["parts"] == [{"text": "を", "ruby": None}]
+    assert tokens[2] == {
+        "surface": "食べる", "reading": None, "romaji": None,
+        "parts": [{"text": "食べる", "ruby": None}],
+    }
+
+
+def test_ruby_is_not_added_to_kana_that_merely_fails_to_match_its_reading():
+    """읽기가 표기와 안 맞아도, 표기 자체에 한자가 없으면 루비를 붙이지
+    않는다. 이미 읽을 수 있는 가나 위에 불완전한 읽기가 얹히는 것이
+    한자가 없을 때 지켜야 할 4번 규칙의 핵심이다."""
+    assert reading.align("あいう", "あい") == [{"text": "あいう", "ruby": None}]
+
+
+def test_ruby_is_kept_when_the_core_mixes_kanji_with_non_kana_characters():
+    """숫자는 가나가 아니지만 한자도 아니다 -- '한자가 없다'를 '가나가
+    아니다'로 잘못 판정하면 100円 같은 표기의 루비가 사라진다."""
+    assert reading.align("100円", "ひゃくえん") == [
+        {"text": "100円", "ruby": "ひゃくえん"}
+    ]

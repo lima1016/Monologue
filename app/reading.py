@@ -103,6 +103,16 @@ def _is_kana(ch):
     return "ぁ" <= ch <= "ゖ" or "ァ" <= ch <= "ヺ" or ch == "ー"
 
 
+def _has_kanji(text):
+    """CJK 통합 한자 범위에 속하는 문자가 하나라도 있는지.
+
+    '가나가 아니다'와 '한자다'는 다르다 -- 숫자('100円'의 '100')는 가나가
+    아니지만 한자도 아니다. 이 구분이 없으면 4번 규칙("한자가 없으면 루비를
+    붙이지 않는다")이 숫자 섞인 표기의 루비까지 지워 버린다.
+    """
+    return any("一" <= c <= "鿿" for c in text)
+
+
 def align(surface, reading_kana):
     """읽기를 표기 위에 앉힌다. 규칙은 설계 문서에 있다:
 
@@ -115,15 +125,19 @@ def align(surface, reading_kana):
 
     5번이 이 함수의 안전망이다. 어떤 입력에도 '틀린 위치의 읽기'를 만들지
     않는다.
+
+    4번은 표기 전체에 한자가 하나도 없으면 제일 먼저 적용된다 -- 읽기가
+    표기와 글자 단위로 어긋나더라도(사전이 이상한 것을 줬거나) 순수 가나
+    표기 위에 불완전한 읽기를 얹지 않기 위해서다.
     """
     if not reading_kana:
         return [{"text": surface, "ruby": None}]
 
+    if not _has_kanji(surface):
+        return [{"text": surface, "ruby": None}]
+
     kana_reading = _to_hiragana(reading_kana)
     kana_surface = _to_hiragana(surface)
-
-    if kana_surface == kana_reading:  # 한자가 없다
-        return [{"text": surface, "ruby": None}]
 
     head = 0
     while (head < len(surface) and head < len(kana_reading)
@@ -171,17 +185,22 @@ def analyse(text):
 
     tokens = []
     for word in words:
-        kana = getattr(word.feature, "kana", None)
-        if not kana or kana == "*":
+        try:
+            kana = getattr(word.feature, "kana", None)
+            if not kana or kana == "*":
+                tokens.append(_plain(word.surface))
+                continue
+            hira = _to_hiragana(kana)
+            tokens.append({
+                "surface": word.surface,
+                "reading": hira,
+                "romaji": to_romaji(kana),
+                "parts": align(word.surface, hira),
+            })
+        except Exception:
+            # 토큰 하나가 실패해도 문장 전체가 비면 안 된다 -- 실패한
+            # 토큰만 평문으로 떨어지고 나머지는 읽기를 유지한다.
             tokens.append(_plain(word.surface))
-            continue
-        hira = _to_hiragana(kana)
-        tokens.append({
-            "surface": word.surface,
-            "reading": hira,
-            "romaji": to_romaji(kana),
-            "parts": align(word.surface, hira),
-        })
     return tokens
 
 
