@@ -184,7 +184,19 @@ def analyse(text):
         return [_plain(text)]
 
     tokens = []
+    cursor = 0
     for word in words:
+        # MeCab은 공백(ASCII 스페이스, 탭, 개행)을 표면형으로 돌려주지 않는다
+        # -- 토큰 사이 어딘가에서 그냥 사라진다. 원문에서 이 토큰이 시작하는
+        # 자리를 찾아, 직전 토큰이 끝난 자리부터 그 사이에 남는 것이 있으면
+        # 평문 토큰으로 얹어 원문을 그대로 복원한다. find가 -1을 주는(사전이
+        # 원문에 없는 표면형을 준) 경우는 통째로 건너뛴다 -- 이 함수는 절대
+        # raise하지 않는다는 계약이 문서 찾기 실패보다 우선한다.
+        start = text.find(word.surface, cursor)
+        if start > cursor:
+            tokens.append(_plain(text[cursor:start]))
+        if start >= cursor:
+            cursor = start + len(word.surface)
         try:
             kana = getattr(word.feature, "kana", None)
             if not kana or kana == "*":
@@ -211,6 +223,8 @@ def analyse(text):
             # 토큰 하나가 실패해도 문장 전체가 비면 안 된다 -- 실패한
             # 토큰만 평문으로 떨어지고 나머지는 읽기를 유지한다.
             tokens.append(_plain(word.surface))
+    if cursor < len(text):
+        tokens.append(_plain(text[cursor:]))
     return tokens
 
 

@@ -128,6 +128,24 @@ def test_analyse_of_empty_text_is_empty():
     assert reading.analyse("") == []
 
 
+def test_analyse_keeps_ascii_whitespace_the_dictionary_drops():
+    """MeCab은 공백을 표면형으로 돌려주지 않는다 -- 그대로 두면 화면의 줄이
+    음성이 실제로 말하는 원문과 달라진다(공백이 사라진다). 이 불변식이
+    이걸 지킨다: 토큰의 text를 모두 이어붙이면 반드시 원문과 같아야 한다."""
+    for text in [
+        "こんにちは 世界",
+        "Wi-Fi は使えますか",
+        "田中さん、\nおはよう",
+        "\tご注文は\tこちらです",
+        "  先頭と末尾に空白  ",
+        "Hello World",
+        "",
+    ]:
+        tokens = reading.analyse(text)
+        rebuilt = "".join(p["text"] for t in tokens for p in t["parts"])
+        assert rebuilt == text, f"{text!r} -> {rebuilt!r}"
+
+
 def test_analyse_recovers_from_a_bad_token_without_losing_the_rest(monkeypatch):
     """토큰 하나의 정렬이 실패해도 문장 전체가 사라지면 안 된다 -- 그 토큰만
     평문으로 떨어지고 나머지는 읽기를 그대로 유지해야 한다."""
