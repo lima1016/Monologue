@@ -129,9 +129,17 @@ export async function resumeSession() {
   if (!resumeTarget || busy) return;
   busy = true;
   try {
-    const { messages } = await getJSON(`/sessions/${resumeTarget.id}`);
+    const { session, messages } = await getJSON(`/sessions/${resumeTarget.id}`);
     state.sessionId = resumeTarget.id;
     state.mode = resumeTarget.mode;
+    // Same rule startSession follows for a session it just created: the
+    // session that actually exists becomes the app's language, not whatever
+    // the language segment happens to show. Correct today only because
+    // loadHome scopes the resume card to the current language -- but
+    // addMessage's reading-aids gate reads state.language directly, so
+    // without this line a stray write to it between loadHome and this click
+    // (or a future loosening of that scoping) would silently mis-render.
+    state.language = session.language;
     router.show('session');
     $('conversation').replaceChildren();
     // GET /sessions/{id} hands back a cache-only audio_key per bot message

@@ -148,7 +148,10 @@ test('시작 during a resume does not overwrite the conversation being restored'
   const messages = new Promise((r) => { releaseMessages = r; });
   let sessionPosts = 0;
   stubFetch(async (url) => {
-    if (url === '/api/sessions/42') { await messages; return jsonResponse({ messages: [] }); }
+    if (url === '/api/sessions/42') {
+      await messages;
+      return jsonResponse({ session: { id: 42, language: 'en' }, messages: [] });
+    }
     if (url.startsWith('/api/scenarios?')) return jsonResponse({ scenarios: [{ id: 'x', title: 't' }] });
     if (url === '/api/sessions') { sessionPosts += 1; return jsonResponse({ session_id: 9, mode: 'free' }); }
     return jsonResponse({});
@@ -184,6 +187,32 @@ test('a failed resume releases the guard', async () => {
   release();
   await started;
   assert.ok(seen.sessionBody, 'the home screen was still locked after a failed resume');
+});
+
+/* session.js's startSession sets state.language from the session it actually
+   created rather than trusting the language button, because a switch can
+   land between the request and the response. addMessage's reading-aids gate
+   reads state.language directly, and today resumeSession never touches it --
+   correct only because loadHome scopes the resume card to the current
+   language, which is a coincidence this test does not rely on: it sets
+   state.language to something *other* than the resumed session's language
+   before resuming, and asserts resumeSession corrects it. */
+test('resumeSession sets state.language from the session actually being resumed', async () => {
+  router.register('session', 'session');
+  state.language = 'ja'; // deliberately wrong, to prove resumeSession corrects it
+  state.mode = 'free';
+  state.sessionId = null;
+  await armResumeCard(); // resume card is offered under "ja" per loadHome's own scoping
+
+  stubFetch(async (url) => {
+    if (url === '/api/sessions/42') {
+      return jsonResponse({ session: { id: 42, language: 'en' }, messages: [] });
+    }
+    return jsonResponse({});
+  });
+
+  await home.resumeSession();
+  assert.equal(state.language, 'en');
 });
 
 /* GET /sessions/{id} hands back a cache-only audio_key per bot message (never
