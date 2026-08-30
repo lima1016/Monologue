@@ -3,7 +3,7 @@ import { play, setHeardHandler, recognition, BCP47, setRespeakHandler } from './
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
-import { annotate } from './reading.js';
+import { annotate, escapeHtml } from './reading.js';
 
 /* ---------- turn state ---------- */
 
@@ -360,9 +360,12 @@ function startScript(lines) {
   // startSession) -- a script always has content, so restore it here.
   $('side-panel').hidden = false;
   $('panel-title').textContent = '대본';
+  // l.text can now come from a local LLM (POST /scenarios/generate), not just
+  // this codebase's own built-in scenarios -- escaped the same way
+  // renderTokens (reading.js) escapes every token it draws into innerHTML.
   $('panel-body').innerHTML = `<ol>${lines
     .map((l, i) => `<li data-i="${i}"><b>${l.speaker === 'bot' ? '봇' : '나'}</b> `
-      + `<span class="line">${l.text}</span></li>`)
+      + `<span class="line">${escapeHtml(l.text)}</span></li>`)
     .join('')}</ol>`;
   if (state.language === 'ja') {
     const items = [...$('panel-body').querySelectorAll('li .line')];

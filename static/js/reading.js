@@ -25,7 +25,7 @@ export function setPrefs(next) {
   document.body.classList.toggle('hide-romaji', !prefs.romaji);
 }
 
-const escapeHtml = (s) => String(s)
+export const escapeHtml = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
