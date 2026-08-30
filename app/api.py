@@ -532,14 +532,15 @@ def store_script_line(session_id: int, payload: ScriptLineStore):
         raise HTTPException(400, "only bot lines are stored through this route")
 
     # Idempotent: a refresh or a retried request landing on the same index
-    # must not double the record. Messages accumulate in script order (one
-    # per line, bot lines through this route and learner lines through
-    # /script-turn), so the count already stored is exactly the index of the
-    # next line still to record -- an index already covered is a repeat.
-    if payload.index < len(db.get_messages(session_id)):
-        return {"stored": False}
-    db.add_message(session_id, "bot", line["text"])
-    return {"stored": True}
+    # must not double the record. db.add_script_line_message enforces this at
+    # the database via a UNIQUE(session_id, script_index) index, not by
+    # comparing the index against a message count -- that count answers "how
+    # many messages exist", not "was this index stored", and an interleaved
+    # or out-of-order sequence of indices (or two requests racing each other)
+    # could fool it either into storing the same line twice or into silently
+    # dropping a line that was never actually recorded.
+    message_id = db.add_script_line_message(session_id, payload.index, line["text"])
+    return {"stored": message_id is not None}
 
 
 class ScriptTurn(BaseModel):
