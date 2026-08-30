@@ -1,5 +1,5 @@
 import { $, api, getJSON, postJSON, state, notify } from './api.js';
-import { play, setHeardHandler, recognition, BCP47, setRespeakHandler } from './audio.js';
+import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler } from './audio.js';
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
@@ -22,6 +22,32 @@ let scriptExhausted = false;
    an unsupported browser and only explains itself once clicked. */
 const micUnsupported = !recognition;
 
+/* The live transcript while listening -- audio.js streams it in (finalised
+   fragments + whatever is currently interim) via setInterimHandler below.
+   Read only by syncControls, and reset wherever a fresh listen begins, or a
+   stale value from the PREVIOUS utterance would flash in #mic-hint for the
+   instant between pressing the mic and the first onresult of the new one. */
+let liveHeard = '';
+
+/* The re-speak chip currently listening, if any -- `{ btn, resultEl }` or
+   null. There can be several re-speak buttons on screen at once (one per
+   correction the model has ever offered), and `recognition` is a single
+   shared object, so only the button that started THIS re-speak session may
+   stop it, and the live interim transcript below has to be routed to THIS
+   chip's own result line, not some other chip's. Cleared -- and the button's
+   label restored -- the instant a re-speak resolves, on every path
+   (`setRespeakHandler`'s callback, both branches, and `startRespeak`'s own
+   `catch`), or a failed or finished re-speak would leave a button stuck
+   reading as the stop control for a session that no longer exists. */
+let activeRespeak = null;
+const RESPEAK_LABEL = '🎤 고쳐서 다시 말해보기';
+const RESPEAK_STOP_LABEL = '🎤 그만 말하기';
+
+function clearActiveRespeak() {
+  if (activeRespeak) activeRespeak.btn.textContent = RESPEAK_LABEL;
+  activeRespeak = null;
+}
+
 /* The one place that knows what is in flight. Callers ask it rather than
    keeping their own copy -- two sources of truth about "is a turn running"
    is exactly the bug the old re-entrancy flag produced. */
@@ -36,7 +62,15 @@ export function canDo(control) {
    function that writes `disabled` on these buttons -- nothing else may, or
    two places could disagree about what's enabled. */
 function syncControls() {
-  $('btn-mic').disabled = !canDo('mic');
+  // Live while listening too -- pressing the mic again is what ends a turn
+  // now, so the button must not go dead the moment a recognition session
+  // starts. Checked against `listening` directly, not canDo('stop'): `stop`
+  // is also true during `respeaking` (a re-speak needs the same "press again
+  // to end" ability -- see turnstate.js), but that stop belongs exclusively
+  // to the chip's own button (startRespeak's `activeRespeak` check) -- the
+  // main mic button must stay dead through a re-speak the same as it always
+  // has, not become a second, unlabelled way to end someone else's session.
+  $('btn-mic').disabled = !(canDo('mic') || turnState === 'listening');
   $('btn-send').disabled = !canDo('send');
   $('btn-next').disabled = !canDo('next');
   $('btn-end').disabled = !canDo('end');
@@ -44,15 +78,25 @@ function syncControls() {
   $('btn-mic').classList.toggle('listening', listening);
   // The mic's glyph is a CSS ::after pseudo-element, not a DOM child, so it
   // cannot carry status text itself -- this hint line is what actually tells
-  // the learner what's happening (carried from Task 4/5's ruling).
+  // the learner what's happening (carried from Task 4/5's ruling). While
+  // listening, showing the live transcript as it's recognised is what lets a
+  // learner actually notice a cut-off before it's sent, instead of only
+  // finding out after. The non-listening text matches index.html's initial
+  // markup so returning to idle doesn't visibly change the wording.
   $('mic-hint').textContent = listening
-    ? '듣고 있습니다...'
-    : '누르고 말하면 자동으로 전송됩니다';
+    ? (liveHeard || '듣고 있습니다...')
+    : '누르고 말한 뒤, 다 말하면 다시 눌러서 전송하세요';
   $('thinking').hidden = turnState !== 'sending';
 }
 
 export function setTurnState(event) {
+  const wasListening = turnState === 'listening' || turnState === 'respeaking';
   turnState = turn.next(turnState, event);
+  const isListening = turnState === 'listening' || turnState === 'respeaking';
+  // A fresh listen must not open on the previous utterance's leftover text --
+  // audio.js's onstart clears its own utterance object the same way, for the
+  // same reason.
+  if (isListening && !wasListening) liveHeard = '';
   syncControls();
   return turnState;
 }
@@ -77,6 +121,18 @@ function handleHeard(transcript) {
   sendText(transcript);
 }
 setHeardHandler(handleHeard);
+// Streams the live transcript into #mic-hint via syncControls -- see
+// `liveHeard`'s own comment for why it's reset separately, in setTurnState.
+// While a re-speak is the one listening, the same text also goes to its own
+// result line -- '듣는 중...' with nothing else until delivery was too little
+// feedback to tell the recognition was even working with an open-ended
+// listen. The good/bad rendering in startRespeak's handler overwrites this
+// the moment a result actually arrives.
+setInterimHandler((text) => {
+  liveHeard = text;
+  if (activeRespeak) activeRespeak.resultEl.textContent = text || '듣는 중...';
+  syncControls();
+});
 
 /* ---------- status ---------- */
 
@@ -198,14 +254,14 @@ export function addChip(bubble, fb) {
     row.className = 'respeak-row';
     const btn = document.createElement('button');
     btn.className = 'respeak';
-    btn.textContent = '🎤 고쳐서 다시 말해보기';
+    btn.textContent = RESPEAK_LABEL;
     const target = document.createElement('div');
     target.className = 'respeak-target';
     target.textContent = fb.fixed;
     const result = document.createElement('p');
     result.className = 'respeak-result';
     result.hidden = true;
-    btn.addEventListener('click', () => startRespeak(fb.fixed, result));
+    btn.addEventListener('click', () => startRespeak(fb.fixed, result, btn));
     row.append(target, btn, result);
     detail.appendChild(row);
   }
@@ -230,18 +286,33 @@ export function addChip(bubble, fb) {
    whichever turn produced them, not to "the current turn"), so this guard is
    the only thing standing between a stray click and two recognitions
    overlapping. */
-export function startRespeak(target, resultEl) {
+export function startRespeak(target, resultEl, btn) {
+  // Mirrors main.js's mic handler: this button owns the active re-speak, so
+  // a second click on it ends the session instead of trying to start a new
+  // one. recognition.stop() lets Chrome flush a last final result, then
+  // fires onend, which delivers through the setRespeakHandler callback below
+  // -- not here. No setTurnState call on this path: HEARD/HEARD_NOTHING stay
+  // raised from exactly one place. Any OTHER chip's button, clicked while
+  // this one is active, falls through to the canDo('respeak') guard below
+  // and is refused the same way it always was.
+  if (activeRespeak && activeRespeak.btn === btn) {
+    recognition.stop();
+    return;
+  }
   if (!canDo('respeak')) {
     notify('봇이 말하는 동안에는 다시 말할 수 없습니다. 끝날 때까지 기다려주세요.');
     return;
   }
   if (!recognition) { notify('이 브라우저는 음성 인식을 지원하지 않습니다.'); return; }
   setTurnState('RESPEAK');
+  activeRespeak = { btn, resultEl };
+  if (btn) btn.textContent = RESPEAK_STOP_LABEL;
   resultEl.hidden = false;
   resultEl.className = 'respeak-result';
   resultEl.textContent = '듣는 중...';
 
   setRespeakHandler((spoken) => {
+    clearActiveRespeak();
     if (spoken === null) {
       setTurnState('HEARD_NOTHING');
       resultEl.textContent = '못 알아들었습니다. 다시 해보세요.';
@@ -260,7 +331,10 @@ export function startRespeak(target, resultEl) {
     // throws, so nothing else would return the machine from `respeaking`.
     // The handler just staged above never gets promoted (onstart never runs
     // for a start() that threw) -- clear the stage itself too, or it would
-    // wrongly promote into the *next* recognition that does start.
+    // wrongly promote into the *next* recognition that does start. Clearing
+    // activeRespeak here too, or a start() that throws would leave this
+    // button reading as the stop control for a session that never began.
+    clearActiveRespeak();
     setRespeakHandler(null);
     notify(`음성 인식을 시작하지 못했습니다: ${err.message}`);
     resultEl.textContent = '음성 인식을 시작하지 못했습니다. 다시 눌러보세요.';

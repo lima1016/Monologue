@@ -1,4 +1,5 @@
 import { state, notify } from './api.js';
+import { createUtterance } from './utterance.js';
 
 export const BCP47 = { en: 'en-US', ja: 'ja-JP' };
 
@@ -74,15 +75,30 @@ export function speakInBrowser(text, onDone) {
 let heardHandler = null;
 let respeakHandler = null;
 let pendingRespeakHandler = null;
+// Fix 4: streams the live transcript (finalised fragments + whatever is
+// currently interim) while `listening` so session.js can show it in
+// #mic-hint. Same shape as setHeardHandler -- one setter, one slot -- to
+// match this file's convention.
+let interimHandler = null;
 
 export function setHeardHandler(fn) { heardHandler = fn; }
 export function setRespeakHandler(fn) { pendingRespeakHandler = fn; }
+export function setInterimHandler(fn) { interimHandler = fn; }
 
 function deliver(transcript) {
   const handler = respeakHandler || heardHandler;
   respeakHandler = null;
   if (handler) handler(transcript);
 }
+
+// Nothing sends on its own any more (see utterance.js) -- the learner ends a
+// turn by pressing the mic again, and that is the ONLY normal way a
+// recognition session stops. This is purely a safety net for the mic being
+// left open by mistake (a backgrounded tab, a learner who walks away): 90s
+// is far longer than any real utterance runs, so it can never cut one off,
+// but it stops the microphone from staying live forever if nothing else
+// ever calls recognition.stop().
+const SAFETY_LIMIT_MS = 90000;
 
 function setupRecognition() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -91,18 +107,34 @@ function setupRecognition() {
     return null;
   }
   const recognition = new Recognition();
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  let heard = false;
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  const utt = createUtterance();
+  let safetyTimer = null;
+
   recognition.onstart = () => {
-    heard = false;
+    utt.begin();
     // A new session has genuinely begun: whatever was staged for it (or
     // nothing, for a plain listen) is now the truth, and anything left over
     // from an earlier attempt that never delivered is discarded here.
     respeakHandler = pendingRespeakHandler;
     pendingRespeakHandler = null;
+    clearTimeout(safetyTimer);
+    safetyTimer = setTimeout(() => recognition.stop(), SAFETY_LIMIT_MS);
   };
-  recognition.onresult = (e) => { heard = true; deliver(e.results[0][0].transcript); };
+  // continuous = true means e.results is every result seen in this session
+  // so far, not just this event's -- e.resultIndex is where the results new
+  // to *this* firing start. Reading e.results[0] (the old, continuous=false
+  // code) or re-walking the whole list from 0 would both re-process results
+  // already handed to utt and duplicate text.
+  recognition.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i += 1) {
+      const r = e.results[i];
+      if (r.isFinal) utt.final(r[0].transcript);
+      else utt.interim(r[0].transcript);
+    }
+    if (interimHandler) interimHandler(utt.text());
+  };
   // For not-allowed/audio-capture/service-not-allowed/network, Chrome fires
   // error and end with no start at all -- onstart's promotion never runs, so
   // a staged re-speak handler would otherwise sit armed with nothing to ever
@@ -116,14 +148,16 @@ function setupRecognition() {
     // A cycle that errors heard nothing, and it may never have reached
     // onstart -- Chrome fires error+end with no start for not-allowed,
     // audio-capture, service-not-allowed and network. onstart and onerror are
-    // therefore the two entry points that between them guarantee `heard` is
-    // false before any onend can run; resetting in onstart alone leaves the
-    // previous cycle's value in place on exactly the paths that need it most
+    // therefore the two entry points that between them guarantee the
+    // utterance reads as empty before any onend can run; clearing it here
+    // too (not just in onstart) covers exactly the paths that need it most
     // (a re-speak that fails this way right after a turn where speech WAS
-    // recognised would otherwise inherit a stale `heard = true` and onend
-    // would skip deliver(null) entirely, stranding the machine in
-    // `respeaking` with the chip stuck on "듣는 중...").
-    heard = false;
+    // recognised would otherwise inherit that turn's fragments -- onstart
+    // never ran to call utt.begin() for THIS attempt -- and onend below
+    // would deliver stale text instead of null, stranding the machine in
+    // `respeaking` with the chip showing an answer that was never spoken
+    // into it).
+    utt.begin();
     if (pendingRespeakHandler) {
       respeakHandler = pendingRespeakHandler;
       pendingRespeakHandler = null;
@@ -131,12 +165,16 @@ function setupRecognition() {
     notify(`음성 인식 실패(${e.error}). 입력창에 직접 입력하세요.`);
   };
   // onend fires whether or not anything was recognised, and it is the only
-  // event that always arrives -- so it is where the "heard nothing" path has
-  // to live, or a failed recognition would strand the state machine in
-  // `listening` with every control disabled.
+  // event that always arrives -- so it is the one place delivery can safely
+  // happen. utt.text() empty is the exact definition of "heard nothing": no
+  // final result ever arrived (or onerror just cleared what had). A learner
+  // pressing the mic again to stop is what gets here in the normal case --
+  // recognition.stop() lets Chrome flush any last final result first, so it
+  // is already in utt by the time this runs.
   recognition.onend = () => {
     stopRecording();
-    if (!heard) deliver(null);
+    clearTimeout(safetyTimer);
+    deliver(utt.text() || null);
   };
   return recognition;
 }

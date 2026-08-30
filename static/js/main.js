@@ -64,6 +64,16 @@ $('text-input').addEventListener('keydown', (e) => {
   }
 });
 $('btn-mic').addEventListener('click', () => {
+  if (canDo('stop')) {
+    // Ends the turn: recognition.stop() lets Chrome flush any last final
+    // result, then fires onend, which delivers to handleHeard and raises
+    // HEARD or HEARD_NOTHING there -- not here. Two places calling
+    // setTurnState for the same recognition session is exactly what
+    // turnstate.js's header comment warns against; this button only ever
+    // asks for the stop, never decides what state it leads to.
+    recognition.stop();
+    return;
+  }
   if (!recognition) {
     notify('이 브라우저는 음성 인식을 지원하지 않습니다. 아래 입력창에 직접 입력하세요.');
     return;
