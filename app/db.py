@@ -92,6 +92,20 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_user_scenarios_language
         ON user_scenarios(language, type);
     """],
+    # v3 -> v4: identity-based idempotency for script mode's bot-line storage.
+    # script_index is set only by add_script_line_message -- every other row
+    # (a free/lesson /chat turn, or a script session's own learner line via
+    # /script-turn) leaves it NULL. SQLite treats each NULL as distinct under
+    # a UNIQUE index, so those never collide with each other or with a script
+    # line. For an actual script line, this constraint is what makes a second
+    # row for the same index impossible at the database -- not a read-then-
+    # write count, which can only ever be unlikely, not impossible, once
+    # FastAPI's threadpool is in the picture (see add_message's own comment).
+    [
+        "ALTER TABLE messages ADD COLUMN script_index INTEGER",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_script_index"
+        " ON messages(session_id, script_index)",
+    ],
 ]
 
 
@@ -206,6 +220,38 @@ def add_message(session_id, speaker, text, correction=None, suggestion=None,
              ok, fixed, tag, _now()),
         )
         return cur.lastrowid
+
+
+def add_script_line_message(session_id, index, text) -> int | None:
+    """Insert a script's bot line, keyed by its own index in the script.
+
+    Identity-based, not a read-then-write count: script_index carries a
+    UNIQUE(session_id, script_index) index (migration v3 -> v4), so the
+    database itself rejects a second row for the same index -- regardless of
+    arrival order or two requests racing each other. A prior version of this
+    guard compared the index against len(get_messages(session_id)), which
+    answers "how many messages exist", not "was this index stored" -- an
+    interleaved or out-of-order sequence of indices could both duplicate a
+    line and falsely reject a legitimate one. Mirrors add_message's own
+    atomic turn allocation, and for the same reason its comment gives:
+    FastAPI's threadpool plus WAL means a read-then-write check is not a
+    guard, only a suggestion.
+
+    Returns the new message id, or None if this index was already stored --
+    an idempotent no-op, not an error.
+    """
+    with connect() as conn:
+        try:
+            cur = conn.execute(
+                "INSERT INTO messages (session_id, turn, speaker, text, script_index, created_at)"
+                " SELECT ?,"
+                "        (SELECT COALESCE(MAX(turn), 0) + 1 FROM messages WHERE session_id = ?),"
+                "        'bot', ?, ?, ?",
+                (session_id, session_id, text, index, _now()),
+            )
+            return cur.lastrowid
+        except sqlite3.IntegrityError:
+            return None
 
 
 def get_messages(session_id) -> list[dict]:

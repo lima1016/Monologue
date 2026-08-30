@@ -465,7 +465,43 @@ function advanceScript() {
     syncControls();
     return;
   }
-  if (line.speaker === 'bot') play(line.audio_key, line.text);
+  if (line.speaker === 'bot') {
+    // The bubble is drawn here, at the same instant the audio plays -- not a
+    // beat later when the learner presses next (nextScriptLine used to draw
+    // it there, one action behind what they'd already heard). What just
+    // played is what the chat log shows right now.
+    addMessage('bot', line.text, line.audio_key);
+    play(line.audio_key, line.text);
+    storeScriptLine(state.scriptIndex);
+  }
+}
+
+/* Records the bot line just drawn, keyed by its own index in the script.
+   Fire-and-forget, same contract as reading.js's annotate(): the bubble is
+   already on screen, which is the part that matters to the learner right
+   now, and a storage hiccup must not interrupt practice. Storing every line
+   up front instead (at session start) was considered and rejected -- that
+   would put lines the learner has not reached yet into the record, and
+   resuming would show them the future. */
+function storeScriptLine(index) {
+  postJSON(`/sessions/${state.sessionId}/script-line`, { index }).catch(() => {});
+}
+
+/* One line under the learner's bubble in script mode: did they say the
+   script's own line, not a grammar judgement -- they read it, they did not
+   compose it, so there is nothing for a correction chip to fix. Deliberately
+   not addChip, which renders ok/tag/correction/suggestion that a script turn
+   never has. Reuses re-speak's .respeak-result good/bad styling (Task 8)
+   rather than inventing a third look for the same "did you say this" idea. */
+function renderScriptAccuracy(bubble, spoken, target) {
+  const good = matches(spoken, target, state.language);
+  const p = document.createElement('p');
+  p.className = `respeak-result ${good ? 'good' : 'bad'}`;
+  p.textContent = good
+    ? '좋습니다 — 대본대로 잘 읽었습니다.'
+    : `대본과 다릅니다 — 대본: "${target}"`;
+  bubble.after(p);
+  return p;
 }
 
 export async function nextScriptLine() {
@@ -482,10 +518,12 @@ export async function nextScriptLine() {
     $('text-input').value = '';
     const bubble = addMessage('user', spoken);
 
-    // Scoped to the request alone -- see sendText for why.
-    let data;
+    // Scoped to the request alone -- see sendText for why. /script-turn, not
+    // /chat: the bot's next line already exists in the script and the
+    // learner read theirs rather than composing it, so there is no reply to
+    // invent and nothing to grade.
     try {
-      data = await postJSON('/chat', { session_id: state.sessionId, text: spoken });
+      await postJSON('/script-turn', { session_id: state.sessionId, text: spoken });
     } catch (err) {
       bubble.remove();
       $('text-input').value = spoken;
@@ -497,16 +535,17 @@ export async function nextScriptLine() {
     }
 
     setTurnState('REPLY');
-    addChip(bubble, data);
+    renderScriptAccuracy(bubble, spoken, line.text);
     await uploadPendingRecording(bubble); // clears state.chunks itself on this path
     state.scriptIndex += 1; // only advance past a turn that was actually recorded
-    // Unlike sendText, nothing from this /chat reply is played as audio --
-    // the script's own pre-recorded line audio plays via advanceScript()
-    // below, uncoupled from turn state. So there is no clip to wait on:
-    // return to idle immediately or `next`/`undo` would stay disabled.
+    // Unlike sendText, nothing from /script-turn is played as audio -- the
+    // script's own pre-recorded line audio plays via advanceScript() below,
+    // uncoupled from turn state. So there is no clip to wait on: return to
+    // idle immediately or `next`/`undo` would stay disabled.
     setTurnState('AUDIO_DONE');
   } else if (line) {
-    addMessage('bot', line.text, line.audio_key);
+    // The bubble for this line was already drawn by advanceScript() the
+    // moment it became current -- only the index moves here now.
     state.scriptIndex += 1;
   }
   advanceScript();
@@ -590,12 +629,23 @@ export async function endSession() {
    sessions -- this function just does not render it. */
 function renderReport(data) {
   const s = data.stats || {};
-  let counts = `말한 횟수 ${s.turns ?? 0} · 고칠 곳이 있던 횟수 ${s.wrong ?? 0}`;
-  // A turn the model never graded (an Ollama/JSON failure) is neither right
-  // nor wrong -- surfacing it is what stops a session where every grading
-  // call failed from reading as a flawless one, since "고칠 곳이 있던 횟수 0"
-  // alone looks exactly like a perfect session.
-  if (s.ungraded) counts += ` · 교정을 받지 못한 발화 ${s.ungraded}회`;
+  // Script mode stores ok=None on every learner turn by design (Fix 3): the
+  // learner read a line, they did not compose one, so there is nothing to
+  // grade. That makes s.wrong always 0 and s.ungraded always equal to
+  // s.turns -- for a free/lesson session those numbers mean "grading broke",
+  // but for a script session they are just what every normal session looks
+  // like. Reusing 고칠 곳/교정을 받지 못한 발화 here would either falsely claim
+  // grading happened (0 고칠 곳) or read as a failure on every single script
+  // report (교정을 받지 못한 발화 N회) -- so this mode gets its own line
+  // instead of the free-mode grading vocabulary.
+  const counts = state.mode === 'script'
+    ? `말한 횟수 ${s.turns ?? 0} · 대본 읽기는 문법 교정 없이 정확도만 확인합니다`
+    // A turn the model never graded (an Ollama/JSON failure) is neither
+    // right nor wrong -- surfacing it is what stops a session where every
+    // grading call failed from reading as a flawless one, since "고칠 곳이
+    // 있던 횟수 0" alone looks exactly like a perfect session.
+    : `말한 횟수 ${s.turns ?? 0} · 고칠 곳이 있던 횟수 ${s.wrong ?? 0}`
+      + (s.ungraded ? ` · 교정을 받지 못한 발화 ${s.ungraded}회` : '');
   $('report-counts').textContent = counts;
 
   const body = $('report-body');

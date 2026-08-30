@@ -502,6 +502,77 @@ def chat_turn(payload: ChatTurn):
     }
 
 
+class ScriptLineStore(BaseModel):
+    index: int
+
+
+@router.post("/sessions/{session_id}/script-line")
+def store_script_line(session_id: int, payload: ScriptLineStore):
+    """Record a bot script line at the moment it is actually shown.
+
+    Script mode's own /sessions response never stores anything -- the learner
+    has not seen a single line yet at that point (see start_session's script
+    branch) -- so without this call the database never learns what the
+    learner was actually shown, and resume/report have nothing true to work
+    from. Storing every line up front instead was considered and rejected:
+    that would put lines the learner has not reached yet into the record, and
+    resuming would show them the future.
+    """
+    session = db.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "no such session")
+    if session["mode"] != "script":
+        raise HTTPException(400, "not a script session")
+    scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
+    lines = scenario["lines"] if scenario else []
+    if payload.index < 0 or payload.index >= len(lines):
+        raise HTTPException(400, "line index out of range")
+    line = lines[payload.index]
+    if line["speaker"] != "bot":
+        raise HTTPException(400, "only bot lines are stored through this route")
+
+    # Idempotent: a refresh or a retried request landing on the same index
+    # must not double the record. db.add_script_line_message enforces this at
+    # the database via a UNIQUE(session_id, script_index) index, not by
+    # comparing the index against a message count -- that count answers "how
+    # many messages exist", not "was this index stored", and an interleaved
+    # or out-of-order sequence of indices (or two requests racing each other)
+    # could fool it either into storing the same line twice or into silently
+    # dropping a line that was never actually recorded.
+    message_id = db.add_script_line_message(session_id, payload.index, line["text"])
+    return {"stored": message_id is not None}
+
+
+class ScriptTurn(BaseModel):
+    session_id: int
+    text: str
+
+
+@router.post("/script-turn")
+def script_turn(payload: ScriptTurn):
+    """The learner's line in script mode: read from a fixed script, not
+    composed on the spot. Unlike /chat, this never calls the LLM -- the bot's
+    next line already exists in the script, and the learner did not write the
+    sentence they just read, so there is nothing here for grammar feedback to
+    judge. The client compares what was said against the script line itself
+    (static/js/match.js's matches()) and shows accuracy, not correctness.
+    """
+    session = db.get_session(payload.session_id)
+    if session is None:
+        raise HTTPException(404, "no such session")
+    if session["ended_at"] is not None:
+        raise HTTPException(409, "this session has already ended")
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(400, "text is empty")
+    if session["mode"] != "script":
+        raise HTTPException(400, "not a script session")
+
+    turns_used = sum(1 for m in db.get_messages(payload.session_id) if m["speaker"] == "user")
+    db.add_message(payload.session_id, "user", text)
+    return {"turn": turns_used + 1}
+
+
 @router.delete("/sessions/{session_id}/last-turn")
 def undo_last_turn(session_id: int):
     """Discard the most recent learner turn so it can be spoken again."""
