@@ -8,10 +8,12 @@
   --bg: #fbfbfe;
   --surface: #ffffff;
   /* Must stay visibly distinct from --bg, not merely different from it: the
-     previous #f6f7fb sat at 1.04:1 against --bg, and the two things painted
-     with it that carry no border of their own -- .chips button (which sets
-     border-color: transparent) and .msg.bot -- rendered as bare text on the
-     page. The dark value has no such problem and is not touched. */
+     previous #f6f7fb sat at 1.04:1 against --bg and .msg.bot rendered as bare
+     text on the page. This is 1.12:1 -- better, and enough for a message
+     bubble, which is not a control. It was never going to be enough for
+     .chips button, which is one: that gets its border back rather than a
+     heavier fill (see components.css). The dark value has no such problem and
+     is not touched. */
   --surface-sunken: #eceef6;
   --line: #e6e7ef;
   --text: #1c1d26;

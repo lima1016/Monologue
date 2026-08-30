@@ -321,9 +321,23 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    and [hidden] carries !important anyway. */
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-1) 0 0; }
 .chips:empty { display: none; }
+/* border-color, not transparent: --surface-sunken sits at 1.12:1 against --bg
+   (it was 1.04:1 before Phase C's design pass raised it), so with the border
+   switched off the fill was the chip's only affordance and it read as bare
+   text on the page. A hairline is the quieter fix -- darkening the fill enough
+   to stand on its own would make the chips louder than the mode cards below,
+   which the design pass deliberately made the heavier element -- and it needs
+   no second value to keep in step across the two colour schemes.
+
+   Honest about what this does not achieve: --line is 1.19:1 against --bg in
+   light, so the boundary does not meet WCAG 1.4.11's 3:1. Nothing in this
+   design system does -- every button and #wish is the same --line on --surface
+   at 1.23:1 -- and reaching 3:1 would mean darkening --line to about #909098
+   app-wide, which is a design-system decision, not a chip one. In dark, --line
+   is 1.33:1 against --bg, up from the 1.05:1 the transparent border left. */
 .chips button { font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
                 border-radius: var(--radius-pill); color: var(--text-dim);
-                background: var(--surface-sunken); border-color: transparent; }
+                background: var(--surface-sunken); border-color: var(--line); }
 .chips button:hover { color: var(--accent-ink); background: var(--accent-soft); }
 
 /* Question two, set apart from question one by the extra top margin. */
