@@ -85,7 +85,7 @@ export async function refreshHealth() {
     $('status-ollama').className = `dot ${h.ollama ? 'up' : 'down'}`;
     $('status-voicevox').className = `dot ${h.voicevox ? 'up' : 'down'}`;
     if (!h.ollama) notify('Ollama가 실행 중이 아닙니다. 터미널에서 ollama serve를 실행하세요.');
-    else if (!h.voicevox && $('language').value === 'ja')
+    else if (!h.voicevox && state.language === 'ja')
       notify('VOICEVOX가 꺼져 있습니다. docker compose up -d 를 실행하세요.');
     else notify('');
   } catch {
@@ -93,22 +93,14 @@ export async function refreshHealth() {
   }
 }
 
-/* ---------- setup ---------- */
+/* ---------- session ---------- */
 
-export async function loadScenarios() {
-  const language = $('language').value;
-  const mode = $('mode').value;
-  $('scenario-row').hidden = mode === 'lesson';
-  $('topic-row').hidden = mode !== 'lesson';
-  if (mode === 'lesson') return;
-
-  const { scenarios } = await getJSON(`/scenarios?language=${language}&mode=${mode}`);
-  $('scenario').innerHTML = scenarios
-    .map((s) => `<option value="${s.id}">${s.title}</option>`)
-    .join('');
-}
-
-export async function startSession() {
+/* `language` and `mode` are parameters, not reads of `state`, on purpose: the
+   caller resolved a scenario id under a particular language and mode, possibly
+   several seconds ago, and the session must be created under the same pair the
+   id belongs to. Reading `state` here instead is exactly how a session came to
+   be stamped with one language and bound to another language's scenario. */
+export async function startSession({ language, mode, scenarioId, topic } = {}) {
   // startScript resets this for a script session; a free session never went
   // through startScript before, so without this a free session started right
   // after a finished script session would inherit the earlier session's
@@ -117,15 +109,22 @@ export async function startSession() {
   // script ones.
   scriptExhausted = false;
   const payload = {
-    language: $('language').value,
-    mode: $('mode').value,
-    scenario_id: $('mode').value === 'lesson' ? null : $('scenario').value,
-    topic: $('topic').value.trim() || null,
+    language,
+    mode,
+    scenario_id: mode === 'lesson' ? null : scenarioId,
+    topic: topic || null,
   };
   $('btn-start').disabled = true;
   try {
     const data = await postJSON('/sessions', payload);
     state.sessionId = data.session_id;
+    // The session that was actually created is now the one the app is in, so
+    // its language and mode become the app's -- exactly what resumeSession
+    // does with resumeTarget.mode. In the normal case these are already equal;
+    // they differ only when the learner switched during the generation wait,
+    // and then every later read (handleHeard's script routing, the mic's
+    // BCP47 language, re-speak matching) must follow the session that exists
+    // rather than the button that was pressed after it was requested.
     state.language = payload.language;
     state.mode = payload.mode;
     router.show('session');

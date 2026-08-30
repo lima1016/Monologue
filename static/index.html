@@ -21,29 +21,56 @@
 <main>
   <p id="notice" class="notice" hidden></p>
 
-  <section id="setup">
-    <div class="row">
-      <label>언어
-        <select id="language">
-          <option value="en">English</option>
-          <option value="ja">日本語</option>
-        </select>
-      </label>
-      <label>모드
-        <select id="mode">
-          <option value="free">자유 상황극</option>
-          <option value="script">스크립트 롤플레이</option>
-          <option value="lesson">수업</option>
-        </select>
-      </label>
+  <section id="home">
+    <div class="home-head">
+      <h2 id="home-greeting">오늘은 뭘 연습할까요?</h2>
+      <span class="seg" id="language-seg">
+        <button type="button" data-language="en" class="on">English</button>
+        <button type="button" data-language="ja">日本語</button>
+      </span>
     </div>
-    <label id="scenario-row">시나리오
-      <select id="scenario"></select>
-    </label>
-    <label id="topic-row" hidden>오늘 배우고 싶은 것 <span class="hint">(비워두면 봇이 골라줍니다)</span>
-      <input id="topic" type="text" placeholder="예: 과거형, 식당에서 쓰는 표현">
-    </label>
+
+    <div id="resume-card" hidden>
+      <div>
+        <p id="resume-title"></p>
+        <p id="resume-sub" class="hint"></p>
+      </div>
+      <button id="btn-resume">계속 →</button>
+    </div>
+
+    <p id="recommend" class="recommend" hidden></p>
+
+    <!-- What to practise: the field, its hint and the chips are one group. -->
+    <div class="home-ask">
+      <input id="wish" type="text" placeholder="예: 구직 면접, 병원 접수, 길 묻기" aria-label="연습하고 싶은 내용">
+      <p class="hint">비워두고 시작하면 봇이 골라줍니다</p>
+      <div id="chips" class="chips"></div>
+    </div>
+
+    <div class="modes" id="modes">
+      <button type="button" data-mode="free" class="mode on">
+        <span class="n">자유 상황극</span><span class="d">상황을 정하고 자유롭게 대화</span>
+      </button>
+      <button type="button" data-mode="script" class="mode">
+        <span class="n">스크립트</span><span class="d">대본을 따라 읽으며 연습</span>
+      </button>
+      <button type="button" data-mode="lesson" class="mode">
+        <span class="n">수업</span><span class="d">선생님과 주제를 잡고</span>
+      </button>
+    </div>
+
     <button id="btn-start" class="primary">시작</button>
+
+    <div class="stats" id="home-stats" hidden>
+      <div class="stat"><span class="v" id="stat-streak">0</span><span class="k">연속 학습일</span></div>
+      <!-- "이번 주" until Phase C's review: db.home_stats counts learner
+           messages since now - 7 days, a rolling window, so on a Wednesday it
+           includes last Thursday. The label was the half that was wrong -- a
+           rolling window is the better number for a motivation counter because
+           it never collapses to near-zero every Monday morning. -->
+      <div class="stat"><span class="v" id="stat-week">0</span><span class="k">최근 7일 발화</span></div>
+      <div class="stat"><span class="v" id="stat-fixed">0</span><span class="k">고친 표현</span></div>
+    </div>
   </section>
 
   <section id="session" hidden>

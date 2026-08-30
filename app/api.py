@@ -1,5 +1,6 @@
 """HTTP routes. Thin — every route delegates to a module and shapes the response."""
 import json
+import uuid
 from pathlib import Path
 from typing import Literal
 
@@ -43,6 +44,60 @@ def list_scenarios(language: Language, mode: Mode | None = Query(default=None)):
             for s in items
         ]
     }
+
+
+class ScenarioWish(BaseModel):
+    language: Language
+    mode: Mode
+    wish: str
+
+
+@router.post("/scenarios/generate")
+def generate_scenario(payload: ScenarioWish):
+    """Turn one line from the learner into a scenario they can practise.
+
+    Lesson mode has no scenario -- its `topic` goes straight into the system
+    prompt -- so asking for one is a mistake worth naming rather than silently
+    producing something unused.
+    """
+    if payload.mode not in ("free", "script"):
+        raise HTTPException(422, "only free and script modes have scenarios")
+    wish = payload.wish.strip()
+    if not wish:
+        raise HTTPException(422, "wish is empty")
+
+    try:
+        result = llm.chat_json(
+            prompts.build_scenario_messages(payload.language, payload.mode, wish),
+            prompts.scenario_schema(payload.mode),
+        )
+    except Exception:
+        raise HTTPException(503, "상황을 만들지 못했습니다. 잠시 뒤에 다시 시도해 주세요.")
+
+    item = {
+        "id": f"user-{uuid.uuid4().hex[:12]}",
+        "language": payload.language,
+        "type": payload.mode,
+        "title": (result.get("title") or wish).strip(),
+        "goal": (result.get("goal") or "").strip() or None,
+    }
+    if payload.mode == "free":
+        item["persona_prompt"] = (result.get("persona_prompt") or "").strip()
+        item["max_turns"] = config.DEFAULT_MAX_TURNS
+    else:
+        item["lines"] = result.get("lines") or []
+
+    # A local 14b will sometimes return something unusable. Validating here means
+    # a bad generation is a clear error now, not a crash when the learner
+    # presses 시작.
+    try:
+        scenarios.validate_item(item)
+    except scenarios.ScenarioError as exc:
+        raise HTTPException(422, f"만들어진 상황이 올바르지 않습니다: {exc}")
+
+    db.add_user_scenario(item)
+    return {"id": item["id"], "title": item["title"], "type": item["type"],
+            "goal": item.get("goal")}
 
 
 @router.get("/voices")
@@ -140,6 +195,44 @@ def start_session(payload: SessionStart):
         scenario = scenarios.get_scenario(payload.scenario_id)
         if scenario is None:
             raise HTTPException(404, f"no scenario {payload.scenario_id}")
+        # Defence in depth, and the check whose absence made a frontend race
+        # silent instead of loud: a scenario id resolves here with no reference
+        # to the language asked for, so a session could be stamped `ja` while
+        # bound to an `en` scenario. Nothing downstream ever notices -- the
+        # session's turns simply feed home_stats() and stable_level() for a
+        # language it was not practised in, permanently and invisibly. Any
+        # route to that outcome ends here now, not only the one the browser
+        # has been taught to avoid.
+        if scenario["language"] != payload.language:
+            raise HTTPException(
+                400,
+                f"scenario {payload.scenario_id} is {scenario['language']},"
+                f" not {payload.language}",
+            )
+        # The same class of mismatch on the other axis, and the one that was
+        # left open because it was believed to fail loudly. It does not: only
+        # two of its three shapes crash (`script` mode on a free scenario dies
+        # on scenario["lines"], `free` mode on a *built-in* script scenario
+        # dies on scenario["persona_prompt"]). A `free` request naming a
+        # *generated* script scenario returns 200, because scenarios.from_row
+        # materialises persona_prompt for script rows too -- NULL for any the
+        # generator never gave one -- and prompts.py reads it with a bracket,
+        # so the `or`-fallback that defuses `goal` never applies. The prompt
+        # then carries the literal line "Your character: None" and the session
+        # is written anyway: silent, permanent, nothing on screen to say so.
+        # Not reachable from today's home screen (loadChips clears #chips
+        # synchronously before any await), which is exactly the reasoning that
+        # made the language mismatch invisible for a whole phase.
+        #
+        # Before create_session on purpose: the two crashing shapes above blow
+        # up *after* the row is written, so each has been leaving an orphaned
+        # empty session behind. Rejecting here removes both.
+        if scenario["type"] != payload.mode:
+            raise HTTPException(
+                400,
+                f"scenario {payload.scenario_id} is a {scenario['type']} scenario,"
+                f" not {payload.mode}",
+            )
 
     session_id = db.create_session(payload.language, payload.mode,
                                    scenario_id=payload.scenario_id, topic=payload.topic)
@@ -153,7 +246,7 @@ def start_session(payload: SessionStart):
 
     system = prompts.build_system_prompt(
         payload.mode, payload.language, scenario=scenario, topic=payload.topic,
-        level=db.latest_level(payload.language),
+        level=db.stable_level(payload.language) or "beginner",
     )
     opening = llm.chat([
         {"role": "system", "content": system},
@@ -195,7 +288,7 @@ def chat_turn(payload: ChatTurn):
 
     system = prompts.build_system_prompt(
         session["mode"], language, scenario=scenario, topic=session["topic"],
-        level=db.latest_level(language), turns_used=turns_used + 1,
+        level=db.stable_level(language) or "beginner", turns_used=turns_used + 1,
     )
     reply = llm.chat([{"role": "system", "content": system}] + _history(payload.session_id))
     db.add_message(payload.session_id, "bot", reply)
@@ -382,6 +475,48 @@ def finish_session(session_id: int):
 @router.get("/sessions")
 def session_history(limit: int = Query(default=20, ge=1, le=100)):
     return {"sessions": db.list_sessions(limit)}
+
+
+@router.get("/sessions/resumable")
+def resumable(language: Language):
+    """Offer the session the learner walked away from, and clear out the ones
+    they are never coming back to while we are here.
+
+    Registered before /sessions/{session_id}: FastAPI matches routes in
+    registration order, so if that route came first it would swallow
+    "resumable" as a session_id and return 422.
+    """
+    # Order matters and must not be swapped: stale_open_sessions only sees
+    # sessions where ended_at IS NULL, so it must run -- and its recordings
+    # must be collected -- before abandon_stale_sessions stamps ended_at on
+    # that same population. Reverse the order and those sessions' audio can
+    # never be found again; it would sit on disk forever, which is exactly
+    # the guarantee (recordings are deleted once a session is over) this
+    # project promised the learner in exchange for writing a report instead.
+    # Best-effort like finish_session's identical cleanup: a failure here is
+    # housekeeping, not something the resumable lookup below should surface.
+    try:
+        for stale in db.stale_open_sessions():
+            _forget_recordings(stale)
+        db.abandon_stale_sessions()
+    except Exception:
+        pass
+    session = db.resumable_session(language)
+    if session is None:
+        return {"session": None}
+    scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
+    return {"session": {
+        "id": session["id"], "mode": session["mode"], "turns": session["turns"],
+        "title": scenario["title"] if scenario else (session["topic"] or "수업"),
+        # Same rule as POST /sessions' opening response: the scenario's goal
+        # when there is a scenario, None for a lesson or scenario-less session.
+        "goal": scenario.get("goal") if scenario else None,
+    }}
+
+
+@router.get("/stats/home")
+def home_stats(language: Language):
+    return db.home_stats(language)
 
 
 @router.get("/sessions/{session_id}")

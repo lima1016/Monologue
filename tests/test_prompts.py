@@ -23,6 +23,23 @@ def test_free_mode_embeds_persona_and_goal():
     assert "assign a seat" in text
 
 
+def test_a_stored_scenario_with_no_goal_falls_back_instead_of_saying_None():
+    """scenarios.from_row always materialises `goal`, so a generated scenario
+    with none reads back as {"goal": None} -- the key is present and a default
+    keyed on its absence never fires. The prompt then literally told the model
+    "Scene goal: None". A built-in scenario omits the key entirely, which is
+    why this only ever showed up for generated ones."""
+    stored = {"id": "user-x", "language": "en", "type": "free", "title": "t",
+              "goal": None, "persona_prompt": "You are a barista.",
+              "max_turns": None, "lines": None}
+    text = prompts.build_system_prompt("free", "en", scenario=stored)
+    assert "have a natural conversation" in text
+    assert "Scene goal: None" not in text
+    # max_turns is None here too: the wind-down comparison must not crash, and
+    # a fresh session must not be told to wrap up on its first turn.
+    assert "wrap" not in text.lower()
+
+
 def test_free_mode_asks_the_bot_to_wind_down_near_the_turn_limit():
     scenario = {"persona_prompt": "p", "goal": "g", "max_turns": 8}
     early = prompts.build_system_prompt("free", "en", scenario=scenario, turns_used=1)
@@ -34,6 +51,32 @@ def test_free_mode_asks_the_bot_to_wind_down_near_the_turn_limit():
 def test_lesson_mode_injects_the_estimated_level():
     text = prompts.build_system_prompt("lesson", "en", level="advanced")
     assert "advanced" in text
+
+
+def test_the_bot_is_told_to_pitch_slightly_above_the_learner():
+    """i+1: comprehensible input works when it sits a step beyond what the
+    learner can already produce, not level with it."""
+    text = prompts.build_system_prompt("free", "en", level="intermediate",
+                                       scenario={"persona_prompt": "p", "goal": "g",
+                                                 "max_turns": 8})
+    assert "intermediate" in text
+    assert "step above" in text.lower()
+
+
+def test_the_pitch_reconciles_with_the_sentence_cap_instead_of_fighting_it():
+    """LEVEL_PITCH used to ask for speech "a little longer" while SPOKEN_STYLE
+    caps every reply at three sentences as a hard limit -- a direct
+    contradiction that the model resolved by obeying the cap and dropping the
+    pitch along with it. The pitch must name the cap it lives inside, and must
+    never ask for more length again."""
+    text = prompts.build_system_prompt("free", "en", level="intermediate",
+                                       scenario={"persona_prompt": "p", "goal": "g",
+                                                 "max_turns": 8})
+    # The pitch's own phrasing, not SPOKEN_STYLE's -- SPOKEN_STYLE already says
+    # "1 to 3 sentences", so a looser substring would pass without the pitch
+    # naming the cap at all.
+    assert "within the 1 to 3 sentence limit" in text
+    assert "longer" not in prompts.LEVEL_PITCH.lower()
 
 
 def test_lesson_mode_uses_the_topic_when_given():
@@ -193,3 +236,19 @@ def test_unknown_level_falls_back_to_beginner_rule_without_raising():
 def test_lesson_prompt_instructs_one_step_per_reply():
     prompt = prompts.build_system_prompt("lesson", "en", level="beginner")
     assert "one of these four steps per reply, then stop and wait" in prompt
+
+
+def test_scenario_prompt_is_written_in_korean_and_carries_the_wish():
+    msgs = prompts.build_scenario_messages("en", "free", "구직 면접")
+    system, user = msgs[0]["content"], msgs[-1]["content"]
+    hangul = sum(1 for ch in system if "가" <= ch <= "힣")
+    assert hangul > 100, "scenario prompt is not Korean"
+    assert "구직 면접" in user
+
+
+def test_scenario_schema_differs_by_kind():
+    free = prompts.scenario_schema("free")
+    assert set(free["required"]) == {"title", "goal", "persona_prompt"}
+    script = prompts.scenario_schema("script")
+    assert "lines" in script["required"]
+    assert script["properties"]["lines"]["type"] == "array"

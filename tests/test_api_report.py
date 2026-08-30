@@ -99,11 +99,15 @@ def test_free_mode_report_does_not_include_a_script_section(client, session, mon
     assert "The script the learner was reading from" not in seen["text"]
 
 
-def test_the_new_level_drives_the_next_session(client, session, monkeypatch):
+def test_the_level_the_model_reported_is_stored_on_the_session(client, session, monkeypatch):
+    """Stored, not shown: db.stable_level reads these rows back over a window
+    of recent sessions to pitch the next one. Asserted straight off the session
+    row -- db.latest_level, which this used to go through, had no production
+    caller left once stable_level replaced it and has been removed."""
     monkeypatch.setattr("app.api.llm.chat_json",
                         lambda messages, schema, **kw: {**REPORT_RESULT, "level": "advanced"})
     client.post(f"/api/sessions/{session}/end")
-    assert db.latest_level("en") == "advanced"
+    assert db.get_session(session)["level"] == "advanced"
 
 
 def test_an_invalid_level_from_the_model_falls_back_to_beginner(client, session, monkeypatch):

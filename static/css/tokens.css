@@ -7,7 +7,14 @@
 
   --bg: #fbfbfe;
   --surface: #ffffff;
-  --surface-sunken: #f6f7fb;
+  /* Must stay visibly distinct from --bg, not merely different from it: the
+     previous #f6f7fb sat at 1.04:1 against --bg and .msg.bot rendered as bare
+     text on the page. This is 1.12:1 -- better, and enough for a message
+     bubble, which is not a control. It was never going to be enough for
+     .chips button, which is one: that gets its border back rather than a
+     heavier fill (see components.css). The dark value has no such problem and
+     is not touched. */
+  --surface-sunken: #eceef6;
   --line: #e6e7ef;
   --text: #1c1d26;
   --text-dim: #8a8c9e;
@@ -16,6 +23,12 @@
   --accent: #4c5fd7;
   --accent-soft: #eef1fd;
   --accent-ink: #4453c4;
+  /* Ink for anything painted on an --accent fill: the primary button, the
+     resume card, the mic glyph, and the focus ring on a control that sits on
+     the card (an --accent ring on an --accent background is invisible).
+     Restated in the dark block on purpose -- the accent fill stays a saturated
+     blue in both schemes, so the ink on it stays white in both. */
+  --on-accent: #ffffff;
 
   /* Correction and suggestion are toned down on purpose: a learner sees these
      every single turn, and red/green reads as being told off. */
@@ -58,6 +71,13 @@
     --accent: #7c8bea;
     --accent-soft: #232640;
     --accent-ink: #96a2f0;
+    /* Dark ink, not white. --accent inverts between schemes: it is a deep
+       indigo in light and a light periwinkle here, so white sits on it at
+       about 3.2:1 and the 시작 button, the resume card and the mic glyph all
+       read washed out. Near-black on the same fill is about 5.7:1, and 7.5:1
+       against the lighter --accent-ink used on hover. Every use of this token
+       is something drawn on top of --accent, so it flips as one. */
+    --on-accent: #14151c;
     --correct-bg: #2a1e1a;
     --correct-ink: #f0b49c;
     --suggest-bg: #17251d;

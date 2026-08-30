@@ -84,6 +84,83 @@ def test_free_session_response_includes_the_scenario_goal(client):
     assert body["goal"]  # airport-checkin-en's goal in data/scenarios.json
 
 
+def test_a_scenario_from_the_other_language_is_rejected(client):
+    """The home screen's language segment stays live while a scenario is being
+    generated, so a switch mid-generation could post the new language with the
+    old language's scenario id. Nothing downstream would notice: the session is
+    stamped with the requested language, and its turns then feed that
+    language's stats and level forever. The browser no longer does this, but a
+    session bound to one language and stamped with another must be impossible
+    by any route, not just avoided by one client."""
+    r = client.post("/api/sessions", json={"language": "ja", "mode": "free",
+                                           "scenario_id": "airport-checkin-en"})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "en" in detail and "ja" in detail  # names both sides of the mismatch
+    assert db.list_sessions() == []           # and nothing was created
+
+
+def test_a_matching_language_still_starts(client):
+    """The guard above must reject only the mismatch, not the ordinary case."""
+    assert client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                              "scenario_id": "airport-checkin-en"}
+                       ).status_code == 200
+
+
+def test_a_free_request_naming_a_script_scenario_is_rejected(client):
+    """The other axis of the same mismatch, and the one that was left open
+    because it was believed to fail loudly. A *built-in* script scenario dies
+    on scenario["persona_prompt"] -- a 500, but a 500 after db.create_session
+    has already written the row."""
+    r = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                           "scenario_id": "standup-meeting-en"})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "script" in detail and "free" in detail  # names both sides
+    assert db.list_sessions() == []                 # and nothing was created
+
+
+def test_a_free_request_naming_a_generated_script_scenario_is_rejected(client):
+    """This is the one that made the check Important rather than tidy-up: it
+    used to return 200. scenarios.from_row materialises persona_prompt for script
+    rows too -- NULL for any script the generator never gave one -- and
+    prompts.py reads it with a bracket, so the `or`-fallback that defuses
+    `goal` never fires. The session was written, the prompt carried the literal
+    line "Your character: None", and nothing anywhere said so."""
+    db.add_user_scenario({
+        "id": "user-script-en", "language": "en", "type": "script",
+        "title": "made-up script", "goal": None, "persona_prompt": None,
+        "max_turns": None,
+        "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hello."}],
+    })
+    r = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                           "scenario_id": "user-script-en"})
+    assert r.status_code == 400
+    assert db.list_sessions() == []
+
+
+def test_a_script_request_naming_a_free_scenario_is_rejected(client):
+    """The third shape: this one died on scenario["lines"], again only after
+    the session row existed."""
+    r = client.post("/api/sessions", json={"language": "en", "mode": "script",
+                                           "scenario_id": "airport-checkin-en"})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "free" in detail and "script" in detail
+    assert db.list_sessions() == []
+
+
+def test_a_matching_mode_still_starts(client):
+    """The guard above must reject only the mismatch, not the ordinary case --
+    both directions, since script and free take different code paths after it."""
+    assert client.post("/api/sessions", json={"language": "en", "mode": "script",
+                                              "scenario_id": "standup-meeting-en"}
+                       ).status_code == 200
+    assert client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                              "scenario_id": "airport-checkin-en"}
+                       ).status_code == 200
+
+
 def test_lesson_session_response_has_no_goal(client):
     """Lesson mode has no scenario to draw a goal from -- the frontend falls
     back to the learner's own typed topic instead."""
@@ -383,3 +460,69 @@ def test_ending_a_session_removes_its_recordings(client):
 
     assert client.get(f"/api/messages/{msg['id']}/audio").status_code == 404
     assert next(m for m in db.get_messages(sid) if m["speaker"] == "user")["audio_path"] is None
+
+
+def test_resumable_is_not_swallowed_by_the_session_id_route(client):
+    assert client.get("/api/sessions/resumable?language=en").status_code == 200
+
+
+def test_resumable_reports_the_scenarios_goal(client):
+    sid = db.create_session("en", "free", scenario_id="airport-checkin-en")
+    db.add_message(sid, "user", "hi")
+    r = client.get("/api/sessions/resumable?language=en")
+    assert r.json()["session"]["goal"] == "체크인하고 좌석을 배정받는다"
+
+
+def test_resumable_goal_is_none_without_a_scenario(client):
+    sid = db.create_session("en", "free")
+    db.add_message(sid, "user", "hi")
+    r = client.get("/api/sessions/resumable?language=en")
+    assert r.json()["session"]["goal"] is None
+
+
+def test_a_session_started_and_abandoned_through_the_route_is_not_offered(client):
+    """Pressing 시작 and closing the tab. POST /sessions writes the bot's
+    opening line before it returns, so this session already has a message --
+    which is why resumable_session filters on a *learner* message rather than
+    on any message at all. Built through the real route on purpose: the
+    equivalent db-level test constructs its fixture with create_session, which
+    never writes that opening line, so it would pass either way."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    assert db.get_messages(sid)                      # the bot's opening is there
+    assert db.resumable_session("en") is None
+    assert client.get("/api/sessions/resumable?language=en").json()["session"] is None
+
+    # ...and once the learner actually says something, it is worth resuming.
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+    assert client.get("/api/sessions/resumable?language=en").json()["session"]["id"] == sid
+
+
+def test_resumable_sweep_deletes_a_stale_sessions_recording_before_closing_it(client):
+    """db.abandon_stale_sessions stamps ended_at on a strict superset of what
+    db.stale_open_sessions finds (same cutoff, minus the audio restriction).
+    Once ended_at is stamped, stale_open_sessions' `ended_at IS NULL` filter
+    can never see that session again -- so GET /sessions/resumable must sweep
+    the recording off disk *before* closing the session, or the file is
+    orphaned forever. This project deletes a session's recordings once it is
+    over; a session closed with its audio still on disk breaks that."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+    msg = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+
+    clip = config.AUDIO_DIR / f"s{sid}_m{msg['id']}.webm"
+    clip.write_bytes(b"stale-bytes")
+    db.set_message_audio(msg["id"], f"audio/{clip.name}")
+
+    with db.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE session_id = ?", (sid,))
+        conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'"
+                     " WHERE id = ?", (sid,))
+
+    r = client.get("/api/sessions/resumable?language=en")
+    assert r.status_code == 200
+
+    assert db.get_session(sid)["ended_at"] is not None
+    assert not clip.exists()

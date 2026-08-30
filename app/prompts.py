@@ -54,6 +54,29 @@ Follow these rules without exception:
 - Never add parenthetical asides or stage directions.
 - Ask a question back when it keeps the conversation going naturally."""
 
+# i+1: comprehensible input works when the bot's own speech sits a step beyond
+# what the learner can already produce, not level with it -- pitching exactly
+# to their level gives them nothing new to pick up. Shared between free and
+# lesson mode so both actually use the level they are handed, rather than
+# free mode taking a level argument and silently ignoring it. Script mode is
+# excluded on purpose: its lines are fixed dialogue, not generated speech, so
+# there is nothing here for a level to pitch.
+#
+# Length is deliberately not one of the levers. SPOKEN_STYLE caps every reply
+# at three sentences as a hard rule, so an i+1 instruction phrased as "speak a
+# little longer" cannot be obeyed -- and a model asked to do two contradictory
+# things at once tends to satisfy the hard limit and drop the softer one,
+# taking the rest of the pitch down with it. The levers here -- vocabulary,
+# structure, question openness -- are the ones that still fit inside the cap.
+# Do not restore length as a lever here.
+LEVEL_PITCH = (
+    "The student's current level is {level}. Pitch your own speech a small step "
+    "above it, within the 1 to 3 sentence limit: reach for slightly less common "
+    "words, vary your sentence structure instead of repeating the same shape, "
+    "and ask questions that need more than yes or no. Do not drop to their "
+    "level, and do not leap past it."
+)
+
 FREE_TEMPLATE = """\
 {style}
 
@@ -61,6 +84,8 @@ You are role-playing a scene with a language learner.
 
 Your character: {persona}
 Scene goal: {goal}
+
+{level_pitch}
 
 Stay fully in character. Never break role to comment on the learner's {language}
 — corrections are handled elsewhere. If the learner says something unclear, react
@@ -77,7 +102,7 @@ LESSON_TEMPLATE = """\
 {style}
 
 You are a warm, patient {language} teacher in a one-to-one spoken lesson.
-The student's current level is {level}. Pitch everything to that level.
+{level_pitch}
 {language_rule}
 
 {topic_line}
@@ -172,16 +197,26 @@ def build_system_prompt(mode, language, *, scenario=None, topic=None,
     if language == "ja":
         style += "\n- " + JAPANESE_SCRIPT_ONLY_RULE
 
+    level_pitch = LEVEL_PITCH.format(level=level)
+
     if mode == "free":
         if not scenario:
             raise ValueError("free mode needs a scenario")
+        # `or`, not a .get default: a built-in scenario omits `goal` entirely,
+        # but a generated one round-trips through scenarios.from_row, which
+        # always materialises the key -- so a scenario with no goal reads back
+        # as {"goal": None}, the key is present, and a default keyed on absence
+        # never fires. That put the literal text "Scene goal: None" into the
+        # prompt. Same shape for max_turns, which is only defused today by
+        # validate_item's int check -- luck, not design.
         prompt = FREE_TEMPLATE.format(
             style=style,
             persona=scenario["persona_prompt"],
-            goal=scenario.get("goal", "have a natural conversation"),
+            goal=scenario.get("goal") or "have a natural conversation",
             language=language_name,
+            level_pitch=level_pitch,
         )
-        max_turns = scenario.get("max_turns", config.DEFAULT_MAX_TURNS)
+        max_turns = scenario.get("max_turns") or config.DEFAULT_MAX_TURNS
         if turns_used >= max_turns - 2:
             prompt += WIND_DOWN
         return prompt
@@ -198,8 +233,8 @@ def build_system_prompt(mode, language, *, scenario=None, topic=None,
     language_rule = LESSON_LANGUAGE_RULE.get(level, LESSON_LANGUAGE_RULE["beginner"])
     language_rule_text = language_rule.format(language=language_name)
     prompt = LESSON_TEMPLATE.format(
-        style=style, language=language_name, level=level, topic_line=topic_line,
-        language_rule=language_rule_text
+        style=style, language=language_name, level_pitch=level_pitch,
+        topic_line=topic_line, language_rule=language_rule_text
     )
     if turns_used >= config.DEFAULT_MAX_TURNS - 2:
         prompt += WIND_DOWN
@@ -387,4 +422,87 @@ def build_report_messages(language, transcript, stats) -> list[dict]:
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": "\n".join(lines) + f"\n\n전체 대화록\n{transcript}"},
+    ]
+
+
+def scenario_schema(kind) -> dict:
+    """What a generated scenario must contain. Ollama constrains generation to
+    this shape, so the JSON always parses -- what it cannot enforce is that the
+    persona is usable or the lines alternate, which is why scenarios.validate_item
+    still runs before anything is stored."""
+    if kind == "free":
+        return {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "goal": {"type": "string"},
+                "persona_prompt": {"type": "string"},
+            },
+            "required": ["title", "goal", "persona_prompt"],
+        }
+    return {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "lines": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "speaker": {"type": "string", "enum": ["bot", "user"]},
+                        "text": {"type": "string"},
+                    },
+                    "required": ["speaker", "text"],
+                },
+            },
+        },
+        "required": ["title", "lines"],
+    }
+
+
+SCENARIO_SYSTEM_FREE = """당신은 한국인 학습자를 위한 {lang} 회화 연습 상황을 만드는 사람입니다.
+당신이 쓰는 언어는 한국어입니다. {lang}은(는) 만들어 낼 대사와 페르소나에만 씁니다.
+
+학습자가 연습하고 싶은 상황을 한 줄로 말했습니다. 그 상황을 실제로 굴러가게 할
+설정을 만드세요.
+
+- title: 학습자가 목록에서 알아볼 수 있는 짧은 한국어 제목
+- goal: 이 대화에서 학습자가 해내야 할 일. 한국어 한 문장.
+        "영어를 연습한다" 같은 막연한 것 말고, "창가 자리를 요청하고 안내받는다"처럼
+        끝났는지 아닌지 판별할 수 있는 것으로 씁니다
+- persona_prompt: 봇이 연기할 상대의 지시문. **{lang}으로 씁니다.** 누구인지, 어떤
+        태도인지, 무엇을 하려 하는지를 담습니다. 학습자가 아니라 상대를 묘사합니다.
+        첫 대사를 따옴표로 정해주지 마세요 — 이 지시문은 매 턴 다시 모델에게
+        전달되므로, 특정 문장을 지정하면 대화 내내 그 문장으로 되돌아가려 합니다.
+        무엇을 물어보고 무엇을 안내할지를 쓰면 충분합니다
+
+상대는 학습자를 가르치지 않습니다. 그 상황에 실제로 있을 법한 사람으로 행동합니다."""
+
+
+SCENARIO_SYSTEM_SCRIPT = """당신은 한국인 학습자를 위한 {lang} 회화 대본을 만드는 사람입니다.
+당신이 쓰는 언어는 한국어입니다. 대본의 대사는 {lang}으로 씁니다.
+
+학습자가 연습하고 싶은 상황을 한 줄로 말했습니다. 그 상황의 짧은 대본을 만드세요.
+
+- title: 학습자가 목록에서 알아볼 수 있는 짧은 한국어 제목
+- lines: 대사 8줄. speaker는 "bot"과 "user"가 번갈아 나오고 **bot으로 시작합니다.**
+        text는 {lang}으로, 실제 대화에서 쓰는 짧은 구어체로 씁니다.
+        교과서 문장이 아니라 사람이 실제로 하는 말이어야 합니다"""
+
+
+def build_scenario_messages(language, kind, wish) -> list[dict]:
+    """Ask the model for a scenario the learner asked for by name.
+
+    Korean system prompt for the same reason every other prompt here is: asking
+    for Korean in English produced English, twice, and moving the instruction
+    itself into Korean is what fixed it.
+    """
+    language_name = KOREAN_LANGUAGE_NAMES[language]
+    template = SCENARIO_SYSTEM_FREE if kind == "free" else SCENARIO_SYSTEM_SCRIPT
+    system = template.format(lang=language_name)
+    if language == "ja":
+        system += "\n" + JAPANESE_SCRIPT_ONLY_RULE
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": f"학습자가 연습하고 싶다고 한 것: {wish}"},
     ]

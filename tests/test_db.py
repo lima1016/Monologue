@@ -1,8 +1,23 @@
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from app import db
+
+
+def _local_stamp(local_date, hour, minute=0):
+    """A UTC ISO timestamp, in the same format db._now() writes, for a given
+    wall-clock time on `local_date` in this machine's real local timezone.
+
+    Built from the OS's actual UTC offset (not a hardcoded +9) so the test
+    stays correct under whatever timezone the machine is set to -- which is
+    also what home_stats' SQL ('localtime') and Python (datetime.now()) both
+    read from, so this helper and the implementation always agree.
+    """
+    local_dt = datetime(local_date.year, local_date.month, local_date.day, hour, minute)
+    offset = datetime.now().astimezone().utcoffset()
+    return (local_dt - offset).replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
 
 
 @pytest.fixture()
@@ -99,27 +114,48 @@ def test_end_session_records_report_and_level(store):
     assert row["ended_at"] is not None
 
 
-def test_latest_level_defaults_to_beginner_then_follows_last_ended_session(store):
-    assert store.latest_level("en") == "beginner"
-    first = store.create_session("en", "free")
-    store.end_session(first, "r", "intermediate")
-    assert store.latest_level("en") == "intermediate"
-    second = store.create_session("en", "lesson")
-    store.end_session(second, "r", "advanced")
-    assert store.latest_level("en") == "advanced"
+def _finished(store, language, level):
+    sid = store.create_session(language, "free")
+    store.end_session(sid, "r", level)
+    return sid
 
 
-def test_latest_level_is_scoped_per_language(store):
-    sid = store.create_session("en", "free")
-    store.end_session(sid, "r", "advanced")
-    assert store.latest_level("ja") == "beginner"
+def test_stable_level_needs_a_minimum_sample(store):
+    """A single session of a few sentences cannot support a verdict. The real
+    database showed four consecutive one-turn sessions on the same scenario
+    recorded beginner, intermediate, intermediate, beginner."""
+    _finished(store, "en", "advanced")
+    _finished(store, "en", "advanced")
+    assert store.stable_level("en") is None
 
 
-def test_unfinished_sessions_do_not_affect_latest_level(store):
-    done = store.create_session("en", "free")
-    store.end_session(done, "r", "advanced")
-    store.create_session("en", "free")  # still open, level is NULL
-    assert store.latest_level("en") == "advanced"
+def test_stable_level_is_the_mode_of_recent_sessions(store):
+    for level in ["beginner", "intermediate", "beginner", "beginner"]:
+        _finished(store, "en", level)
+    assert store.stable_level("en") == "beginner"
+
+
+def test_stable_level_only_looks_at_the_recent_window(store):
+    for level in ["beginner", "beginner", "beginner"]:
+        _finished(store, "en", level)
+    for level in ["advanced", "advanced", "advanced", "advanced", "advanced"]:
+        _finished(store, "en", level)
+    assert store.stable_level("en", recent=5) == "advanced"
+
+
+def test_stable_level_ignores_the_other_language(store):
+    for level in ["advanced", "advanced", "advanced"]:
+        _finished(store, "ja", level)
+    assert store.stable_level("en") is None
+
+
+def test_stable_level_breaks_a_three_way_tie_toward_the_most_recent(store):
+    """min_sessions=3 with three distinct levels is the smallest sample where a
+    tie is unavoidable. The mode can't pick a winner, so the most recent of the
+    tied levels does."""
+    for level in ["beginner", "intermediate", "advanced"]:
+        _finished(store, "en", level)
+    assert store.stable_level("en") == "advanced"
 
 
 def test_settings_get_set_and_default(store):
@@ -344,6 +380,61 @@ def test_stale_sweep_spares_a_long_running_session_that_is_still_active(store):
     assert store.stale_open_sessions(hours=24) == []
 
 
+def test_resumable_session_offers_only_the_most_recent_unfinished_one(store):
+    old = store.create_session("en", "free", scenario_id="airport-checkin-en")
+    store.add_message(old, "user", "hi")
+    new = store.create_session("en", "free", scenario_id="restaurant-seating-en")
+    store.add_message(new, "user", "hello")
+    assert store.resumable_session("en")["id"] == new
+
+
+def test_a_finished_session_is_not_resumable(store):
+    sid = store.create_session("en", "free")
+    store.end_session(sid, "r", "beginner")
+    assert store.resumable_session("en") is None
+
+
+def test_a_session_with_no_messages_is_not_worth_resuming(store):
+    """A session row with no messages at all. There is nothing to come back to.
+
+    Not what "pressing 시작 and closing the tab" leaves behind, which is what
+    this docstring used to say: POST /sessions writes the bot's opening line
+    before it returns, so that gesture always leaves a session with one
+    message -- see test_a_session_started_and_abandoned_through_the_route
+    _is_not_offered (tests/test_api_chat.py:483), which covers that production
+    shape and is why resumable_session filters on a *learner* message.
+
+    What does still produce this row: app/api.py calls llm.chat for the opening
+    line with no guard before db.add_message, so an Ollama failure 500s to the
+    client with the session row already written and empty. Confirmed by making
+    llm.chat raise -- the route returns 500 and leaves session 1 holding zero
+    messages."""
+    store.create_session("en", "free")
+    assert store.resumable_session("en") is None
+
+
+def test_a_script_mode_session_is_not_resumable(store):
+    """scriptIndex lives only in the browser and is never persisted, so the
+    app has no way to place the learner back where they left off. Everything
+    else about this session satisfies resumable_session's other filters --
+    unfinished, has messages, within the window -- so only the mode
+    exclusion can be what keeps it out."""
+    sid = store.create_session("en", "script", scenario_id="standup-en")
+    store.add_message(sid, "user", "hi")
+    assert store.resumable_session("en") is None
+
+
+def test_abandon_stale_sessions_closes_them_and_they_stop_being_offered(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "hi")
+    with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = '2020-01-01T00:00:00+00:00'")
+        conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00'")
+    assert store.abandon_stale_sessions(hours=24) == 1
+    assert store.resumable_session("en") is None
+    assert store.get_session(sid)["ended_at"] is not None
+
+
 def test_session_stats_counts_only_the_learners_wrong_turns(store):
     sid = store.create_session("en", "free")
     store.add_message(sid, "bot", "Good evening!")
@@ -385,3 +476,121 @@ def test_session_stats_counts_ungraded_separately_from_wrong(store):
     assert stats["turns"] == 3
     assert stats["wrong"] == 1
     assert stats["ungraded"] == 1
+
+
+def test_home_stats_counts_this_weeks_turns_and_total_fixes(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "a", ok=False, fixed="A", tag="시제")
+    store.add_message(sid, "user", "b", ok=True, tag="없음")
+    store.add_message(sid, "bot", "reply")
+    stats = store.home_stats("en")
+    assert stats["week_turns"] == 2      # bot lines are not the learner speaking
+    assert stats["fixed_total"] == 1
+
+
+def test_home_stats_has_no_top_tag_before_there_is_evidence(store):
+    """A weakness ranked off one or two mistakes is a guess dressed as a fact."""
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "a", ok=False, fixed="A", tag="시제")
+    assert store.home_stats("en")["top_tag"] is None
+
+
+def test_home_stats_reports_a_tag_once_it_has_appeared_three_times(store):
+    sid = store.create_session("en", "free")
+    for text in ("a", "b", "c"):
+        store.add_message(sid, "user", text, ok=False, fixed=text.upper(), tag="시제")
+    assert store.home_stats("en")["top_tag"] == "시제"
+
+
+def test_home_stats_streak_counts_consecutive_days_ending_today(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "today")
+    assert store.home_stats("en")["streak"] == 1
+
+
+def test_home_stats_streak_survives_an_unfinished_today_if_yesterday_was_practised(store):
+    """A ten-day streak must not read as zero just because the learner has not
+    spoken yet today -- that number sits on the screen where they decide
+    whether to practise at all, so it has to survive an unfinished day."""
+    sid = store.create_session("en", "free")
+    yesterday = datetime.now().date() - timedelta(days=1)
+    mid = store.add_message(sid, "user", "yesterday")
+    with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
+                     (_local_stamp(yesterday, 12), mid))
+    assert store.home_stats("en")["streak"] == 1
+
+
+def test_home_stats_streak_is_zero_when_last_practice_was_two_days_ago(store):
+    sid = store.create_session("en", "free")
+    two_days_ago = datetime.now().date() - timedelta(days=2)
+    mid = store.add_message(sid, "user", "old")
+    with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
+                     (_local_stamp(two_days_ago, 12), mid))
+    assert store.home_stats("en")["streak"] == 0
+
+
+def test_home_stats_streak_counts_a_consecutive_run_ending_yesterday(store):
+    sid = store.create_session("en", "free")
+    today = datetime.now().date()
+    for days_back in (1, 2, 3):
+        mid = store.add_message(sid, "user", f"day-{days_back}")
+        with store.connect() as conn:
+            conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
+                         (_local_stamp(today - timedelta(days=days_back), 12), mid))
+    assert store.home_stats("en")["streak"] == 3
+
+
+def test_home_stats_streak_counts_one_korean_day_across_a_utc_midnight(store):
+    """One practice day that straddles UTC midnight (e.g. 00:30 and 23:30 KST,
+    which fall on two different UTC calendar dates) must count as a single
+    streak day, not two -- otherwise the streak snaps or inflates at 9am KST
+    every day, since that is UTC midnight."""
+    sid = store.create_session("en", "free")
+    today = datetime.now().date()
+    early = store.add_message(sid, "user", "early")
+    late = store.add_message(sid, "user", "late")
+    with store.connect() as conn:
+        conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
+                     (_local_stamp(today, 0, 30), early))
+        conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
+                     (_local_stamp(today, 23, 30), late))
+    assert store.home_stats("en")["streak"] == 1
+
+
+FREE_SCENARIO = {
+    "id": "user-interview-1", "language": "en", "type": "free",
+    "title": "구직 면접", "goal": "경력을 설명하고 질문에 답한다",
+    "persona_prompt": "You are a hiring manager.", "max_turns": 8,
+}
+
+
+def test_user_scenario_round_trips_in_the_catalogue_shape(store):
+    store.add_user_scenario(FREE_SCENARIO)
+    got = store.get_user_scenario("user-interview-1")
+    assert got == {**FREE_SCENARIO, "lines": None}
+
+
+def test_user_scenarios_are_filtered_by_language_and_kind(store):
+    store.add_user_scenario(FREE_SCENARIO)
+    store.add_user_scenario({**FREE_SCENARIO, "id": "user-ja-1", "language": "ja"})
+    assert [s["id"] for s in store.user_scenarios("en")] == ["user-interview-1"]
+    assert [s["id"] for s in store.user_scenarios("en", "script")] == []
+
+
+def test_script_scenario_round_trips_its_lines(store):
+    script = {"id": "user-standup-1", "language": "en", "type": "script",
+              "title": "스탠드업", "goal": None,
+              "lines": [{"speaker": "bot", "text": "Morning!"},
+                        {"speaker": "user", "text": "Morning."}]}
+    store.add_user_scenario(script)
+    assert store.get_user_scenario("user-standup-1")["lines"] == script["lines"]
+
+
+def test_a_stored_scenario_reads_back_in_the_catalogue_shape(store):
+    """A generated scenario must be indistinguishable from a built-in one --
+    data/scenarios.json entries carry no used_count, and nothing counts uses,
+    so neither does this."""
+    store.add_user_scenario(FREE_SCENARIO)
+    assert "used_count" not in store.get_user_scenario("user-interview-1")

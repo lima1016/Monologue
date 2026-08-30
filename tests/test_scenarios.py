@@ -2,7 +2,18 @@ import json
 
 import pytest
 
-from app import scenarios
+from app import db, scenarios
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db(tmp_path, monkeypatch):
+    """scenarios_for/get_scenario now read the user_scenarios table on every
+    call, so even tests that never touch generated scenarios need a real,
+    migrated database underneath them rather than the repo's own
+    monologue.db (which may not exist, or may predate this table, on a
+    fresh checkout)."""
+    monkeypatch.setattr(db.config, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
 
 
 def test_seed_file_loads():
@@ -63,6 +74,37 @@ def test_script_without_lines_raises(tmp_path):
         scenarios.load_scenarios(bad)
 
 
+def test_script_starting_with_user_raises(tmp_path):
+    """nextScriptLine plays the first line as-is; a script opening on "user"
+    asks the learner to speak before anything has been said to them."""
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps([{
+        "id": "x", "language": "en", "type": "script", "title": "t",
+        "lines": [
+            {"speaker": "user", "text": "Hi."},
+            {"speaker": "bot", "text": "Hello."},
+        ],
+    }]), encoding="utf-8")
+    with pytest.raises(scenarios.ScenarioError):
+        scenarios.load_scenarios(bad)
+
+
+def test_script_with_consecutive_same_speaker_lines_raises(tmp_path):
+    """nextScriptLine branches on line.speaker -- two consecutive bot lines
+    both play as the bot, and the learner never gets a turn between them."""
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps([{
+        "id": "x", "language": "en", "type": "script", "title": "t",
+        "lines": [
+            {"speaker": "bot", "text": "Hi."},
+            {"speaker": "bot", "text": "How are you?"},
+            {"speaker": "user", "text": "Good."},
+        ],
+    }]), encoding="utf-8")
+    with pytest.raises(scenarios.ScenarioError):
+        scenarios.load_scenarios(bad)
+
+
 def test_scenario_without_id_raises(tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps([{"language": "en", "type": "free", "title": "t", "persona_prompt": "p", "max_turns": 8}]), encoding="utf-8")
@@ -75,3 +117,27 @@ def test_malformed_json_file_raises_scenario_error(tmp_path):
     bad.write_text("{not valid json", encoding="utf-8")
     with pytest.raises(scenarios.ScenarioError):
         scenarios.load_scenarios(bad)
+
+
+def test_generated_scenarios_join_the_catalogue_and_come_first(tmp_path, monkeypatch):
+    """The learner's own scenarios are the ones they meant; the built-in
+    catalogue is the fallback behind them."""
+    monkeypatch.setattr(db.config, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
+    db.add_user_scenario({"id": "user-x", "language": "en", "type": "free",
+                          "title": "구직 면접", "goal": "g",
+                          "persona_prompt": "p", "max_turns": 8})
+
+    ids = [s["id"] for s in scenarios.scenarios_for("en", "free")]
+    assert ids[0] == "user-x"
+    assert "restaurant-seating-en" in ids
+
+
+def test_get_scenario_finds_a_generated_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(db.config, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
+    db.add_user_scenario({"id": "user-y", "language": "en", "type": "free",
+                          "title": "t", "goal": "g", "persona_prompt": "p", "max_turns": 8})
+    assert scenarios.get_scenario("user-y")["title"] == "t"
+    assert scenarios.get_scenario("restaurant-seating-en")["language"] == "en"
+    assert scenarios.get_scenario("nope") is None
