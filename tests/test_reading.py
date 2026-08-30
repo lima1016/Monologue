@@ -77,6 +77,30 @@ def test_align_with_no_reading_gives_plain_text():
     assert reading.align("ABC", None) == [{"text": "ABC", "ruby": None}]
 
 
+def test_analyse_romanises_the_topic_particle_as_wa_not_ha():
+    """는 조사 は는 항상 '와'로 읽는다. kana(표기)는 ハ지만 pron(발음)은 ワ다.
+    이걸 놓치면 학습자가 일본어에서 가장 자주 나오는 조사를 잘못 배운다."""
+    tokens = reading.analyse("私は学生です")
+    romaji = " ".join(t["romaji"] for t in tokens if t["romaji"])
+    assert "wa" in romaji.split()
+    assert "ha" not in romaji.split()
+
+
+def test_analyse_romanises_the_direction_particle_as_e_not_he():
+    tokens = reading.analyse("学校へ行きます")
+    romaji = " ".join(t["romaji"] for t in tokens if t["romaji"])
+    assert "e" in romaji.split()
+    assert "he" not in romaji.split()
+
+
+def test_analyse_still_romanises_a_long_vowel_word_with_the_written_form():
+    """pron은 장음을 'ー'로 뭉뚱그려서(ガッコー) kana(ガッコウ)와 다르게 적는다.
+    조사가 아닌 토큰까지 pron으로 바꾸면 学校가 gakkoo가 되어버린다 -- 이 게이트가
+    조사에만 적용됨을 고정하는 회귀 테스트다."""
+    tokens = reading.analyse("学校")
+    assert tokens[0]["romaji"] == "gakkou"
+
+
 def test_analyse_returns_one_token_per_word_with_parts():
     tokens = reading.analyse("寿司を食べる")
     assert [t["surface"] for t in tokens] == ["寿司", "を", "食べる"]

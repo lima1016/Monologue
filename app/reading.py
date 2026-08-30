@@ -191,10 +191,20 @@ def analyse(text):
                 tokens.append(_plain(word.surface))
                 continue
             hira = _to_hiragana(kana)
+            # 조사(는/へ/를 등)는 표기(kana)와 발음(pron)이 갈리는 자리다 -- は는
+            # '하'가 아니라 '와'로, へ는 '헤'가 아니라 '에'로 읽는다. UniDic은 이
+            # 발음을 pron에 따로 준다. 조사에만 pron을 쓰는 이유는 pron이 장음을
+            # 'ー'로 뭉개기 때문이다(学校 -> ガッコー): 조사가 아닌 토큰까지
+            # pron으로 바꾸면 gakkou가 gakkoo가 된다. 후리가나(ruby)는 어느
+            # 쪽이든 항상 표기(kana)를 그대로 쓴다 -- 학습자가 읽는 글자 위에는
+            # 원래 표기가 있어야 한다.
+            pos1 = getattr(word.feature, "pos1", None)
+            pron = getattr(word.feature, "pron", None)
+            romaji_source = pron if (pos1 == "助詞" and pron and pron != "*") else kana
             tokens.append({
                 "surface": word.surface,
                 "reading": hira,
-                "romaji": to_romaji(kana),
+                "romaji": to_romaji(romaji_source),
                 "parts": align(word.surface, hira),
             })
         except Exception:
