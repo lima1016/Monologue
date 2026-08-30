@@ -8,12 +8,38 @@
  * session is stamped one way and bound the other -- permanently, with nothing
  * on screen to say so. Both tests must fail if that capture is reverted.
  */
-import { test } from 'node:test';
+import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { $, state } from './api.js';
-import { loadHome, resumeSession, startFromHome } from './home.js';
-import { jsonResponse, stubFetch } from './dom-shim.js';
+import { jsonResponse, resetDom, stubFetch } from './dom-shim.js';
+
+/* home.js keeps `busy` and `resumeTarget` as module globals and node evaluates
+   this file's module graph once, so without a reset every test inherits the
+   previous one's state -- and a failure can convert a later test into a
+   *vacuous pass*. Demonstrated: with the resume gate reverted, the full-suite
+   run fails two tests and "시작 during a resume..." passes, because the
+   preceding failure left startFromHome's promise pending with `busy === true`,
+   so that test's own startFromHome() returned at the guard and asserted
+   nothing. Run alone against the same revert it fails correctly. A suite that
+   reports green because an earlier test broke is the same failure class as a
+   guard that swallows a missing element.
+
+   Reset by re-importing home.js under a fresh URL rather than by exporting a
+   test-only reset from it: the query string yields a genuinely new module
+   instance, so *every* module global it has -- including any added later --
+   starts clean, with nothing test-only in production code and no hand-kept
+   list to rot. home.js's own imports (api.js, session.js, router.js) resolve
+   to their already-cached URLs, so `state` and `startSession` stay the single
+   shared ones these assertions read. */
+let home;
+let instance = 0;
+
+beforeEach(async () => {
+  // Elements are memoised by id in dom-shim, so the tree is module-global too.
+  resetDom();
+  home = await import(`./home.js?instance=${++instance}`);
+});
 
 /* Answers every request the wish path makes, and hands back a handle on the
    one that matters: `release` resolves the pending /scenarios/generate call,
@@ -46,7 +72,7 @@ test('a language switch during generation does not change the session being crea
   $('wish').value = '병원 접수';                 // nothing in the catalogue matches
   const { seen, release } = stubStartPath();
 
-  const started = startFromHome();
+  const started = home.startFromHome();
   await new Promise((r) => setTimeout(r, 0));   // let it reach the generate await
   state.language = 'ja';                        // the learner presses 日本語 while it thinks
   release();
@@ -63,7 +89,7 @@ test('a mode switch during generation does not change the session being created'
   $('wish').value = '병원 접수';
   const { seen, release } = stubStartPath();
 
-  const started = startFromHome();
+  const started = home.startFromHome();
   await new Promise((r) => setTimeout(r, 0));
   state.mode = 'lesson';                        // lesson would null the scenario_id out
   release();
@@ -87,7 +113,7 @@ async function armResumeCard() {
     }
     return jsonResponse({});
   });
-  await loadHome();
+  await home.loadHome();
 }
 
 test('이어서 하기 during a generation wait does not hijack the session being started', async () => {
@@ -98,10 +124,10 @@ test('이어서 하기 during a generation wait does not hijack the session bein
 
   $('wish').value = '병원 접수';
   const { seen, release } = stubStartPath();
-  const started = startFromHome();
+  const started = home.startFromHome();
   await new Promise((r) => setTimeout(r, 0));
 
-  await resumeSession();          // the learner presses 계속 while it thinks
+  await home.resumeSession();          // the learner presses 계속 while it thinks
   assert.equal(state.sessionId, null,
     'resume attached to session 42 while a start was already in flight');
 
@@ -127,11 +153,11 @@ test('시작 during a resume does not overwrite the conversation being restored'
     return jsonResponse({});
   });
 
-  const resuming = resumeSession();
+  const resuming = home.resumeSession();
   await new Promise((r) => setTimeout(r, 0));
 
   $('wish').value = '';
-  await startFromHome();          // the learner presses 시작 while the resume is in flight
+  await home.startFromHome();          // the learner presses 시작 while the resume is in flight
   assert.equal(sessionPosts, 0, 'a new session was created on top of an in-flight resume');
 
   releaseMessages();
@@ -148,12 +174,12 @@ test('a failed resume releases the guard', async () => {
     if (url === '/api/sessions/42') return jsonResponse({ detail: 'gone' }, { ok: false, status: 500 });
     return jsonResponse({});
   });
-  await resumeSession();
+  await home.resumeSession();
   assert.equal(state.sessionId, null);
 
   $('wish').value = '병원 접수';
   const { seen, release } = stubStartPath();
-  const started = startFromHome();
+  const started = home.startFromHome();
   release();
   await started;
   assert.ok(seen.sessionBody, 'the home screen was still locked after a failed resume');
