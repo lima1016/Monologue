@@ -36,6 +36,7 @@ def fake_engines(monkeypatch):
 
     def fake_chat_json(messages, schema, **kw):
         calls["schema"] = schema
+        calls["messages"] = messages
         return {
             "ok": False,
             "fixed": "I went there.",
@@ -208,6 +209,51 @@ def test_chat_stores_both_turns_with_feedback_on_the_user_turn(client):
     assert msgs[-1]["correction"] is None
 
 
+def test_chat_feeds_the_scenario_and_bots_last_line_to_the_feedback_prompt(client, fake_engines):
+    """chat_turn already holds the scenario and can reach the bot's previous
+    line through db.get_messages -- both must reach the grading model's
+    system prompt so it can tell a mis-heard word from a real error."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there."})
+
+    system = fake_engines["messages"][0]["content"]
+    assert "공항 체크인" in system
+    assert "체크인하고 좌석을 배정받는다" in system
+    assert "Good morning! Checking in today?" in system  # the session's opening line
+
+
+def test_chat_stores_the_learners_filler_word_verbatim_but_strips_it_for_grading(client, fake_engines):
+    """text_cleanup.strip_fillers runs on the grading input only -- the screen
+    and the database always keep exactly what the learner said, filler word
+    included, matching clean_for_tts's own contract."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    body = client.post("/api/chat", json={
+        "session_id": sid, "text": "I'd like to take a seat Uh Windows",
+    }).json()
+
+    assert body  # the turn still completes
+    stored = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+    assert stored["text"] == "I'd like to take a seat Uh Windows"
+
+    last_query = fake_engines["messages"][-1]["content"]
+    assert last_query == "학생이 말한 문장: I'd like to take a seat Windows"
+
+
+def test_chat_skips_grading_when_the_text_is_only_filler(client, fake_engines):
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    body = client.post("/api/chat", json={"session_id": sid, "text": "Uh um"}).json()
+
+    assert body["ok"] is None
+    assert body["correction"] is None
+    assert "messages" not in fake_engines  # chat_json was never called
+
+    stored = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+    assert stored["text"] == "Uh um"
+
+
 def test_chat_on_a_finished_session_is_rejected(client):
     sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
                                              "scenario_id": "airport-checkin-en"}).json()["session_id"]
@@ -319,6 +365,68 @@ GENUINELY_DIFFERENT_PAIRS = [
     ("Not really I might need a review on the pool recastulator",
      "Not really, I might need a review of the pool recirculator."),
 ]
+
+
+# Drop a neutralised correction's suggestion when it just quotes back what the
+# learner already said (residue from the model believing in a fix that was
+# since discarded) -- but keep it when the quoted span is a genuine
+# alternative, even one that contains the learner's words as a substring.
+DROP_SELF_QUOTING_CASES = [
+    ("card please", "좀 더 자연스럽게 말하려면 'Card, please.'라고 해보세요.", None),
+    ("card please", "'Could I have the card, please?'라고도 할 수 있어요.",
+     "'Could I have the card, please?'라고도 할 수 있어요."),
+    ("すみません駅はどこですか",
+     "원어민이라면 'すみません、駅はどこですか。'처럼 말할 거예요.", None),
+    ("すみません駅はどこですか",
+     "다른 상황에서는 '駅はどこですか。すみません。'라고도 하고, "
+     "'すみません、駅はどちらですか。'라고도 해요.",
+     "다른 상황에서는 '駅はどこですか。すみません。'라고도 하고, "
+     "'すみません、駅はどちらですか。'라고도 해요."),
+    ("card please", "이 표현을 자주 연습해보세요.", "이 표현을 자주 연습해보세요."),  # no quotes at all
+    ("card please", "''", "''"),  # only an empty quote
+    ("card please", None, None),  # not a string -- must not raise
+]
+
+
+def test_drop_self_quoting_suggestion_only_drops_an_exact_quoted_match():
+    from app import api
+    for learner_text, suggestion, expected in DROP_SELF_QUOTING_CASES:
+        assert api._drop_self_quoting_suggestion(suggestion, learner_text) == expected, \
+            (learner_text, suggestion)
+
+
+def test_chat_drops_a_suggestion_that_only_restates_the_discarded_fix(client, monkeypatch):
+    """Integration: the model believed 'Card, please.' was a real fix, then
+    the punctuation-only check discarded it -- but the suggestion field still
+    quotes it back verbatim, which the learner already said. It must not
+    reach the screen."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+
+    def fake_chat_json(messages, schema, **kw):
+        return {"ok": False, "fixed": "Card, please.", "tag": "어순",
+                "correction": "어순이 잘못되었습니다.",
+                "suggestion": "카드를 받을 때 'Card, please.'라고 말하면 더 자연스러워요."}
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+    body = client.post("/api/chat", json={"session_id": sid, "text": "Card please"}).json()
+    assert body["ok"] is True
+    assert body["suggestion"] is None
+
+
+def test_chat_keeps_a_genuinely_alternative_suggestion_on_a_neutralized_turn(client, monkeypatch):
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+
+    def fake_chat_json(messages, schema, **kw):
+        return {"ok": False, "fixed": "Card, please.", "tag": "어순",
+                "correction": "어순이 잘못되었습니다.",
+                "suggestion": "좀 더 자연스럽게 말하려면 'Could I have the card, please?'라고도 할 수 있어요."}
+    monkeypatch.setattr("app.api.llm.chat_json", fake_chat_json)
+
+    body = client.post("/api/chat", json={"session_id": sid, "text": "Card please"}).json()
+    assert body["ok"] is True
+    assert body["suggestion"] == "좀 더 자연스럽게 말하려면 'Could I have the card, please?'라고도 할 수 있어요."
 
 
 def test_chat_neutralizes_punctuation_only_corrections(client, monkeypatch):
