@@ -9,6 +9,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Response, Uploa
 from pydantic import BaseModel
 
 from app import config, db, llm, prompts, reading, scenarios, tts
+from app.text_cleanup import clean_for_tts
 from app.tts import voicevox_backend
 
 router = APIRouter(prefix="/api")
@@ -628,9 +629,33 @@ def home_stats(language: Language):
     return db.home_stats(language)
 
 
+def _resumable_audio_key(text: str, language: str, voice: str) -> str | None:
+    """The clip's cache key if it is already on disk, else None -- never
+    synthesises.
+
+    Only reachable for bot messages: those are the only ones this app ever
+    hands to TTS, and their clip (if it still exists) was made while the
+    session was live. Deliberately never calls synthesize/synthesize_to_cache
+    here -- this backs the resume path, which replays every message in the
+    conversation at once, and putting N TTS calls on that path could stall
+    reopening a long session on a cold cache. A missing clip just means the
+    learner hears nothing when they click that bubble again, which is the
+    honest answer -- nothing failed just now, nothing was attempted.
+    """
+    key = tts.cache_key(clean_for_tts(text), language, voice)
+    return key if tts.cached_path(key).exists() else None
+
+
 @router.get("/sessions/{session_id}")
 def session_detail(session_id: int):
     session = db.get_session(session_id)
     if session is None:
         raise HTTPException(404, "no such session")
-    return {"session": session, "messages": db.get_messages(session_id)}
+    messages = db.get_messages(session_id)
+    voice = selected_voice(session["language"])
+    for m in messages:
+        m["audio_key"] = (
+            _resumable_audio_key(m["text"], session["language"], voice)
+            if m["speaker"] == "bot" else None
+        )
+    return {"session": session, "messages": messages}

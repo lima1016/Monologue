@@ -115,7 +115,13 @@ $('conversation').addEventListener('click', (e) => {
   }
   const bubble = e.target.closest('.msg.bot');
   if (!bubble || e.target.closest('button')) return;
-  play(bubble.dataset.audioKey || null, bubble.dataset.ja || bubble.textContent);
+  // No key means nothing to play, not a failed synthesis -- a resumed bubble
+  // never had a TTS key of its own attempted on it (GET /sessions/{id} only
+  // ever hands back a key for a clip already on disk). Calling play(null,
+  // ...) here would tell the learner "서버 음성 생성에 실패해" for a clip that
+  // was never asked for, and fall them back to browser speech for nothing.
+  if (!bubble.dataset.audioKey) return;
+  play(bubble.dataset.audioKey, bubble.dataset.ja || bubble.textContent);
 });
 
 $('panel-body').addEventListener('click', (e) => {

@@ -207,3 +207,43 @@ def test_session_detail_returns_transcript(client, session):
 
 def test_session_detail_404s_when_missing(client):
     assert client.get("/api/sessions/999").status_code == 404
+
+
+def test_session_detail_returns_a_cached_audio_key_for_a_bot_message(client, session, monkeypatch):
+    """이어서 하기가 다시 재생할 수 있는 것은 실제로 디스크에 있는 클립뿐이다.
+    이 라우트가 합성을 시도하면 긴 대화를 다시 열 때마다 재생성 대기가
+    생긴다 -- synthesize를 부르면 실패하도록 막아 그것을 증명한다."""
+    from app import api, tts
+    from app.text_cleanup import clean_for_tts
+
+    def boom(*a, **kw):
+        raise AssertionError("resume must never synthesize")
+    monkeypatch.setattr(tts, "synthesize", boom)
+
+    voice = api.selected_voice("en")
+    key = tts.cache_key(clean_for_tts("Hello there!"), "en", voice)
+    path = tts.cached_path(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"RIFFfake")
+
+    body = client.get(f"/api/sessions/{session}").json()
+    bot = next(m for m in body["messages"] if m["speaker"] == "bot")
+    assert bot["audio_key"] == key
+
+
+def test_session_detail_gives_no_audio_key_when_nothing_is_cached(client, session, monkeypatch):
+    from app import api, tts
+
+    def boom(*a, **kw):
+        raise AssertionError("resume must never synthesize")
+    monkeypatch.setattr(tts, "synthesize", boom)
+
+    body = client.get(f"/api/sessions/{session}").json()
+    bot = next(m for m in body["messages"] if m["speaker"] == "bot")
+    assert bot["audio_key"] is None
+
+
+def test_session_detail_never_gives_a_user_message_an_audio_key(client, session):
+    body = client.get(f"/api/sessions/{session}").json()
+    user = next(m for m in body["messages"] if m["speaker"] == "user")
+    assert user["audio_key"] is None

@@ -12,6 +12,7 @@ import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { $, state } from './api.js';
+import * as router from './router.js';
 import { jsonResponse, resetDom, stubFetch } from './dom-shim.js';
 
 /* home.js keeps `busy` and `resumeTarget` as module globals and node evaluates
@@ -183,6 +184,38 @@ test('a failed resume releases the guard', async () => {
   release();
   await started;
   assert.ok(seen.sessionBody, 'the home screen was still locked after a failed resume');
+});
+
+/* GET /sessions/{id} hands back a cache-only audio_key per bot message (never
+   freshly synthesised -- see _resumable_audio_key in app/api.py). Without
+   this passthrough, every replayed bot bubble has no audio key at all, and
+   main.js's play branch would report a synthesis failure that never
+   happened the moment the learner clicks one to hear it again. */
+test('resumeSession carries each message\'s cached audio key into its bubble', async () => {
+  router.register('session', 'session'); // main.js does this in the real app; this test drives home.js alone
+  state.language = 'en';
+  state.mode = 'free';
+  state.sessionId = null;
+  await armResumeCard();
+
+  stubFetch(async (url) => {
+    if (url === '/api/sessions/42') {
+      return jsonResponse({
+        session: { id: 42, language: 'en' },
+        messages: [
+          { speaker: 'bot', text: 'Hi.', audio_key: 'cachedkey123' },
+          { speaker: 'user', text: 'Hello.', audio_key: null },
+        ],
+      });
+    }
+    return jsonResponse({});
+  });
+
+  await home.resumeSession();
+  const [botBubble, userBubble] = $('conversation').children;
+  assert.equal(botBubble.dataset.audioKey, 'cachedkey123');
+  assert.equal(userBubble.dataset.audioKey, undefined,
+    'a message with no cached clip must not get a dataset.audioKey the click handler would try to play');
 });
 
 /* The third door: nothing typed, so the catalogue picks for the learner. Same

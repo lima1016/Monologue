@@ -134,7 +134,13 @@ export async function resumeSession() {
     state.mode = resumeTarget.mode;
     router.show('session');
     $('conversation').replaceChildren();
-    for (const m of messages) addMessage(m.speaker, m.text);
+    // GET /sessions/{id} hands back a cache-only audio_key per bot message
+    // (null if nothing is cached, never freshly synthesised) -- see
+    // _resumable_audio_key in app/api.py. Passing it through means clicking a
+    // replayed bot bubble plays the real clip when it is still on disk,
+    // rather than main.js's play() reporting a synthesis failure that never
+    // happened.
+    for (const m of messages) addMessage(m.speaker, m.text, m.audio_key);
     // Same rule as startSession: the side panel holds only 목표 or 대본, so a
     // resumed session with no goal (lesson mode, or free mode with none set)
     // hides the panel rather than showing the "목표" heading over nothing.
