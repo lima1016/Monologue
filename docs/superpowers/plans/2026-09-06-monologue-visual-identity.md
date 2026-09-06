@@ -1423,17 +1423,38 @@ script report, the same reason the counts line already forks."
   --mic-glyph: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>');
 ```
 
-- [ ] **Step 2: 토큰 가드가 통과하는지**
+- [ ] **Step 2: `.play-mine`의 높이를 24px 위로 올린다**
+
+`ui-ux-pro-max` 조회에서 나온 것이다. WCAG 2.2 Target Size (Minimum)은 웹에서
+**24×24 CSS px**을 요구하는데, `▶ 내 발음` 버튼이 그 아래에 있다:
+`font-size: var(--text-xs)` × line-height 1.55 ≈ 17.8px + 세로 패딩 4px + 테두리 2px
+≈ **23.8px**. 태스크 2가 `--text-xs`를 11→11.5px로 올려 조금 나아졌지만 여전히 경계선이다.
+
+같은 줄의 `.respeak`는 세로 패딩이 `var(--space-1)`(4px)이라 ≈27.8px로 통과한다.
+`.play-mine`만 그 패딩을 안 쓰고 있다.
+
+```css
+.play-mine {
+  display: block; margin-top: var(--space-2);
+  /* 2px 였다. WCAG 2.2 Target Size (Minimum)의 24×24 아래로 떨어져서 --space-1 로
+     맞춘다 -- 바로 옆 .respeak 가 이미 쓰는 값이고, 두 버튼이 같은 줄에서 다른
+     크기일 이유가 없었다. */
+  font-size: var(--text-xs); padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill); color: var(--text-dim);
+}
+```
+
+- [ ] **Step 3: 토큰 가드가 통과하는지**
 
 Run: `venv/Scripts/python.exe -m pytest tests/test_css_tokens.py -v`
 Expected: 2 passed (`--mic-glyph`가 정의·참조 양쪽에 있다)
 
-- [ ] **Step 3: 눈으로 확인**
+- [ ] **Step 4: 눈으로 확인**
 
 서버를 8010에 띄우고 세션 화면을 연다. **라이트와 다크 모두에서** 마이크 모양이
 보여야 한다. 다크에서 안 보이면 `--on-accent` 뒤집기가 안 먹은 것이다.
 
-- [ ] **Step 4: 커밋**
+- [ ] **Step 5: 커밋**
 
 ```bash
 git add static/css/components.css static/css/tokens.css
@@ -1536,3 +1557,38 @@ E(회귀 방지) → 태스크 1이 1·2번을, 태스크 6이 3번을, 태스�
 `title`이 아니라 `scenario_id`/`topic`을 돌려주고, 제목 해석은 `api.py`가 한다.
 Step 1에 쓴 제목 테스트는 그래서 API 레벨로 옮겨야 하며, Step 3·4·5가 그렇게 하라고
 적어두었다.
+
+
+---
+
+## 부록: `ui-ux-pro-max` 조회 결과 (2026-09-06)
+
+이 계획을 쓴 뒤 스킬로 설계를 교차 검증했다. 결과를 그대로 적어둔다 —
+**대부분 이 프로젝트에 맞지 않았고**, 맞지 않았다는 사실 자체가 기록할 값어치가 있다.
+
+**`--design-system`은 두 번 다 못 썼다.**
+
+1차(`language learning practice warm minimal`)는 랜딩 페이지 패턴
+(Hero + Testimonials + CTA), Claymorphism("장난감 같은, 아이들 앱"), 인디고+초록 팔레트,
+그리고 **한글을 지원하지 않는** Baloo 2 / Comic Neue를 돌려줬다. 한국어 UI에 쓸 수 없고,
+초록/빨강은 이 프로젝트가 명시적으로 배제한 조합이다.
+
+2차(`personal focused daily practice tool calm`)는 Minimalism & Swiss Style로 방향은
+맞았지만 색은 또 차가운 파랑/초록이었다.
+
+**`design-system/` 디렉터리를 만들지 않았다** (`--persist` 미사용). 스펙이 "토큰 소스를
+둘로 만들지 않는다"고 정했고, MASTER.md는 그 두 번째 소스가 된다.
+
+**세그먼트 컨트롤 질의는 빗나갔다.** `segmented control single choice`가 드래그·캐러셀
+항목을 돌려줬다. DB에 해당 항목이 없는 것으로 보인다. `.modes`를 세그먼트로 바꾸는 결정은
+데이터베이스 근거 없이 내린 판단이다 — 그렇게 기록해 둔다.
+
+**실제로 쓸모 있었던 것 두 가지:**
+
+- **WCAG 2.2 Target Size (Minimum) 24×24px** → `.play-mine`이 ≈23.8px로 그 아래였다.
+  태스크 8 Step 2에 넣었다. 이 계획이 놓쳤던 진짜 결함이다
+- **인접 터치 타겟 사이 8px** → `.modes` 세그먼트의 `gap: 2px`가 이 권고 아래다.
+  **의식적으로 유지한다**: 세그먼트 컨트롤은 칸이 붙어 있는 것이 그 컨트롤의 형태이고
+  (iOS 세그먼트도 간격이 없다), 각 칸이 flex로 화면 1/3 너비에 세로 패딩 12px이라
+  타겟 자체는 크다. 권고가 겨냥하는 것은 작고 촘촘한 버튼이지 이 모양이 아니다.
+  칩(`gap: var(--space-2)`)과 컨트롤 줄은 8px을 지킨다
