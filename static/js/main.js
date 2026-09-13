@@ -1,7 +1,7 @@
 import { $, postJSON, notify, state } from './api.js';
 import { play, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
 import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
-         setTurnState, canDo, cancelTurn } from './session.js';
+         setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
 import { loadChips, loadHome, resumeSession, startFromHome } from './home.js';
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
@@ -64,10 +64,9 @@ $('text-input').addEventListener('keydown', (e) => {
   }
 });
 $('btn-cancel').addEventListener('click', cancelTurn);
-// Esc cancels only while a listen is live -- canDo('cancel') is false
-// everywhere else, so it cannot fight the settings dialog's own Esc.
+// Esc cancels a live listen; session.js's escapeCancels says when it must not.
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && canDo('cancel')) {
+  if (escapeCancels(e)) {
     e.preventDefault();
     cancelTurn();
   }

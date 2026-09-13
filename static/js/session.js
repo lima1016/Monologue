@@ -131,6 +131,17 @@ export function cancelTurn() {
   if (canDo('cancel')) cancelListening();
 }
 
+/* Esc cancels a live listen, except where Esc already means something else.
+   The settings dialog can be opened mid-listen, and its Esc closes it -- taken
+   here (main.js calls preventDefault), the dialog stays open and the
+   recording is what disappears. During IME composition Esc backs out of the
+   conversion, which a learner typing Japanese does constantly. */
+export function escapeCancels(e) {
+  if (e.key !== 'Escape' || e.isComposing) return false;
+  if ($('settings').open) return false;
+  return canDo('cancel');
+}
+
 export function handleCancelled() {
   const respeak = activeRespeak;
   clearActiveRespeak();

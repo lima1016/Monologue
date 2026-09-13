@@ -305,6 +305,21 @@ test('an English bot bubble carries a meaning toggle; a learner bubble does not'
   assert.ok(!me.childNodes.some((n) => n.className === 'meaning'));
 });
 
+test('Esc cancels a listen, but not while the settings dialog is open or an IME is composing', () => {
+  /* 설정 창의 Esc는 창을 닫는 키다. 여기서 preventDefault로 가로채면 창이
+     안 닫히고 녹음만 사라진다. 일본어 IME의 Esc는 변환을 취소하는 키다. */
+  resetDom();
+  session.setTurnState('MIC');
+  assert.equal(session.escapeCancels({ key: 'Escape', isComposing: false }), true);
+  assert.equal(session.escapeCancels({ key: 'Enter', isComposing: false }), false);
+  assert.equal(session.escapeCancels({ key: 'Escape', isComposing: true }), false);
+  $('settings').open = true;
+  assert.equal(session.escapeCancels({ key: 'Escape', isComposing: false }), false);
+  $('settings').open = false;
+  session.setTurnState('CANCEL');
+  assert.equal(session.escapeCancels({ key: 'Escape', isComposing: false }), false);
+});
+
 test('cancelling a listen returns to idle, hides the cancel button, and sends nothing', async () => {
   resetDom();
   const requests = [];
