@@ -26,3 +26,22 @@ test('switching the dialog to Japanese shows them again', () => {
   syncLanguageSections();
   assert.equal($('reading-prefs').hidden, false);
 });
+
+test('the pronunciation script choice is saved with the other reading prefs', async () => {
+  const { saveReadingPrefs, loadReadingPrefs } = await import('./settings.js');
+  const { stubFetch, jsonResponse } = await import('./dom-shim.js');
+  const posted = [];
+  stubFetch(async (url, options) => {
+    if (options.method === 'POST') { posted.push(JSON.parse(options.body)); return jsonResponse({}); }
+    return jsonResponse({ furigana: true, romaji: true, pron_script: 'romaji' });
+  });
+
+  await loadReadingPrefs();
+  assert.equal($('pref-pron-romaji').checked, true);
+  assert.equal($('pref-pron-hangul').checked, false);
+
+  $('pref-pron-hangul').checked = true;
+  $('pref-pron-romaji').checked = false;
+  await saveReadingPrefs();
+  assert.deepEqual(posted, [{ furigana: true, romaji: true, pron_script: 'hangul' }]);
+});

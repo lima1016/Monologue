@@ -281,16 +281,28 @@ def test_reading_prefs_default_to_both_on(client):
     아무것도 설정하지 않고도 읽을 수 있어야 한다."""
     res = client.get("/api/reading-prefs")
     assert res.status_code == 200
-    assert res.json() == {"furigana": True, "romaji": True}
+    assert res.json() == {"furigana": True, "romaji": True, "pron_script": "hangul"}
 
 
 def test_reading_prefs_round_trip(client):
     """로마자를 끄는 것은 '가나를 읽을 수 있게 됐다'는 신호다.
     목발을 순서대로 치우는 것이 이 기능의 설계다."""
-    client.post("/api/reading-prefs", json={"furigana": True, "romaji": False})
+    client.post("/api/reading-prefs", json={"furigana": True, "romaji": False, "pron_script": "romaji"})
     assert client.get("/api/reading-prefs").json() == {
-        "furigana": True, "romaji": False,
+        "furigana": True, "romaji": False, "pron_script": "romaji",
     }
+
+
+def test_reading_prefs_saved_without_a_script_keep_hangul(client):
+    """표기 선택이 생기기 전의 요청 모양(두 필드)도 받아야 한다."""
+    res = client.post("/api/reading-prefs", json={"furigana": True, "romaji": True})
+    assert res.status_code == 200
+    assert client.get("/api/reading-prefs").json()["pron_script"] == "hangul"
+
+
+def test_reading_prefs_refuse_an_unknown_script(client):
+    res = client.post("/api/reading-prefs", json={"furigana": True, "romaji": True, "pron_script": "katakana"})
+    assert res.status_code == 422
 
 
 def test_a_quoted_kanji_expression_from_the_line_itself_is_a_quote_not_a_leak():
