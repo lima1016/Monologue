@@ -225,30 +225,26 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 
 /* --- home ---
 
-   The screen asks two questions -- *what* do you want to practise (#wish, its
-   hint and #chips, grouped as .home-ask) and *how* (.modes) -- and then offers
-   one action (#btn-start). Everything below is spacing and type in service of
-   that reading order; the grouping is done with whitespace, not with more
-   borders and boxes.
-
-   #home is a flex column so the rhythm comes from `gap` instead of a margin on
-   every row. That matters for the first-run state: loadHome() sets `hidden` on
-   #resume-card, #recommend and #home-stats, and a display:none flex item
-   consumes no gap, so a missing row leaves no hole behind it. Nothing here
-   defeats `hidden` -- base.css's `[hidden] { display: none !important }`
-   outranks every display declaration in this file, including the ones on #home
-   itself (the router hides whole screens) and on #resume-card/#home-stats. */
+   왼쪽은 할 일(무엇을 연습할지 → 시작), 오른쪽은 맥락(이어하기·이번 주·최근).
+   맥락이 할 일보다 먼저 읽히면 안 되므로, 좁은 화면에서 오른쪽은 시작 버튼
+   아래로 내려간다. */
 #home {
-  max-width: 620px;
-  /* Centred, not left-aligned. The argument for hugging the left edge was that
-     it lines up with the logo -- but `header` is a sibling of `main`, not a
-     child of it, so the two never share a left edge once the viewport is wider
-     than this column (about 948px), and the column just drifts off-centre. */
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+  max-width: 1100px; margin: 0 auto;
+  display: grid; grid-template-columns: 1fr var(--aside-w);
+  gap: var(--space-8); align-items: start;
 }
+/* 설치 첫날: 이어하기도 통계도 최근 기록도 없다. grid 트랙은 자식이 전부
+   [hidden] 이어도 330px 를 그대로 차지하므로, 접지 않으면 화면이 왼쪽으로 쏠린
+   채 오른쪽이 텅 빈다. flex 였던 예전 #home 에는 없던 문제다 -- gap 까지 함께
+   사라졌기 때문이다. loadHome() 이 이 클래스를 붙이고 뗀다. */
+#home.no-aside { grid-template-columns: 1fr; max-width: 640px; }
+#home.no-aside .home-aside { display: none; }
+
+.home-main { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.home-aside { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+
+.home-date { font-size: var(--text-sm); font-weight: 650; color: var(--accent);
+             letter-spacing: .04em; margin: 0; }
 
 /* Wraps so a long greeting and the language segment don't collide on a narrow
    viewport -- the segment drops onto its own line instead. */
@@ -257,8 +253,8 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 /* base.css sets h2 to --text-dim, which is right for the section headings on
    the session and report screens but wrong here: this h2 is the first thing
    read and the anchor the rest of the column hangs off. */
-#home-greeting { font-size: var(--text-2xl); font-weight: 650; color: var(--text);
-                 margin: 0; letter-spacing: -.6px; line-height: 1.3; }
+#home-greeting { font-size: var(--text-3xl); font-weight: 750; color: var(--text);
+                 margin: 0; letter-spacing: -.045em; line-height: 1.25; }
 
 .seg { display: inline-flex; background: var(--surface-sunken); border-radius: var(--radius-sm);
        padding: 2px; }
@@ -269,22 +265,6 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    their rings touch and spill past the track. Drawn just inside the pill
    instead -- same colour and width, so it still reads as the same ring. */
 .seg button:focus-visible { outline-offset: -2px; }
-
-#resume-card { display: flex; align-items: center; gap: var(--space-4);
-               background: var(--accent); color: var(--on-accent); border-radius: var(--radius);
-               padding: var(--space-4); box-shadow: var(--shadow); }
-#resume-card > div { flex: 1; min-width: 0; }
-#resume-title { margin: 0; font-weight: 650; }
-/* .hint's --text-dim would be unreadable on the accent fill; the subtitle is
-   the same white, stepped back with opacity instead. */
-#resume-sub { margin: 2px 0 0; font-size: var(--text-sm);
-              color: var(--on-accent); opacity: .78; }
-/* Not themeable: a white scrim over the accent fill, which is the same
-   saturated blue in both schemes. */
-#btn-resume { background: rgba(255, 255, 255, .18); border-color: transparent;
-              color: var(--on-accent); flex-shrink: 0; white-space: nowrap; }
-#btn-resume:hover { background: rgba(255, 255, 255, .28); }
-#btn-resume:focus-visible { outline-color: var(--on-accent); }
 
 /* Was --correct-*: the correction palette, which this file uses for "you got
    that wrong". A recommendation is an invitation, so it takes the accent
@@ -321,39 +301,23 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    and [hidden] carries !important anyway. */
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-1) 0 0; }
 .chips:empty { display: none; }
-/* border-color, not transparent: --surface-sunken sits at 1.12:1 against --bg
-   (it was 1.04:1 before Phase C's design pass raised it), so with the border
-   switched off the fill was the chip's only affordance and it read as bare
-   text on the page. A hairline is the quieter fix -- darkening the fill enough
-   to stand on its own would make the chips louder than the mode cards below,
-   which the design pass deliberately made the heavier element -- and it needs
-   no second value to keep in step across the two colour schemes.
+/* 칩: 테두리 상자에서 조용한 텍스트로. 상자가 하나 줄어든다. */
+.chips button { border-color: transparent; background: transparent;
+                color: var(--text-dim); }
+.chips button:hover { background: var(--accent-soft); color: var(--accent-ink); }
 
-   Honest about what this does not achieve: --line is 1.19:1 against --bg in
-   light, so the boundary does not meet WCAG 1.4.11's 3:1. Nothing in this
-   design system does -- every button and #wish is the same --line on --surface
-   at 1.23:1 -- and reaching 3:1 would mean darkening --line to about #909098
-   app-wide, which is a design-system decision, not a chip one. In dark, --line
-   is 1.33:1 against --bg, up from the 1.05:1 the transparent border left. */
-.chips button { font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
-                border-radius: var(--radius-pill); color: var(--text-dim);
-                background: var(--surface-sunken); border-color: var(--line); }
-.chips button:hover { color: var(--accent-ink); background: var(--accent-soft); }
-
-/* Question two, set apart from question one by the extra top margin. */
-.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2);
-         margin-top: var(--space-2); }
-.mode { display: flex; flex-direction: column; gap: var(--space-1); text-align: left;
-        padding: var(--space-3); border-radius: var(--radius); }
-.mode .n { font-size: var(--text-sm); font-weight: 650; }
-.mode .d { font-size: var(--text-xs); color: var(--text-dim); line-height: 1.4; }
-.mode:hover { border-color: var(--text-faint); }
-/* A filled card rather than the old 3px --accent-soft glow: the glow read as a
-   halo and collided with the focus outline. --text-dim on --accent-soft is too
-   low-contrast to keep, so the description takes --accent-ink on the selected
-   card. */
-.mode.on { border-color: var(--accent); background: var(--accent-soft); }
-.mode.on .d { color: var(--accent-ink); }
+/* 모드 3개는 상자 셋이 아니라 세그먼트 하나다. 상자 셋일 때는 시작 버튼과
+   무게를 다퉜다. */
+.modes {
+  display: flex; gap: 2px; background: var(--surface-sunken);
+  padding: var(--space-1); border-radius: var(--radius); margin-top: var(--space-2);
+}
+.mode { flex: 1; border: 0; background: transparent; text-align: center;
+        padding: var(--space-3) var(--space-2); border-radius: var(--radius-sm); }
+.mode .n { font-size: var(--text-base); font-weight: 650; }
+.mode .d { font-size: var(--text-xs); color: var(--text-faint); line-height: 1.4; }
+.mode.on { background: var(--surface); box-shadow: var(--shadow); }
+.mode.on .d { color: var(--text-dim); }
 
 /* The destination. Full width because that is the plainest way to say "this is
    the thing you press" without adding a colour or a border the screen doesn't
@@ -364,22 +328,49 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
   font-size: var(--text-lg); font-weight: 650;
   border-radius: var(--radius); box-shadow: var(--shadow);
 }
+#btn-start { box-shadow: var(--shadow-lift); }
 
-/* Not a footnote. The numbers are why a learner opens this screen on a day they
-   don't feel like practising, so they get a panel of their own and the largest
-   type on the screen after the greeting -- but no accent colour, because three
-   equal counters competing with the start button would undo the hierarchy the
-   rest of this pass is building. */
-.stats { display: flex; gap: var(--space-2); margin-top: var(--space-4);
-         padding: var(--space-4) var(--space-3);
-         background: var(--surface-sunken); border: 1px solid var(--line);
-         border-radius: var(--radius); }
-.stat { flex: 1; text-align: center; display: flex; flex-direction: column; gap: 2px; }
-.stat .v { font-size: var(--text-2xl); font-weight: 700; letter-spacing: -.5px;
-           line-height: 1.15; }
+/* 이어하기: 통짜 액센트 판이 아니라 왼쪽 3px 막대. 통짜였을 때는 시작 버튼보다
+   먼저 눈에 들어와서, "오늘 뭘 누르지"가 한 번에 읽히지 않았다. */
+#resume-card {
+  display: flex; align-items: center; gap: var(--space-3);
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: var(--radius); padding: var(--space-3) var(--space-4);
+  box-shadow: none;
+}
+#resume-card > div { flex: 1; min-width: 0; }
+#resume-title { margin: 0; font-weight: 650; }
+#resume-sub { color: var(--text-faint); opacity: 1; }
+#btn-resume { background: transparent; border-color: transparent;
+              color: var(--accent); font-weight: 650; }
+#btn-resume:hover { background: var(--accent-soft); }
+#btn-resume:focus-visible { outline-color: var(--accent); }
+
+/* 오른쪽 칸 카드 하나의 모양. 이번 주·최근 연습이 여기서 쓰고, report 화면의
+   요약 패널(Task 7)도 새로 정의하지 않고 이 규칙과 .stat-row/.stat 을 그대로
+   재사용한다. */
+.panel { background: var(--surface); border: 1px solid var(--line);
+         border-radius: var(--radius); padding: var(--space-4); }
+.stat-row { display: flex; gap: var(--space-5); }
+.stat { flex: 0 0 auto; text-align: left; }
+.stat .v { font-size: var(--text-2xl); }
 .stat .k { font-size: var(--text-xs); color: var(--text-dim); }
 
-@media (max-width: 560px) { .modes { grid-template-columns: 1fr; } }
+#recent-list { list-style: none; margin: 0; padding: 0; }
+#recent-list li { display: flex; align-items: baseline; gap: var(--space-2);
+                   padding: var(--space-2) 0; border-bottom: 1px solid var(--line);
+                   font-size: var(--text-sm); }
+#recent-list li:last-child { border-bottom: 0; }
+#recent-list .when { color: var(--text-faint); font-size: var(--text-xs);
+                      flex: 0 0 46px; }
+#recent-list .what { flex: 1; min-width: 0; overflow: hidden;
+                      text-overflow: ellipsis; white-space: nowrap; }
+#recent-list .fixed { color: var(--text-dim); font-size: var(--text-xs); }
+
+@media (max-width: 880px) {
+  #home { grid-template-columns: 1fr; max-width: 640px; }
+}
 
 /* 읽기 보조. 루비는 브라우저 기본 기능이라 라이브러리가 필요 없다.
    후리가나·로마자는 항상 그려지고, 끄고 켜는 것은 CSS의 몫이다 -- 이미
