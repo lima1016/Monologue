@@ -740,6 +740,10 @@ let ending = false;
 export async function endSession() {
   if (!state.sessionId || ending) return;
   ending = true;
+  // Visible from the first frame: the report takes the local model 10-20s,
+  // and a screen that does not change reads as a button that did nothing.
+  $('report-wait').hidden = false;
+  $('btn-end').textContent = '리포트 만드는 중…';
   // A transcription still in flight must not post a turn into a session that
   // is ending. The pending turn is also returned to idle, or the next session
   // would open stuck in `transcribing`.
@@ -759,6 +763,8 @@ export async function endSession() {
     notify(`리포트 생성 실패: ${err.message}`);
   } finally {
     ending = false;
+    $('report-wait').hidden = true;
+    $('btn-end').textContent = '세션 끝내기';
   }
 }
 

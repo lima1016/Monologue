@@ -497,3 +497,53 @@ test('a script line is read back as Whisper heard it', async () => {
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(turns, ['Hello their.'], 'Whisper가 들은 대로 -- 대본 문장이 아니라');
 });
+
+/* 리포트는 로컬 모델이 10~20초에 걸쳐 쓴다. 그동안 화면이 그대로면 버튼이
+   눌렸는지조차 알 수 없다 -- 실제로 여러 번 눌러도 반응이 없다는 말이 나왔다. */
+function pendingEnd() {
+  let finish;
+  stubFetch((url) => {
+    if (url === '/api/sessions/9/end') {
+      return new Promise((resolve) => { finish = resolve; });
+    }
+    return Promise.resolve(jsonResponse({}));
+  });
+  return (response) => finish(response);
+}
+
+test('while the report is being written the learner sees that it is', async () => {
+  resetDom();
+  router.register('session', 'session');
+  router.register('report', 'report');
+  state.mode = 'free';
+  state.sessionId = 9;
+  const finish = pendingEnd();
+  // dom-shim does not read index.html's hidden attribute; start from the real first state.
+  $('report-wait').hidden = true;
+
+  const ending = endSession();
+  assert.equal($('report-wait').hidden, false, '리포트를 만드는 동안 표시가 보여야 한다');
+  assert.equal($('btn-end').textContent, '리포트 만드는 중…');
+
+  finish(jsonResponse({ summary: '요약', weak_points: [], expressions: [], next_focus: '',
+    stats: { turns: 2, wrong: 0, ungraded: 0, sentences: [] } }));
+  await ending;
+  assert.equal($('report-wait').hidden, true);
+  assert.equal($('btn-end').textContent, '세션 끝내기');
+});
+
+test('a failed report takes the waiting card down and says so', async () => {
+  resetDom();
+  router.register('session', 'session');
+  router.register('report', 'report');
+  state.mode = 'free';
+  state.sessionId = 9;
+  const finish = pendingEnd();
+
+  const ending = endSession();
+  finish(jsonResponse({ detail: 'model down' }, { ok: false, status: 503 }));
+  await ending;
+  assert.equal($('report-wait').hidden, true, '실패하면 표시를 내리고 다시 누를 수 있어야 한다');
+  assert.equal($('btn-end').textContent, '세션 끝내기');
+  assert.match($('notice').textContent, /리포트 생성 실패/);
+});

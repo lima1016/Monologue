@@ -173,6 +173,24 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    while the sticky behaviour still holds it there once a long one scrolls. */
 /* Narrower than main's 1100px: a single conversation column plus its side
    panel doesn't need the extra width the two-column home/report screens do. */
+/* 리포트를 만드는 동안 세션 화면 위에 뜨는 카드. 세션은 흐리게 뒤에 남는다 --
+   실패하면 카드만 내려가고 그 자리에서 다시 누를 수 있어야 해서다.
+   hidden 이 display:flex 를 이기는 것은 base.css 의 [hidden] !important 덕분이다. */
+.report-wait {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  /* Dim only. backdrop-filter blur rendered the page behind as a tiled mirror
+     in Chrome's capture of this fixed layer -- not worth the risk for a wait card. */
+  background: rgba(20, 21, 28, .45);
+}
+.report-wait-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lift); padding: var(--space-6) var(--space-8); text-align: center;
+}
+.report-wait-card .thinking { justify-content: center; }
+.report-wait-title { font-size: var(--text-lg); font-weight: 650; color: var(--text); margin: var(--space-2) 0 var(--space-1); }
+.report-wait-card .hint { margin: 0; }
+
 #session {
   display: flex;
   flex-direction: column;
