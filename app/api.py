@@ -171,45 +171,81 @@ def translate_line(payload: TranslateRequest):
     느려지고, 펼쳐보지도 않을 줄까지 번역하게 된다. 먼저 짐작하고 확인하는
     편이 학습에 남는다는 것도 같은 방향이다.
     """
-    if payload.language != "ja":
-        raise HTTPException(400, "translation is only offered for Japanese")
-    meaning = _cached_translation(payload.text)
+    meaning = _cached_translation(payload.language, payload.text)
     if meaning is None:
         raise HTTPException(503, "번역할 수 없습니다")
     return {"meaning": meaning}
 
 
+_HANGUL = re.compile(r"[가-힣]")
+_QUOTED = re.compile(r'"[^"]*"|“[^”]*”|\'[^\']*\'|‘[^’]*’|「[^」]*」|『[^』]*』')
+
+
+def _is_korean_meaning(text: str) -> bool:
+    """뜻이 정말 한국어인가. 틀린 언어로 보여주느니 503이 낫다.
+
+    인용한 부분은 빼고 본다: 수업 대사는 "たぶん" 같은 표현 자체를 가르치므로
+    따옴표 안의 가나·영어는 누출이 아니라 번역의 일부다. 그 밖에서는 한글과
+    영문 알파벳이 아닌 글자가 한 자라도 있으면 새는 중이다 -- 실제로 샌 모양은
+    한국어로 시작해 문장 중간에 중국어로 넘어가는 것이었고, 영어 줄에서는
+    키릴 문자가 한 단어 섞여 나왔다. 영문은 허용하되(PDF, OK 같은 표기) 영어
+    원문이 통째로 되돌아온 경우를 막으려고 한글이 글자의 절반은 넘어야 한다.
+    """
+    bare = _QUOTED.sub("", text)
+    letters = [ch for ch in bare if ch.isalpha()]
+    hangul = sum(1 for ch in letters if _HANGUL.match(ch))
+    foreign = sum(1 for ch in letters if not _HANGUL.match(ch) and not ch.isascii())
+    return bool(letters) and foreign == 0 and hangul * 2 >= len(letters)
+
+
 @functools.lru_cache(maxsize=512)
-def _cached_translation(text: str) -> str | None:
+def _cached_translation(language: str, text: str) -> str | None:
     """None은 캐시되지 않아야 할 것 같지만, 캐시된다 -- 그리고 그래도 된다.
     모델이 죽어 있는 동안 같은 줄을 반복해서 펼쳐도 매번 14b를 두드리지
     않는다. 모델이 살아나면 서버를 재시작하거나 다른 줄을 펼치면 되고,
     이것은 실패한 번역이지 잘못된 번역이 아니다."""
     try:
-        raw = llm.chat(prompts.build_translate_messages(text), temperature=0.2)
-        # An empty (or whitespace-only) completion is a success by llm.chat's
-        # contract -- it did not raise -- but it is exactly the string the 503
-        # exists to prevent: a line whose meaning renders as genuinely absent,
-        # indistinguishable on screen from a broken feature. Falling through to
-        # `return None` here folds that case into the same failure path as a
-        # model that is down.
-        #
-        # Taking only the first non-empty line also enforces the "one line"
-        # contract server-side: a model that appends a parenthetical aside or a
-        # second sentence still yields a single clean line here. This is
-        # deliberately not more clever than that -- no attempt is made to
-        # detect or strip an echoed Japanese source line, since a heuristic for
-        # that would also mangle a legitimate translation that quotes a
-        # loanword, place name, or term in quotation marks. An echo is visible
-        # on screen and reportable; an empty string was not, which is the only
-        # reason one of these is worth guarding against here and the other isn't.
-        for line in raw.strip().splitlines():
-            line = line.strip()
-            if line:
-                return line
-        return None
+        messages = prompts.build_translate_messages(language, text)
+        meaning = _first_line(_translate_call(messages))
+        if meaning and not _is_korean_meaning(meaning):
+            # One retry, with the leaked answer in view. Measured on the real
+            # model it took Korean meanings from 56% to 79%; a second retry was
+            # not worth it at temperature 0.2, where a line that leaks twice
+            # leaks in the same place again.
+            messages = prompts.build_translate_retry_messages(messages, meaning)
+            meaning = _first_line(_translate_call(messages))
+        return meaning if meaning and _is_korean_meaning(meaning) else None
     except Exception:
         return None
+
+
+# A meaning is one line. Leaking answers ran on in Chinese commentary until the
+# request timed out, so the cap is what keeps a failure fast.
+_TRANSLATE_MAX_TOKENS = 160
+
+
+def _translate_call(messages):
+    return llm.chat(messages, temperature=0.2, max_tokens=_TRANSLATE_MAX_TOKENS)
+
+
+def _first_line(raw: str) -> str | None:
+    """The first non-empty line, or None.
+
+    An empty (or whitespace-only) completion is a success by llm.chat's
+    contract -- it did not raise -- but it is exactly the string the 503 exists
+    to prevent: a line whose meaning renders as genuinely absent,
+    indistinguishable on screen from a broken feature. Taking only the first
+    line also enforces the "one line" contract server-side: a model that
+    appends a parenthetical aside or a second sentence still yields a single
+    clean line. An echoed source line is not stripped here; _is_korean_meaning
+    refuses it, since kana or Latin outside quotation marks is not a Korean
+    meaning.
+    """
+    for line in raw.strip().splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return None
 
 
 class ReadingPrefs(BaseModel):

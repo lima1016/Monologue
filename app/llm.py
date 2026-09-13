@@ -29,14 +29,22 @@ def is_healthy() -> bool:
         return False
 
 
-def chat(messages: list[dict], schema: dict | None = None, temperature: float = 0.8) -> str:
-    """Send a chat completion and return the assistant's raw text."""
+def chat(messages: list[dict], schema: dict | None = None, temperature: float = 0.8,
+         max_tokens: int | None = None) -> str:
+    """Send a chat completion and return the assistant's raw text.
+
+    `max_tokens` is the caller's to set, never a default: a one-line translation
+    wants a short cap (a leaking answer otherwise runs on in Chinese until the
+    request times out), while a reply or a report must not be cut off.
+    """
     payload = {
         "model": config.OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
         "options": {"temperature": temperature},
     }
+    if max_tokens is not None:
+        payload["options"]["num_predict"] = max_tokens
     if schema is not None:
         payload["format"] = schema
 

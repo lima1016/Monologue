@@ -111,9 +111,119 @@ def test_translate_keeps_only_the_first_line(client, monkeypatch):
     assert res.json()["meaning"] == "어서 오세요"
 
 
-def test_translate_rejects_a_language_that_needs_no_translation(client):
-    res = client.post("/api/translate", json={"language": "en", "text": "hello"})
-    assert res.status_code == 400
+@pytest.mark.parametrize("leak", [
+    "好久等了，请问几位？",                      # 통째로 중국어
+    "안녕하세요, 예약은 되셨나요? 오늘은几位呢？",  # 한국어로 시작해 중국어로 샘
+    "좋은 아침입니다. 오늘 참 일찍 일어난 거ですね.",  # 일본어 원문이 섞여 나옴
+    "вашего 비행기는 20분 후에 12번 게이트에서 탑승합니다.",  # 영어 줄에서 실제로 나온 키릴 문자
+])
+def test_translate_refuses_a_meaning_in_the_wrong_language(client, monkeypatch, leak):
+    """실제 벤치마크(87회 중 47회)에서 나온 모양 그대로다. 틀린 언어로 뜻을
+    보여주느니 503 -- 학습자는 중국어 뜻을 한국어 뜻으로 믿을 수 없다."""
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    monkeypatch.setattr(llm, "chat", lambda messages, **kw: leak)
+    res = client.post("/api/translate", json={"language": "ja", "text": "こんにちは"})
+    assert res.status_code == 503
+
+
+def test_translate_asks_once_more_when_the_first_answer_leaks(client, monkeypatch):
+    """실제 모델로 잰 결과: 한 번 되묻기가 한국어 뜻을 56%에서 79%로 올렸다."""
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    answers = iter(["오늘은几位呢？", "오늘은 몇 분이세요?"])
+    calls = []
+
+    def chat(messages, **kw):
+        calls.append(messages)
+        return next(answers)
+
+    monkeypatch.setattr(llm, "chat", chat)
+    res = client.post("/api/translate", json={"language": "ja", "text": "今日は何名様ですか？"})
+    assert res.status_code == 200
+    assert res.json()["meaning"] == "오늘은 몇 분이세요?"
+    assert len(calls) == 2
+    assert calls[1][-2] == {"role": "assistant", "content": "오늘은几位呢？"}
+
+
+def test_translate_does_not_ask_again_when_the_first_answer_is_korean(client, monkeypatch):
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    calls = []
+
+    def chat(messages, **kw):
+        calls.append(kw)
+        return "오늘은 몇 분이세요?"
+
+    monkeypatch.setattr(llm, "chat", chat)
+    client.post("/api/translate", json={"language": "ja", "text": "今日は何名様ですか？"})
+    assert len(calls) == 1
+    assert calls[0].get("max_tokens"), "번역 호출에 길이 상한이 없다"
+
+
+def test_translate_gives_up_after_the_second_leak(client, monkeypatch):
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    calls = []
+
+    def chat(messages, **kw):
+        calls.append(messages)
+        return "好久等了，请问几位？"
+
+    monkeypatch.setattr(llm, "chat", chat)
+    res = client.post("/api/translate", json={"language": "ja", "text": "お待たせしました。"})
+    assert res.status_code == 503
+    assert len(calls) == 2
+
+
+def test_translate_allows_a_quoted_japanese_word_in_the_meaning(client, monkeypatch):
+    """수업 대사는 일본어 표현 자체를 가르친다. 따옴표로 인용한 가나는 누출이 아니다."""
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    monkeypatch.setattr(llm, "chat",
+                        lambda messages, **kw: '"たぶん"은 확신이 없을 때 쓰는 말이에요.')
+    res = client.post("/api/translate", json={"language": "ja", "text": "「たぶん」を使ってみましょう。"})
+    assert res.status_code == 200
+
+
+def test_translate_gives_english_lines_a_korean_meaning(client, monkeypatch):
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    seen = []
+
+    def chat(messages, **kw):
+        seen.append(messages)
+        return "몇 분이세요?"
+
+    monkeypatch.setattr(llm, "chat", chat)
+    res = client.post("/api/translate", json={"language": "en", "text": "How many are in your party?"})
+    assert res.status_code == 200
+    assert res.json()["meaning"] == "몇 분이세요?"
+    assert "영어" in seen[0][0]["content"]
+
+
+def test_translate_refuses_an_english_line_echoed_back_in_english(client, monkeypatch):
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    monkeypatch.setattr(llm, "chat", lambda messages, **kw: "How many people are in your party?")
+    res = client.post("/api/translate", json={"language": "en", "text": "How many are in your party?"})
+    assert res.status_code == 503
+
+
+def test_translate_caches_per_language(client, monkeypatch):
+    """같은 문자열이라도 언어가 다르면 다른 요청이다."""
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    calls = []
+
+    def chat(messages, **kw):
+        calls.append(messages[0]["content"])
+        return "좋아요"
+
+    monkeypatch.setattr(llm, "chat", chat)
+    client.post("/api/translate", json={"language": "ja", "text": "OK"})
+    client.post("/api/translate", json={"language": "en", "text": "OK"})
+    assert len(calls) == 2
 
 
 def test_reading_prefs_default_to_both_on(client):
