@@ -688,6 +688,7 @@ export function renderReport(data) {
 async function loadWeakPoints() {
   const list = $('weak-list');
   list.replaceChildren();
+  $('report-weak').hidden = true;
   const { top_tags: tags = [] } = await getJSON(`/stats/home?language=${state.language}`);
   for (const t of tags) {
     const li = document.createElement('li');

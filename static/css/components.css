@@ -265,7 +265,7 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 
 /* --- home ---
 
-   왼쪽은 할 일(무엇을 연습할지 → 시작), 오른쪽은 맥락(이어하기·이번 주·최근).
+   왼쪽은 할 일(무엇을 연습할지 → 시작), 오른쪽은 맥락(이어하기·내 기록·최근).
    맥락이 할 일보다 먼저 읽히면 안 되므로, 좁은 화면에서 오른쪽은 시작 버튼
    아래로 내려간다. */
 #home {
@@ -308,10 +308,11 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 
 /* Was --correct-*: the correction palette, which this file uses for "you got
    that wrong". A recommendation is an invitation, so it takes the accent
-   palette -- the same family as the resume card and the start button, i.e. the
-   colour this screen already uses to mean "here is the way forward". Not the
-   suggest palette either: --suggest-* is reserved for the per-turn "you could
-   also say it like this" alternatives, and reusing it here would blur that. */
+   palette -- the same accent bar the resume card and the start button already
+   use, i.e. the colour this screen uses to mean "here is the way forward".
+   Not the suggest palette either: --suggest-* is reserved for the per-turn
+   "you could also say it like this" alternatives, and reusing it here would
+   blur that. */
 .recommend { background: var(--accent-soft); color: var(--accent-ink);
              border-radius: var(--radius); padding: var(--space-3) var(--space-4);
              font-size: var(--text-sm); margin: 0; }
@@ -372,9 +373,8 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
   width: 100%; margin-top: var(--space-2);
   padding: var(--space-3) var(--space-5);
   font-size: var(--text-lg); font-weight: 650;
-  border-radius: var(--radius); box-shadow: var(--shadow);
+  border-radius: var(--radius); box-shadow: var(--shadow-lift);
 }
-#btn-start { box-shadow: var(--shadow-lift); }
 
 /* 이어하기: 통짜 액센트 판이 아니라 왼쪽 3px 막대. 통짜였을 때는 시작 버튼보다
    먼저 눈에 들어와서, "오늘 뭘 누르지"가 한 번에 읽히지 않았다. */
@@ -387,14 +387,14 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 }
 #resume-card > div { flex: 1; min-width: 0; }
 #resume-title { margin: 0; font-weight: 650; }
-#resume-sub { color: var(--text-faint); opacity: 1; }
+#resume-sub { color: var(--text-dim); opacity: 1; }
 #btn-resume { background: transparent; border-color: transparent;
               color: var(--accent); font-weight: 650;
               flex-shrink: 0; white-space: nowrap; }
 #btn-resume:hover { background: var(--accent-soft); }
 #btn-resume:focus-visible { outline-color: var(--accent); }
 
-/* 오른쪽 칸 카드 하나의 모양. 이번 주·최근 연습이 여기서 쓰고, report 화면의
+/* 오른쪽 칸 카드 하나의 모양. 내 기록·최근 연습이 여기서 쓰고, report 화면의
    요약 패널(Task 7)도 새로 정의하지 않고 이 규칙과 .stat-row/.stat 을 그대로
    재사용한다. */
 .panel { background: var(--surface); border: 1px solid var(--line);

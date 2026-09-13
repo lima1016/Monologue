@@ -32,8 +32,8 @@
   --accent-soft: #f6e9e0;
   --accent-ink: #8e4830;    /* 5.66:1 on --accent-soft */
   /* Ink for anything painted on an --accent fill: the primary button, the
-     resume card, the mic glyph, and the focus ring on a control that sits on
-     the card (an --accent ring on an --accent background is invisible).
+     mic glyph, and the focus ring on a control that sits on an accent-filled
+     surface (an --accent ring on an --accent background is invisible).
      4.83:1 on --accent. Restated in the dark block on purpose -- see there. */
   --on-accent: #fffaf5;
 
@@ -98,8 +98,8 @@
     --accent-ink: #e8a582;
     /* Dark ink, not white. --accent inverts between schemes: a deep terracotta
        in light, a light apricot here. White on this fill washes out the 시작
-       button, the resume card and the mic glyph. Every use of this token is
-       something drawn on top of --accent, so it flips as one. */
+       button and the mic glyph. Every use of this token is something drawn
+       on top of --accent, so it flips as one. */
     --on-accent: #1a1613;
     --correct-bg: #2e1f1e;
     --correct-ink: #eaa9a5;
