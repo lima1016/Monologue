@@ -50,7 +50,12 @@ export async function loadHome() {
   // stale one silently lies, and the learner has no way to tell the two apart.
   $('resume-card').hidden = true;
   $('home-stats').hidden = true;
+  $('home-recent').hidden = true;
   $('recommend').hidden = true;
+
+  $('home-date').textContent = new Intl.DateTimeFormat('ko-KR', {
+    month: 'long', day: 'numeric', weekday: 'long',
+  }).format(new Date());
 
   // Captured at call time: two quick language-switch clicks start two
   // overlapping loads, and without this an older response that resolves last
@@ -76,19 +81,71 @@ export async function loadHome() {
     $('stat-fixed').textContent = stats.fixed_total;
     $('home-stats').hidden = !(stats.streak || stats.week_turns || stats.fixed_total);
 
-    $('recommend').hidden = !stats.top_tag;
-    if (stats.top_tag) {
-      $('recommend').textContent = `요즘 ${stats.top_tag}에서 자주 걸립니다. 오늘은 그쪽을 노려볼까요?`;
+    renderRecent(stats.recent || []);
+
+    const worst = stats.top_tags && stats.top_tags[0];
+    $('recommend').hidden = !worst;
+    if (worst) {
+      $('recommend').textContent =
+        `요즘 ${worst.tag}에서 자주 걸립니다. 오늘은 그쪽을 노려볼까요?`;
     }
   } catch {
     // history is a nicety -- never block the learner from starting. But the
-    // three elements above must stay hidden on this path too: a later
-    // refactor that moves the initial hide out of this function must not be
-    // able to silently reopen the stale-data bug this guards against.
+    // three elements above (plus #home-recent) must stay hidden on this path
+    // too: a later refactor that moves the initial hide out of this function
+    // must not be able to silently reopen the stale-data bug this guards
+    // against.
     $('resume-card').hidden = true;
     $('home-stats').hidden = true;
+    $('home-recent').hidden = true;
     $('recommend').hidden = true;
+  } finally {
+    // 성공·실패 두 경로 모두에서 마지막에 한 번. 오른쪽에 보이는 것이 하나도
+    // 없는데 트랙만 남으면 화면이 왼쪽으로 쏠린 채 330px 가 빈다.
+    syncAside();
   }
+}
+
+/* 오른쪽 칸에 보이는 패널이 하나도 없으면 한 칸으로 접는다.
+   querySelector 를 쓰지 않는 것은 취향이 아니다 -- dom-shim.js 는 CSS 선택자를
+   구현하지 않고 항상 null 을 돌려주므로, 선택자로 쓰면 이 함수는 테스트에서
+   조용히 아무것도 안 하게 된다. */
+function syncAside() {
+  const empty = $('resume-card').hidden && $('home-stats').hidden
+             && $('home-recent').hidden;
+  $('home').classList.toggle('no-aside', empty);
+}
+
+function renderRecent(rows) {
+  const list = $('recent-list');
+  list.replaceChildren();
+  for (const row of rows) {
+    const li = document.createElement('li');
+    const when = document.createElement('span');
+    when.className = 'when';
+    when.textContent = relativeDay(row.ended_at);
+    const what = document.createElement('span');
+    what.className = 'what';
+    what.textContent = row.title;
+    const fixed = document.createElement('span');
+    fixed.className = 'fixed';
+    fixed.textContent = row.fixed ? `${row.fixed}개 고침` : '';
+    li.append(when, what, fixed);
+    list.append(li);
+  }
+  $('home-recent').hidden = rows.length === 0;
+}
+
+/* ended_at 은 UTC 오프셋이 붙은 ISO 문자열이다(db._now 의 형식,
+   `...+00:00`, 끝에 `Z`가 붙지 않는다). 날짜 경계는 로컬 기준으로 잡는다 --
+   home_stats 의 streak 가 같은 이유로 로컬 시간을 쓴다. */
+export function relativeDay(iso) {
+  const days = Math.round(
+    (new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0))
+    / 86400000);
+  if (days <= 0) return '오늘';
+  if (days === 1) return '어제';
+  return `${days}일 전`;
 }
 
 /* The one thing that knows a session is already being opened -- by either door.

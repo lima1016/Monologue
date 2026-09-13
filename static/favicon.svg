@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Monologue mark: five voice bars whose heights trace an M. The colours are
+       the accent token from tokens.css, restated here because a favicon cannot
+       read the page's custom properties; the media query follows the OS scheme
+       the tab strip is drawn in. Never write two hyphens in a row inside this
+       comment: XML forbids it, and a browser drops a malformed favicon without
+       a word. -->
+  <style>
+    rect { fill: #a85a3c; }
+    @media (prefers-color-scheme: dark) { rect { fill: #d98b64; } }
+  </style>
+  <rect x="5" y="10" width="8" height="44" rx="4"/>
+  <rect x="17" y="16" width="8" height="32" rx="4"/>
+  <rect x="28" y="22" width="8" height="20" rx="4"/>
+  <rect x="39" y="16" width="8" height="32" rx="4"/>
+  <rect x="51" y="10" width="8" height="44" rx="4"/>
+</svg>

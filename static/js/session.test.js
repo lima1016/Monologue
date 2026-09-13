@@ -11,6 +11,7 @@ import { $, state } from './api.js';
 import * as router from './router.js';
 import { jsonResponse, resetDom, stubFetch } from './dom-shim.js';
 import { startSession, nextScriptLine, endSession } from './session.js';
+import * as session from './session.js';
 
 test('a script line with HTML-like text is escaped, not injected, into the panel', async () => {
   resetDom();
@@ -271,4 +272,25 @@ test('a free session with a genuine grading failure still reports it', async () 
     text, /교정을 받지 못한 발화 2회/,
     'a real grading outage in free mode must still be visible, not silently dropped',
   );
+});
+
+/* Task 7: the headline is assembled from counts the app already has, and
+ * script mode gets its own phrasing -- same reason the counts line above
+ * already forks (script sessions store ok=None on every turn by design). */
+test('대본 세션의 헤드라인은 턴이 아니라 줄을 센다', () => {
+  resetDom();
+  state.mode = 'script';
+  session.renderReport({ summary: 'x', stats: { turns: 8, wrong: 0, minutes: 3 } });
+  assert.equal($('report-headline').textContent, '대본 8줄을 읽었어요.');
+  // 대본 세션은 문법 교정을 하지 않으므로 "0 고침"이 아니라 '—' -- 0은
+  // 완벽하게 읽었다는 뜻으로 오해된다.
+  assert.equal($('rep-wrong').textContent, '—');
+});
+
+test('자유 세션의 헤드라인', () => {
+  resetDom();
+  state.mode = 'free';
+  session.renderReport({ summary: 'x', stats: { turns: 12, wrong: 5, minutes: 9 } });
+  assert.equal($('report-headline').textContent, '오늘 12턴을 주고받았어요.');
+  assert.equal($('rep-wrong').textContent, '5');
 });

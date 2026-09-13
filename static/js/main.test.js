@@ -22,7 +22,7 @@ test('the whole module graph evaluates, and startup raises nothing', async () =>
     if (url.startsWith('/api/scenarios')) return jsonResponse({ scenarios: [] });
     if (url.startsWith('/api/sessions/resumable')) return jsonResponse({ session: null });
     if (url.startsWith('/api/stats/home')) {
-      return jsonResponse({ streak: 0, week_turns: 0, fixed_total: 0, top_tag: null });
+      return jsonResponse({ streak: 0, week_turns: 0, fixed_total: 0, top_tags: [] });
     }
     return jsonResponse({});
   });

@@ -8,12 +8,14 @@ body {
   padding: 0 var(--space-6) var(--space-8);
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: 1.55;
 }
 
-main { max-width: 900px; margin: 0 auto; }
+/* 1100px so the two-column screens (#home, #report) can reach their designed
+   width; the session screen narrows itself back down below. */
+main { max-width: 1100px; margin: 0 auto; }
 
 h1 { font-size: var(--text-lg); margin: 0; letter-spacing: -.3px; }
 h2 { font-size: var(--text-base); color: var(--text-dim); margin: 0 0 var(--space-3); letter-spacing: -.2px; }

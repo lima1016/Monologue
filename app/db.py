@@ -419,6 +419,37 @@ def abandon_stale_sessions(hours=24) -> int:
         return cur.rowcount
 
 
+def active_minutes(session_id, pause_cap_seconds=300) -> int:
+    """Time actually spent practising in this session, in minutes.
+
+    Not `now - started_at`: a session can sit open and be resumed up to 24
+    hours later (see resumable_session), so the raw elapsed time since it
+    opened includes however long the learner was away, not just the time
+    they spent talking. This instead sums the gaps between consecutive
+    messages -- each capped at `pause_cap_seconds` -- so a pause longer than
+    five minutes reads as the learner stepping away, not as five more
+    minutes (or twenty-two hours) of practice. Fewer than two messages means
+    there is no gap to measure, so 0.
+
+    A report must never turn into an error over one line of timing: if any
+    created_at can't be parsed, this returns 0 instead of raising. Each gap
+    is also clamped to be non-negative before the cap is applied, so a
+    clock oddity can't subtract from the total.
+    """
+    rows = get_messages(session_id)
+    if len(rows) < 2:
+        return 0
+    total_seconds = 0.0
+    try:
+        for prev, cur in zip(rows, rows[1:]):
+            gap = (datetime.fromisoformat(cur["created_at"])
+                   - datetime.fromisoformat(prev["created_at"])).total_seconds()
+            total_seconds += max(0, min(gap, pause_cap_seconds))
+    except (ValueError, TypeError):
+        return 0
+    return int(total_seconds // 60)
+
+
 def session_stats(session_id) -> dict:
     """Exact counts for the end-of-session report.
 
@@ -497,9 +528,14 @@ def stable_level(language, recent=5, min_sessions=3):
 def home_stats(language) -> dict:
     """Numbers for the home screen. All computed, none estimated.
 
-    `top_tag` is withheld until a tag has appeared at least three times: a
+    `top_tags` withholds any tag until it has appeared at least three times: a
     weakness ranked off one mistake is a guess wearing the costume of a fact,
-    and the home screen is where the learner decides what to practise.
+    and the home screen is where the learner decides what to practise. Up to
+    three tags are returned, ranked by count. The `m.tag` in
+    `ORDER BY n DESC, m.tag` is a secondary sort key that breaks ties on
+    count in ascending tag order -- without it, ties would break on
+    whatever order SQLite happens to visit rows in, and both the LIMIT 3
+    cutoff and the panel's list would shuffle between runs.
 
     `streak` walks backwards from the most recent practice day, but that walk
     starts at *yesterday* when today has no messages yet, rather than always
@@ -536,20 +572,20 @@ def home_stats(language) -> dict:
             " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0",
             (language,),
         ).fetchone()[0]
-        tag_row = conn.execute(
+        tag_rows = conn.execute(
             "SELECT m.tag, COUNT(*) n FROM messages m JOIN sessions s ON s.id = m.session_id"
             " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0"
             "   AND m.tag IS NOT NULL AND m.tag <> '없음'"
-            " GROUP BY m.tag ORDER BY n DESC LIMIT 1",
+            " GROUP BY m.tag HAVING n >= 3 ORDER BY n DESC, m.tag LIMIT 3",
             (language,),
-        ).fetchone()
+        ).fetchall()
         days = [r[0] for r in conn.execute(
             "SELECT DISTINCT substr(datetime(m.created_at, 'localtime'), 1, 10) d"
             " FROM messages m JOIN sessions s ON s.id = m.session_id"
             " WHERE s.language = ? AND m.speaker = 'user'"
             " ORDER BY d DESC", (language,))]
 
-    top_tag = tag_row["tag"] if tag_row and tag_row["n"] >= 3 else None
+    top_tags = [{"tag": r["tag"], "n": r["n"]} for r in tag_rows]
 
     streak = 0
     if days:
@@ -568,13 +604,47 @@ def home_stats(language) -> dict:
                 day -= timedelta(days=1)
 
     return {"streak": streak, "week_turns": week_turns,
-            "fixed_total": fixed_total, "top_tag": top_tag}
+            "fixed_total": fixed_total, "top_tags": top_tags}
 
 
 def list_sessions(limit=20) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
             "SELECT * FROM sessions ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def recent_sessions(language, limit=3) -> list[dict]:
+    """홈 화면 오른쪽의 "최근 연습". 끝마친 세션만 -- 리포트가 있는 것 -- 최신순.
+
+    ended_at IS NOT NULL 만으로는 부족하다. abandon_stale_sessions()도 아무도
+    돌아오지 않은 세션에 ended_at을 찍지만, 그건 스윕이 자기 시점으로 찍는
+    타임스탬프일 뿐 리포트는 쓰지 않는다 -- 그런 세션 중에는 봇의 첫 인사말만
+    들어있는 것도 있다. 그래서 report IS NOT NULL도 함께 요구한다.
+
+    list_sessions()는 언어로 거르지도, 세션별로 집계하지도 않는다. 그 함수에
+    두 기능을 더하면 호출자마다 다른 절반만 쓰는 함수가 되므로 따로 쓴다.
+
+    등급은 싣지 않는다. stable_level()이 이미 결론낸 대로 한 세션의 레벨 추정은
+    노이즈이고 -- 같은 전사를 세 번 돌리면 세 번 다르게 나온다 -- 화면 한 칸을
+    채우려고 그 결론을 되돌리지 않는다.
+
+    title이 비는 경우가 실제로 있다(시나리오 없이 시작한 자유 세션). 빈 값을
+    클라이언트로 내보내면 그 빈칸이 화면마다 다르게 메워지므로, 제목을 정하는
+    건 scenarios 카탈로그를 아는 api.py의 몫이다. scenario_id는 여기서 풀지
+    않고 그대로 실어 보낸다.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT s.id, s.scenario_id, s.topic, s.ended_at,"
+            "       (SELECT COUNT(*) FROM messages m"
+            "         WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok = 0)"
+            "       AS fixed"
+            " FROM sessions s"
+            " WHERE s.language = ? AND s.ended_at IS NOT NULL AND s.report IS NOT NULL"
+            " ORDER BY s.ended_at DESC, s.id DESC LIMIT ?",
+            (language, limit),
         ).fetchall()
     return [dict(r) for r in rows]
 

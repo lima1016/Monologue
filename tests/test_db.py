@@ -435,6 +435,69 @@ def test_abandon_stale_sessions_closes_them_and_they_stop_being_offered(store):
     assert store.get_session(sid)["ended_at"] is not None
 
 
+def test_active_minutes_sums_two_minute_gaps(store):
+    """7 messages, each 2 minutes after the last, is 6 gaps -- 12 minutes of
+    active practice."""
+    sid = store.create_session("en", "free")
+    for i in range(7):
+        store.add_message(sid, "user", f"m{i}")
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    with store.connect() as conn:
+        for turn in range(1, 8):
+            stamp = (base + timedelta(minutes=2 * (turn - 1))).isoformat(timespec="seconds")
+            conn.execute(
+                "UPDATE messages SET created_at = ? WHERE session_id = ? AND turn = ?",
+                (stamp, sid, turn),
+            )
+    assert store.active_minutes(sid) == 12
+
+
+def test_active_minutes_caps_a_long_pause_at_five_minutes(store):
+    """A session resumed 22 hours later must not count that gap as 22 hours of
+    practice -- the learner was away, not talking. The gap counts for at most
+    five minutes, same as any other pause."""
+    sid = store.create_session("en", "free")
+    for i in range(3):
+        store.add_message(sid, "user", f"m{i}")
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    stamps = [
+        base,
+        base + timedelta(minutes=1),
+        base + timedelta(minutes=1) + timedelta(hours=22),
+    ]
+    with store.connect() as conn:
+        for turn, stamp in zip(range(1, 4), stamps):
+            conn.execute(
+                "UPDATE messages SET created_at = ? WHERE session_id = ? AND turn = ?",
+                (stamp.isoformat(timespec="seconds"), sid, turn),
+            )
+    # gap 1: 1 minute (60s, under the cap) + gap 2: 22 hours (capped at 300s)
+    # = 360s = 6 minutes.
+    assert store.active_minutes(sid) == 6
+
+
+def test_active_minutes_with_one_message_is_zero(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "only one")
+    assert store.active_minutes(sid) == 0
+
+
+def test_active_minutes_is_zero_when_a_timestamp_cannot_be_parsed(store):
+    """A report must never turn into an error over one unreadable line of
+    timing -- an unparseable created_at should read as no measurable active
+    time, not raise."""
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "m0")
+    store.add_message(sid, "user", "m1")
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE messages SET created_at = 'not-a-date'"
+            " WHERE session_id = ? AND turn = 1",
+            (sid,),
+        )
+    assert store.active_minutes(sid) == 0
+
+
 def test_session_stats_counts_only_the_learners_wrong_turns(store):
     sid = store.create_session("en", "free")
     store.add_message(sid, "bot", "Good evening!")
@@ -488,18 +551,53 @@ def test_home_stats_counts_this_weeks_turns_and_total_fixes(store):
     assert stats["fixed_total"] == 1
 
 
-def test_home_stats_has_no_top_tag_before_there_is_evidence(store):
+def test_home_stats_has_no_top_tags_before_there_is_evidence(store):
     """A weakness ranked off one or two mistakes is a guess dressed as a fact."""
     sid = store.create_session("en", "free")
     store.add_message(sid, "user", "a", ok=False, fixed="A", tag="시제")
-    assert store.home_stats("en")["top_tag"] is None
+    assert store.home_stats("en")["top_tags"] == []
 
 
 def test_home_stats_reports_a_tag_once_it_has_appeared_three_times(store):
     sid = store.create_session("en", "free")
     for text in ("a", "b", "c"):
         store.add_message(sid, "user", text, ok=False, fixed=text.upper(), tag="시제")
-    assert store.home_stats("en")["top_tag"] == "시제"
+    assert store.home_stats("en")["top_tags"] == [{"tag": "시제", "n": 3}]
+
+
+def _add_wrong_user_message(store, sid, tag):
+    return store.add_message(sid, "user", "I go there yesterday", ok=0, tag=tag)
+
+
+def test_top_tags_ranks_by_count_and_caps_at_three(store):
+    sid = store.create_session("en", "free")
+    # 과거 시제 5, 관사 4, 전치사 3, 어순 3, 철자 2
+    for tag, times in [("과거 시제", 5), ("관사", 4), ("전치사", 3),
+                       ("어순", 3), ("철자", 2)]:
+        for _ in range(times):
+            _add_wrong_user_message(store, sid, tag=tag)
+
+    tags = store.home_stats("en")["top_tags"]
+
+    assert [t["tag"] for t in tags] == ["과거 시제", "관사", "어순"]
+    assert [t["n"] for t in tags] == [5, 4, 3]
+
+
+def test_top_tags_withholds_anything_under_three(store):
+    """3회 미만은 약점이 아니라 추측이다 -- home_stats 가 원래부터 지키던 규칙."""
+    sid = store.create_session("en", "free")
+    _add_wrong_user_message(store, sid, tag="관사")
+    _add_wrong_user_message(store, sid, tag="관사")   # 2회뿐
+
+    assert store.home_stats("en")["top_tags"] == []
+
+
+def test_top_tags_excludes_the_no_mistake_tag(store):
+    sid = store.create_session("en", "free")
+    for _ in range(5):
+        _add_wrong_user_message(store, sid, tag="없음")
+
+    assert store.home_stats("en")["top_tags"] == []
 
 
 def test_home_stats_streak_counts_consecutive_days_ending_today(store):
@@ -557,6 +655,57 @@ def test_home_stats_streak_counts_one_korean_day_across_a_utc_midnight(store):
         conn.execute("UPDATE messages SET created_at = ? WHERE id = ?",
                      (_local_stamp(today, 23, 30), late))
     assert store.home_stats("en")["streak"] == 1
+
+
+def test_recent_sessions_returns_finished_sessions_newest_first(store):
+    a = store.create_session(language="en", mode="free", scenario_id="clinic", topic=None)
+    b = store.create_session(language="en", mode="free", scenario_id="cafe", topic=None)
+    store.end_session(a, "{}", "beginner")
+    store.end_session(b, "{}", "beginner")
+
+    rows = store.recent_sessions("en")
+
+    assert [r["id"] for r in rows] == [b, a]
+
+
+def test_recent_sessions_skips_unfinished_and_other_languages(store):
+    live = store.create_session(language="en", mode="free", scenario_id="clinic", topic=None)
+    ja = store.create_session(language="ja", mode="free", scenario_id="office", topic=None)
+    store.end_session(ja, "{}", "beginner")
+
+    assert [r["id"] for r in store.recent_sessions("en")] == []
+    assert live not in [r["id"] for r in store.recent_sessions("ja")]
+
+
+def test_recent_sessions_counts_this_sessions_fixes(store):
+    sid = store.create_session(language="en", mode="free", scenario_id="clinic", topic=None)
+    other = store.create_session(language="en", mode="free", scenario_id="cafe", topic=None)
+    _add_wrong_user_message(store, sid, tag="관사")
+    _add_wrong_user_message(store, sid, tag="관사")
+    _add_wrong_user_message(store, other, tag="어순")
+    store.end_session(sid, "{}", "beginner")
+    store.end_session(other, "{}", "beginner")
+
+    by_id = {r["id"]: r for r in store.recent_sessions("en")}
+    assert by_id[sid]["fixed"] == 2
+    assert by_id[other]["fixed"] == 1
+
+
+def test_recent_sessions_excludes_sessions_the_sweep_closed_without_a_report(store):
+    """abandon_stale_sessions() stamps ended_at on sessions nobody came back
+    to, but never writes a report -- some of those hold only the bot's
+    opening line. Those must not show up as finished practice."""
+    finished = store.create_session(language="en", mode="free", scenario_id="clinic", topic=None)
+    store.end_session(finished, "{}", "beginner")
+
+    abandoned = store.create_session(language="en", mode="free", scenario_id="cafe", topic=None)
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET ended_at = ? WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(timespec="seconds"), abandoned),
+        )
+
+    assert [r["id"] for r in store.recent_sessions("en")] == [finished]
 
 
 FREE_SCENARIO = {

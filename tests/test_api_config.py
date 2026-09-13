@@ -112,4 +112,19 @@ def test_home_stats_route_returns_the_computed_counters(client):
     sid = db.create_session("en", "free")
     db.add_message(sid, "user", "hello")
     body = client.get("/api/stats/home", params={"language": "en"}).json()
-    assert body == {"streak": 1, "week_turns": 1, "fixed_total": 0, "top_tag": None}
+    assert body == {"streak": 1, "week_turns": 1, "fixed_total": 0, "top_tags": [],
+                     "recent": []}
+
+
+def test_home_stats_recent_always_has_a_title(client):
+    free = db.create_session(language="en", mode="free", scenario_id=None, topic=None)
+    topical = db.create_session(language="en", mode="lesson", scenario_id=None,
+                                topic="과거형 연습")
+    db.end_session(free, "{}", "beginner")
+    db.end_session(topical, "{}", "beginner")
+
+    recent = client.get("/api/stats/home?language=en").json()["recent"]
+    by_id = {r["id"]: r for r in recent}
+
+    assert by_id[topical]["title"] == "과거형 연습"
+    assert by_id[free]["title"] == "자유 대화"

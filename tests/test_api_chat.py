@@ -538,7 +538,7 @@ def test_chat_survives_a_non_string_fixed_value(client, monkeypatch):
 
 def test_chat_stores_a_neutralized_punctuation_only_correction_correctly(client, monkeypatch):
     """The point of this fix is what lands in the database, not just the HTTP
-    response -- ok/tag/correction feed home_stats, the top_tag recommendation,
+    response -- ok/tag/correction feed home_stats, the top_tags recommendation,
     and the end-of-session report. A test that only checks the response body
     would miss a bug where the route neutralizes the reply but still stores
     the model's original ok=0."""

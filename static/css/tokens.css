@@ -1,89 +1,113 @@
 /* Design tokens. Light first, with dark handled by redefining the same names --
-   never define a colour only inside the dark block. */
+   never define a colour only inside the dark block. tests/test_css_tokens.py
+   holds both halves of that rule. */
 :root {
   /* Lets native widgets -- select popups, radios, scrollbars -- follow the OS
      scheme. Our own tokens only cover what we paint ourselves. */
   color-scheme: light dark;
 
-  --bg: #fbfbfe;
-  --surface: #ffffff;
-  /* Must stay visibly distinct from --bg, not merely different from it: the
-     previous #f6f7fb sat at 1.04:1 against --bg and .msg.bot rendered as bare
-     text on the page. This is 1.12:1 -- better, and enough for a message
-     bubble, which is not a control. It was never going to be enough for
-     .chips button, which is one: that gets its border back rather than a
-     heavier fill (see components.css). The dark value has no such problem and
-     is not touched. */
-  --surface-sunken: #eceef6;
-  --line: #e6e7ef;
-  --text: #1c1d26;
-  --text-dim: #8a8c9e;
-  --text-faint: #9a9cae;
+  /* Pretendard is served from static/fonts (see fonts.css). The stack behind it
+     is a real fallback, not decoration: on the one machine this app runs on,
+     system-ui resolves Hangul to Malgun Gothic, which is the look this palette
+     was chosen to get away from. */
+  --font-sans: Pretendard, system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  --accent: #4c5fd7;
-  --accent-soft: #eef1fd;
-  --accent-ink: #4453c4;
+  --bg: #faf5ef;
+  --surface: #fffdfa;
+  /* Must stay visibly distinct from --bg, not merely different from it. The
+     old cool palette sat at 1.04:1 here and .msg.bot rendered as bare text on
+     the page; 1.12:1 was the value that fixed it. This warm pair is 1.13:1 --
+     the same argument, recomputed for the new hues. */
+  --surface-sunken: #f0e7da;
+  --line: #e8ded0;
+  --text: #2b2520;          /* 14.0:1 on --bg */
+  /* 4.87:1 on --bg. This one carries body-sized text (hints, mode
+     descriptions), so it clears 4.5:1 rather than sitting just under it. */
+  --text-dim: #756a5e;
+  /* Placeholders and small labels only -- under 4.5:1, the same call the
+     previous palette made for the same role. */
+  --text-faint: #a2968a;
+
+  --accent: #a85a3c;
+  --accent-soft: #f6e9e0;
+  --accent-ink: #8e4830;    /* 5.66:1 on --accent-soft */
   /* Ink for anything painted on an --accent fill: the primary button, the
-     resume card, the mic glyph, and the focus ring on a control that sits on
-     the card (an --accent ring on an --accent background is invisible).
-     Restated in the dark block on purpose -- the accent fill stays a saturated
-     blue in both schemes, so the ink on it stays white in both. */
-  --on-accent: #ffffff;
+     mic glyph, and the focus ring on a control that sits on an accent-filled
+     surface (an --accent ring on an --accent background is invisible).
+     4.83:1 on --accent. Restated in the dark block on purpose -- see there. */
+  --on-accent: #fffaf5;
 
-  /* Correction and suggestion are toned down on purpose: a learner sees these
-     every single turn, and red/green reads as being told off. */
-  --correct: #e8896b;
-  --correct-bg: #fff5f2;
-  --correct-ink: #6b3a2a;
-  --suggest: #63b58a;
-  --suggest-bg: #f2f8f5;
-  --suggest-ink: #28503c;
+  /* Correction and suggestion stay toned down: a learner sees these every
+     single turn, and red/green reads as being told off.
+
+     The correction hue moved from coral (#e8896b) to a dusty rose when the
+     accent became terracotta. Coral and terracotta are the same family -- with
+     both on screen, "here is what to fix" and "here is what to press" stopped
+     being distinguishable. Rose pulls the correction away from the accent
+     without going back to red. */
+  --correct: #b5615f;
+  --correct-bg: #fbeeed;
+  --correct-ink: #6d3230;   /* 8.6:1 on --correct-bg */
+  --suggest: #6f9469;
+  --suggest-bg: #eff4ec;
+  --suggest-ink: #3a5235;   /* 7.72:1 on --suggest-bg */
 
   /* System notices (Ollama/VOICEVOX down, etc.), kept separate from the
-     correction palette above -- a warning is not a grammar correction, and
-     Phase 2B renders correction chips in --correct-* directly. */
-  --warn-bg: rgba(200, 140, 0, .15);
-  --warn-ink: #8a5a00;
+     correction palette above -- a warning is not a grammar correction. */
+  --warn-bg: rgba(180, 120, 20, .16);
+  --warn-ink: #7a4f12;
 
   --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
   --space-4: 16px; --space-5: 20px; --space-6: 24px; --space-8: 32px;
 
-  --text-xs: 11px;  --text-sm: 12.5px; --text-base: 14px;
-  --text-lg: 17px;  --text-xl: 21px;   --text-2xl: 25px;
+  /* --text-3xl is new, for the home greeting and the report headline. The old
+     scale topped out at 25px, which left too little distance between "the
+     largest thing on the screen" and body text -- half of why the screen read
+     as having no hierarchy. */
+  --text-xs: 11.5px; --text-sm: 13px;  --text-base: 15px;
+  --text-lg: 17px;   --text-xl: 21px;  --text-2xl: 27px; --text-3xl: 34px;
 
-  --radius-sm: 6px; --radius: 10px; --radius-lg: 14px; --radius-pill: 999px;
-  --shadow: 0 2px 8px rgba(30, 32, 60, .08);
+  --radius-sm: 10px; --radius: 14px; --radius-lg: 18px; --radius-pill: 999px;
+  --shadow: 0 1px 3px rgba(90, 60, 30, .10);
+  /* The start button and the mic — the two things on screen meant to be
+     pressed. */
+  --shadow-lift: 0 4px 14px rgba(168, 90, 60, .26);
 
-  /* Session-screen layout dimensions -- these don't vary with the colour
-     scheme, so they live only in the light block. */
+  /* Layout dimensions -- these don't vary with the colour scheme, so they live
+     only in the light block. --aside-w is the right-hand column on the home and
+     report screens; --panel-w is the session screen's goal panel, which is a
+     different column on a different screen and keeps its own value. */
+  --aside-w: 330px;
   --panel-w: 300px;
+
+  /* 마이크 글리프. 색은 mask 로 --on-accent 가 칠하므로 여기서는 모양만 정한다. */
+  --mic-glyph: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>');
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14151c;
-    --surface: #1c1e27;
-    --surface-sunken: #191a22;
-    --line: #2b2d3a;
-    --text: #e8e9f0;
-    --text-dim: #9698ab;
-    --text-faint: #7b7d90;
-    --accent: #7c8bea;
-    --accent-soft: #232640;
-    --accent-ink: #96a2f0;
-    /* Dark ink, not white. --accent inverts between schemes: it is a deep
-       indigo in light and a light periwinkle here, so white sits on it at
-       about 3.2:1 and the 시작 button, the resume card and the mic glyph all
-       read washed out. Near-black on the same fill is about 5.7:1, and 7.5:1
-       against the lighter --accent-ink used on hover. Every use of this token
-       is something drawn on top of --accent, so it flips as one. */
-    --on-accent: #14151c;
-    --correct-bg: #2a1e1a;
-    --correct-ink: #f0b49c;
-    --suggest-bg: #17251d;
-    --suggest-ink: #9ad7b7;
+    --bg: #1a1613;
+    --surface: #241f1a;
+    --surface-sunken: #201b17;
+    --line: #372f28;
+    --text: #f0e8df;
+    --text-dim: #a99c8e;
+    --text-faint: #8b7f72;
+    --accent: #d98b64;
+    --accent-soft: #33261e;
+    --accent-ink: #e8a582;
+    /* Dark ink, not white. --accent inverts between schemes: a deep terracotta
+       in light, a light apricot here. White on this fill washes out the 시작
+       button and the mic glyph. Every use of this token is something drawn
+       on top of --accent, so it flips as one. */
+    --on-accent: #1a1613;
+    --correct-bg: #2e1f1e;
+    --correct-ink: #eaa9a5;
+    --suggest-bg: #1c2620;
+    --suggest-ink: #a9cfa2;
     --warn-bg: rgba(200, 140, 0, .18);
     --warn-ink: #e0b34d;
-    --shadow: 0 2px 8px rgba(0, 0, 0, .4);
+    --shadow: 0 2px 8px rgba(0, 0, 0, .45);
+    --shadow-lift: 0 4px 14px rgba(0, 0, 0, .5);
   }
 }

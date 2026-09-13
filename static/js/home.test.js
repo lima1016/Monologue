@@ -110,7 +110,7 @@ async function armResumeCard() {
                                        goal: '접수한다', turns: 4 } });
     }
     if (url.startsWith('/api/stats/home')) {
-      return jsonResponse({ streak: 1, week_turns: 4, fixed_total: 0, top_tag: null });
+      return jsonResponse({ streak: 1, week_turns: 4, fixed_total: 0, top_tags: [] });
     }
     return jsonResponse({});
   });
@@ -298,4 +298,55 @@ test('an empty wish posts a scenario from the language it was captured under', a
   assert.equal(seen.sessionBody.language, 'en');
   assert.match(seen.sessionBody.scenario_id, /^en-/,
     'POST /sessions bound an en session to a scenario from the switched-to language');
+});
+
+/* Task 6: the right-hand column (이어하기/통계/최근 기록) collapses when there is
+   nothing in it to show, and comes back the moment there is. */
+test('첫 실행 — 오른쪽에 보일 것이 하나도 없으면 한 칸으로 접는다', async () => {
+  stubFetch(async (url) => {
+    if (url.startsWith('/api/sessions/resumable')) return jsonResponse({ session: null });
+    if (url.startsWith('/api/stats/home')) {
+      return jsonResponse({ streak: 0, week_turns: 0, fixed_total: 0, top_tags: [], recent: [] });
+    }
+    return jsonResponse({});
+  });
+
+  await home.loadHome();
+
+  assert.ok($('home').classList.contains('no-aside'),
+    '이어하기·통계·최근 기록이 모두 없으면 오른쪽 330px 트랙이 빈 채로 남는다');
+});
+
+test('볼 것이 하나라도 생기면 두 칸으로 되돌린다', async () => {
+  $('home').classList.add('no-aside');   // 앞선 첫 실행 상태
+  stubFetch(async (url) => {
+    if (url.startsWith('/api/sessions/resumable')) return jsonResponse({ session: null });
+    if (url.startsWith('/api/stats/home')) {
+      return jsonResponse({ streak: 3, week_turns: 12, fixed_total: 4, top_tags: [], recent: [] });
+    }
+    return jsonResponse({});
+  });
+
+  await home.loadHome();
+
+  assert.ok(!$('home').classList.contains('no-aside'));
+});
+
+test('요청이 실패해도 한 칸으로 접는다', async () => {
+  stubFetch(async () => { throw new Error('down'); });
+
+  await home.loadHome();
+
+  assert.ok($('home').classList.contains('no-aside'),
+    'catch 경로도 오른쪽 칸을 다 숨긴다 -- 숨긴 채로 트랙만 남기면 안 된다');
+});
+
+/* R16: ended_at is db._now()'s format -- an ISO string with a UTC offset
+   (`+00:00`), never a trailing `Z`. Built here in exactly that shape rather
+   than with a literal, so the test still passes at any time of day. */
+test('relativeDay reads 오늘/어제 from a +00:00-offset ISO string', () => {
+  const { relativeDay } = home;
+  const fmt = (d) => d.toISOString().slice(0, 19) + '+00:00';
+  assert.equal(relativeDay(fmt(new Date())), '오늘');
+  assert.equal(relativeDay(fmt(new Date(Date.now() - 24 * 60 * 60 * 1000))), '어제');
 });
