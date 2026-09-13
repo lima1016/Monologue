@@ -3,6 +3,11 @@ header {
   padding: var(--space-4) 0; border-bottom: 1px solid var(--line);
   margin-bottom: var(--space-5);
 }
+/* The logo is a link home. It keeps the heading's colour rather than looking
+   like a link; only the mark carries the accent. */
+.brand { display: inline-flex; align-items: center; gap: var(--space-2);
+         color: var(--text); text-decoration: none; border-radius: var(--radius-sm); }
+.brand-mark { color: var(--accent); flex-shrink: 0; }
 .status { display: flex; align-items: center; gap: var(--space-3); }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); }
 .dot.up { background: #2a9d5c; }

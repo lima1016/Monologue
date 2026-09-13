@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Monologue</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/css/fonts.css">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
@@ -11,7 +12,22 @@
 </head>
 <body>
 <header>
-  <h1>Monologue</h1>
+  <!-- A plain link, not a router call: it reloads to home the same way
+       #btn-restart does, so a session left mid-way stays on the server and
+       comes back as the resume card. The mark is the favicon's shape, painted
+       with currentColor so the colour tokens carry it into dark mode. -->
+  <h1>
+    <a href="/" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true">
+        <rect x="5" y="10" width="8" height="44" rx="4"/>
+        <rect x="17" y="16" width="8" height="32" rx="4"/>
+        <rect x="28" y="22" width="8" height="20" rx="4"/>
+        <rect x="39" y="16" width="8" height="32" rx="4"/>
+        <rect x="51" y="10" width="8" height="44" rx="4"/>
+      </svg>
+      Monologue
+    </a>
+  </h1>
   <div class="status">
     <span id="status-ollama" class="dot" title="Ollama"></span>
     <span id="status-voicevox" class="dot" title="VOICEVOX"></span>
