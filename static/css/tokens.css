@@ -69,8 +69,8 @@
 
   --radius-sm: 10px; --radius: 14px; --radius-lg: 18px; --radius-pill: 999px;
   --shadow: 0 1px 3px rgba(90, 60, 30, .10);
-  /* The start button only. It is the one thing on the home screen that should
-     look liftable. */
+  /* The start button and the mic — the two things on screen meant to be
+     pressed. */
   --shadow-lift: 0 4px 14px rgba(168, 90, 60, .26);
 
   /* Layout dimensions -- these don't vary with the colour scheme, so they live
@@ -79,6 +79,9 @@
      different column on a different screen and keeps its own value. */
   --aside-w: 330px;
   --panel-w: 300px;
+
+  /* 마이크 글리프. 색은 mask 로 --on-accent 가 칠하므로 여기서는 모양만 정한다. */
+  --mic-glyph: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>');
 }
 
 @media (prefers-color-scheme: dark) {
