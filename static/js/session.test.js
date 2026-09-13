@@ -350,7 +350,7 @@ async function openFree(extraRoutes = {}) {
     }
     if (url === '/api/transcribe') {
       transcribes.push(options.body);
-      return extraRoutes.transcribe ? extraRoutes.transcribe() : jsonResponse({ text: 'I went there yesterday.' });
+      return extraRoutes.transcribe ? extraRoutes.transcribe(options) : jsonResponse({ text: 'I went there yesterday.' });
     }
     if (url === '/api/chat') {
       chats.push(JSON.parse(options.body).text);
@@ -402,19 +402,80 @@ test('with no recording Whisper is not asked', async () => {
 });
 
 test('cancelling while Whisper works drops the late result', async () => {
-  let release;
+  const releases = [];
   const { chats } = await openFree({
-    transcribe: () => new Promise((resolve) => { release = () => resolve(jsonResponse({ text: 'late' })); }),
+    transcribe: () => new Promise((resolve) => { releases.push((text) => resolve(jsonResponse({ text }))); }),
   });
   session.setTurnState('MIC');
   const pending = session.handleHeard('browser', clip());
   await new Promise((r) => setTimeout(r, 0));
   assert.equal($('btn-cancel').hidden, false, '받아쓰는 중에도 취소할 수 있어야 한다');
   session.cancelTurn();
+  assert.equal(session.canDo('send'), true);
+
+  // A second turn is already transcribing when the first one's answer
+  // arrives. Only the generation tells the two apart -- the state alone is
+  // `transcribing` for both.
+  session.setTurnState('MIC');
+  const second = session.handleHeard('browser two', clip());
+  await new Promise((r) => setTimeout(r, 0));
+  releases[0]('late');
+  await pending;
+  releases[1]('second');
+  await second;
+  assert.deepEqual(chats, ['second'], '취소한 뒤 도착한 받아쓰기로 턴이 생기면 안 된다');
+});
+
+test('ending the session while Whisper works drops the late result', async () => {
+  let release;
+  router.register('report', 'report');
+  const { chats } = await openFree({
+    transcribe: () => new Promise((resolve) => { release = () => resolve(jsonResponse({ text: 'late' })); }),
+  });
+  session.setTurnState('MIC');
+  const pending = session.handleHeard('browser', clip());
+  await new Promise((r) => setTimeout(r, 0));
+  await endSession();
   release();
   await pending;
-  assert.deepEqual(chats, [], '취소한 뒤 도착한 받아쓰기로 턴이 생기면 안 된다');
-  assert.equal(session.canDo('send'), true);
+  assert.deepEqual(chats, [], '끝난 세션에 턴이 들어가면 안 된다');
+  assert.equal(session.canDo('send'), true, '다음 세션이 받아쓰는 중에 묶여 있으면 안 된다');
+});
+
+test('a transcription that takes too long gives way to the browser transcript', async () => {
+  const { chats } = await openFree({
+    transcribe: (options) => new Promise((resolve, reject) => {
+      options.signal.addEventListener('abort', () => {
+        const err = new Error('aborted');
+        err.name = 'AbortError';
+        reject(err);
+      });
+    }),
+  });
+  session.setTranscribeTimeout(5);
+  try {
+    session.setTurnState('MIC');
+    await session.handleHeard('I go there', clip());
+  } finally {
+    session.setTranscribeTimeout(8000);
+  }
+  assert.deepEqual(chats, ['I go there']);
+});
+
+test('a recording that failed to finish counts as no recording', async () => {
+  const { chats, transcribes } = await openFree();
+  session.setTurnState('MIC');
+  await session.handleHeard('browser', Promise.reject(new Error('x')));
+  assert.equal(transcribes.length, 0);
+  assert.deepEqual(chats, ['browser']);
+});
+
+test('hearing nothing throws the silent recording away', async () => {
+  await openFree({ transcribe: () => jsonResponse({ text: '' }) });
+  session.setTurnState('MIC');
+  state.chunks = [new Blob(['silence'])];
+  await session.handleHeard(null, clip());
+  assert.deepEqual(state.chunks, [], '다음에 입력한 턴에 조용한 녹음이 붙어 올라가면 안 된다');
 });
 
 test('a script line is read back as Whisper heard it', async () => {
@@ -426,7 +487,7 @@ test('a script line is read back as Whisper heard it', async () => {
     if (url === '/api/sessions') {
       return jsonResponse({ session_id: 8, mode: 'script', lines: [{ speaker: 'user', text: 'Hello there.' }] });
     }
-    if (url === '/api/transcribe') return jsonResponse({ text: 'Hello there.' });
+    if (url === '/api/transcribe') return jsonResponse({ text: 'Hello their.' });
     if (url === '/api/script-turn') { turns.push(JSON.parse(options.body).text); return jsonResponse({ turn: 1 }); }
     return jsonResponse({});
   });
@@ -434,5 +495,5 @@ test('a script line is read back as Whisper heard it', async () => {
   session.setTurnState('MIC');
   await session.handleHeard('hello dare', clip());
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(turns, ['Hello there.']);
+  assert.deepEqual(turns, ['Hello their.'], 'Whisper가 들은 대로 -- 대본 문장이 아니라');
 });

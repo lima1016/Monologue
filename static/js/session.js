@@ -1,5 +1,5 @@
 import { $, api, getJSON, postJSON, state, notify } from './api.js';
-import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening, beginListening, discardRecording } from './audio.js';
+import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening, beginListening, discardRecording, startRecording } from './audio.js';
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
@@ -43,10 +43,13 @@ let activeRespeak = null;
 const RESPEAK_LABEL = '🎤 고쳐서 다시 말해보기';
 const RESPEAK_STOP_LABEL = '🎤 그만 말하기';
 
-/* True while Whisper transcribes a re-speak. The turn stays in `respeaking`
-   (its controls are already locked), so this flag is what tells cancelTurn
-   and the hint that the recognition session is over and a result is pending. */
-let respeakTranscribing = false;
+/* The re-speak chip (`{ btn, resultEl }`) whose recording Whisper is
+   transcribing, or null. The turn stays in `respeaking` (its controls are
+   already locked), so this is what tells cancelTurn and the hint that the
+   recognition session is over and a result is pending. `activeRespeak` is
+   already cleared by then -- the button must stop reading as a stop control
+   -- so this keeps the chip reachable for a cancel to hide its result line. */
+let transcribingRespeak = null;
 
 function clearActiveRespeak() {
   if (activeRespeak) activeRespeak.btn.textContent = RESPEAK_LABEL;
@@ -89,7 +92,7 @@ function syncControls() {
   // finding out after. The non-listening text matches index.html's initial
   // markup so returning to idle doesn't visibly change the wording.
   $('mic-hint').textContent = listening
-    ? (respeakTranscribing ? '받아쓰는 중...' : (liveHeard || '듣고 있습니다...'))
+    ? (transcribingRespeak ? '받아쓰는 중...' : (liveHeard || '듣고 있습니다...'))
     : turnState === 'transcribing'
       ? '받아쓰는 중...'
       : '누르고 말한 뒤, 다 말하면 다시 눌러서 전송하세요';
@@ -112,7 +115,12 @@ export function setTurnState(event) {
 /* Whisper's answer beats the browser's, but never blocks the turn: on any
    failure, after 8s, or when Whisper hears silence, the browser's transcript
    is used. No recording (microphone denied) means Whisper is not asked. */
-const TRANSCRIBE_TIMEOUT_MS = 8000;
+let transcribeTimeoutMs = 8000;
+
+/* Tests only: waiting 8s for a timeout is not a test anyone runs. */
+export function setTranscribeTimeout(ms) {
+  transcribeTimeoutMs = ms;
+}
 
 export async function finalTranscript(browserText, audioPromise) {
   let audio;
@@ -124,7 +132,7 @@ export async function finalTranscript(browserText, audioPromise) {
   }
   if (!audio) return browserText || null;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), transcribeTimeoutMs);
   try {
     const form = new FormData();
     form.append('language', state.language);
@@ -155,7 +163,13 @@ export async function handleHeard(browserText, audioPromise) {
    returns control to the learner. Re-speak (Task 8) takes priority over this
    handler via audio.js's `deliver` and never reaches it. */
 function sendHeard(transcript) {
-  if (!transcript) { setTurnState('HEARD_NOTHING'); return; }
+  if (!transcript) {
+    // Nothing to attach the recording to, and chunks left behind would be
+    // uploaded with whatever the learner types next.
+    discardRecording();
+    setTurnState('HEARD_NOTHING');
+    return;
+  }
   // Script mode owns its own turn cycle: nextScriptLine is the only thing
   // that advances scriptIndex and suppresses the LLM's reply, so a spoken
   // line must go through it rather than through sendText. Routing the mic
@@ -181,14 +195,19 @@ export function cancelTurn() {
   // The recognition session is already over while Whisper works, so abort()
   // would raise no onend and nothing would report the cancel. Invalidate the
   // pending result and report it here instead.
-  if (turnState === 'transcribing' || respeakTranscribing) {
-    transcribeGeneration += 1;
-    respeakTranscribing = false;
-    discardRecording();
-    handleCancelled();
+  if (turnState === 'transcribing' || transcribingRespeak) {
+    dropPendingTranscript();
     return;
   }
   cancelListening();
+}
+
+/* Invalidates a transcription in flight -- its result will be recognised as
+   stale -- throws its recording away and returns the turn to idle. */
+function dropPendingTranscript() {
+  transcribeGeneration += 1;
+  discardRecording();
+  handleCancelled();
 }
 
 /* Esc cancels a live listen, except where Esc already means something else.
@@ -203,8 +222,9 @@ export function escapeCancels(e) {
 }
 
 export function handleCancelled() {
-  const respeak = activeRespeak;
+  const respeak = activeRespeak || transcribingRespeak;
   clearActiveRespeak();
+  transcribingRespeak = null;
   if (respeak) {
     respeak.resultEl.textContent = '';
     respeak.resultEl.hidden = true;
@@ -410,14 +430,19 @@ export function startRespeak(target, resultEl, btn) {
   setRespeakHandler(async (browserSpoken, audioPromise) => {
     // Stay in `respeaking` while Whisper works -- every control but cancel is
     // already locked there. The chip says what is happening.
-    respeakTranscribing = true;
+    // The button stops reading as the stop control now -- there is nothing
+    // left to stop.
+    transcribingRespeak = { btn, resultEl };
+    clearActiveRespeak();
     resultEl.textContent = '받아쓰는 중...';
     syncControls();
     const generation = ++transcribeGeneration;
     const spoken = await finalTranscript(browserSpoken, audioPromise);
     if (generation !== transcribeGeneration) return; // cancelled meanwhile
-    respeakTranscribing = false;
-    clearActiveRespeak();
+    transcribingRespeak = null;
+    // A re-speak's audio is never uploaded for ▶ 내 발음; left in
+    // state.chunks it would ride along with the next typed turn.
+    discardRecording();
     if (spoken === null) {
       setTurnState('HEARD_NOTHING');
       resultEl.textContent = '못 알아들었습니다. 다시 해보세요.';
@@ -429,6 +454,9 @@ export function startRespeak(target, resultEl, btn) {
     resultEl.textContent = good ? `좋습니다 — "${spoken}"` : `"${spoken}" — 조금 다릅니다. 다시 해보세요.`;
   });
   recognition.lang = BCP47[state.language];
+  // Mirrors main.js's mic handler. Without its own recording, the re-speak's
+  // onend would hand Whisper whatever the previous listen left behind.
+  const recording = startRecording();
   try {
     beginListening();
   } catch (err) {
@@ -441,6 +469,7 @@ export function startRespeak(target, resultEl, btn) {
     // button reading as the stop control for a session that never began.
     clearActiveRespeak();
     setRespeakHandler(null);
+    recording.then(discardRecording); // see main.js: the recorder may not exist yet
     notify(`음성 인식을 시작하지 못했습니다: ${err.message}`);
     resultEl.textContent = '음성 인식을 시작하지 못했습니다. 다시 눌러보세요.';
     setTurnState('HEARD_NOTHING');
@@ -705,6 +734,11 @@ let ending = false;
 export async function endSession() {
   if (!state.sessionId || ending) return;
   ending = true;
+  // A transcription still in flight must not post a turn into a session that
+  // is ending. The pending turn is also returned to idle, or the next session
+  // would open stuck in `transcribing`.
+  transcribeGeneration += 1;
+  if (turnState === 'transcribing' || transcribingRespeak) dropPendingTranscript();
   // No disabled-write here: the turn state machine deliberately keeps `end`
   // always enabled (a hung request must never trap the learner in the
   // session), and writing it directly here would fight that -- an AUDIO_DONE
