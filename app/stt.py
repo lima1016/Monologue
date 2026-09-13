@@ -10,12 +10,15 @@ server does not wait ~5-40s before it can serve the page, and a lock so two
 requests never share it at once.
 """
 import io
+import logging
 import os
 import site
 import threading
 from pathlib import Path
 
 from app import config
+
+log = logging.getLogger(__name__)
 
 
 class SttUnavailable(Exception):
@@ -57,8 +60,11 @@ def load(factory=None) -> None:
         model = (factory or _default_factory)()
     except Exception:
         _model, _status = None, "unavailable"
+        log.warning("faster-whisper could not load; turns will use the "
+                    "browser transcript", exc_info=True)
         return
     _model, _status = model, "ready"
+    log.info("faster-whisper %s ready", config.STT_MODEL)
 
 
 def start_loading(factory=None):

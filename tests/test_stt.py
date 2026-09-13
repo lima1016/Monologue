@@ -71,3 +71,15 @@ def test_start_loading_runs_in_the_background_and_only_once():
     thread.join(timeout=5)
     assert stt.status() == "ready"
     assert stt.start_loading(lambda: model) is None
+
+
+def test_a_load_failure_is_logged_with_the_exception(caplog):
+    """A broken CUDA/DLL install or a failed download must leave a trace --
+    not silently disappear into 'unavailable'."""
+    def boom():
+        raise RuntimeError("no CUDA")
+    with caplog.at_level("WARNING", logger="app.stt"):
+        stt.load(boom)
+    records = [r for r in caplog.records if r.name == "app.stt" and r.levelname == "WARNING"]
+    assert len(records) == 1
+    assert records[0].exc_info is not None
