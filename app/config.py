@@ -15,6 +15,13 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 OLLAMA_MODEL = "qwen2.5:14b"
 VOICEVOX_URL = "http://127.0.0.1:50021"
 
+# Final transcripts (app/stt.py). Measured on this machine next to qwen2.5:14b:
+# +1.2GB VRAM, ~0.2s per 3s clip, Japanese punctuation intact. `small` was
+# faster by 0.1s but misheard Japanese and dropped most punctuation.
+STT_MODEL = "large-v3-turbo"
+STT_DEVICE = "cuda"
+STT_COMPUTE_TYPE = "int8_float16"
+
 LANGUAGES = ("en", "ja")
 MODES = ("free", "script", "lesson")
 LEVELS = ("beginner", "intermediate", "advanced")
