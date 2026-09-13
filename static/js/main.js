@@ -131,7 +131,9 @@ $('conversation').addEventListener('click', (e) => {
   // ...) here would tell the learner "서버 음성 생성에 실패해" for a clip that
   // was never asked for, and fall them back to browser speech for nothing.
   if (!bubble.dataset.audioKey) return;
-  play(bubble.dataset.audioKey, bubble.dataset.ja || bubble.textContent);
+  // dataset.source, not textContent: a bubble with a meaning toggle also holds
+  // the button's label and, once opened, the Korean meaning.
+  play(bubble.dataset.audioKey, bubble.dataset.source || bubble.textContent);
 });
 
 $('panel-body').addEventListener('click', (e) => {

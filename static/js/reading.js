@@ -98,8 +98,26 @@ export async function annotate(entries) {
     // 때 이 줄에는 다시 그릴 계기가 없어서 켜도/꺼도 반응하지 않는다.
     // 무엇을 보여줄지는 setPrefs가 바꾸는 body 클래스가 정한다.
     entry.el.innerHTML = renderTokens(tokens, { furigana: true, romaji: true });
-    entry.el.dataset.ja = entry.text;
+    entry.el.dataset.source = entry.text;
+    entry.el.dataset.sourceLang = 'ja';
   });
+}
+
+/* 영어 줄의 뜻 버튼. 일본어는 annotate가 renderTokens로 버튼까지 그리지만,
+   영어에는 덧입힐 읽기 보조가 없으므로 버튼과 빈 뜻 칸만 뒤에 붙인다.
+   원문은 dataset.source에 따로 둔다 -- 이 뒤로 el.textContent에는 버튼 글자와
+   펼친 뜻이 섞이므로, 원문이 필요한 곳(재생, 번역)은 이 값을 읽어야 한다. */
+export function attachMeaning(el, language, text) {
+  const button = document.createElement('button');
+  button.className = 'meaning';
+  button.type = 'button';
+  button.textContent = '▸ 뜻';
+  const body = document.createElement('span');
+  body.className = 'meaning-body';
+  body.hidden = true;
+  el.append(button, body);
+  el.dataset.source = text;
+  el.dataset.sourceLang = language;
 }
 
 /* 뜻은 el.dataset.meaning에 한 번만 담아두고, 그 뒤로는 열고 닫기만 한다.
@@ -112,8 +130,8 @@ export async function toggleMeaning(el, body) {
   }
   try {
     const { meaning } = await postJSON('/translate', {
-      language: 'ja',
-      text: el.dataset.ja,
+      language: el.dataset.sourceLang || 'ja',
+      text: el.dataset.source,
     });
     body.textContent = meaning;
   } catch {

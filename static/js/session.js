@@ -3,7 +3,7 @@ import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInteri
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
-import { annotate, escapeHtml } from './reading.js';
+import { annotate, attachMeaning, escapeHtml } from './reading.js';
 
 /* ---------- turn state ---------- */
 
@@ -224,6 +224,10 @@ export function addMessage(who, text, audioKey = null) {
   if (who === 'bot' && state.language === 'ja') {
     annotate([{ el: div, text }]);
   }
+  // 영어 봇 문장도 뜻이 막히면 대화가 멈춘다. 읽기 보조는 없으니 뜻 버튼만.
+  if (who === 'bot' && state.language === 'en') {
+    attachMeaning(div, 'en', text);
+  }
   return div;
 }
 
@@ -441,9 +445,11 @@ function startScript(lines) {
     .map((l, i) => `<li data-i="${i}"><b>${l.speaker === 'bot' ? '봇' : '나'}</b> `
       + `<span class="line">${escapeHtml(l.text)}</span></li>`)
     .join('')}</ol>`;
+  const items = [...$('panel-body').querySelectorAll('li .line')];
   if (state.language === 'ja') {
-    const items = [...$('panel-body').querySelectorAll('li .line')];
     annotate(items.map((el, i) => ({ el, text: lines[i].text })));
+  } else {
+    items.forEach((el, i) => attachMeaning(el, state.language, lines[i].text));
   }
   advanceScript();
 }

@@ -294,3 +294,13 @@ test('자유 세션의 헤드라인', () => {
   assert.equal($('report-headline').textContent, '오늘 12턴을 주고받았어요.');
   assert.equal($('rep-wrong').textContent, '5');
 });
+
+test('an English bot bubble carries a meaning toggle; a learner bubble does not', () => {
+  resetDom();
+  state.language = 'en';
+  const bot = session.addMessage('bot', 'Welcome back!');
+  const me = session.addMessage('user', 'Thanks.');
+  assert.ok(bot.childNodes.some((n) => n.className === 'meaning'), '봇 말풍선에 ▸ 뜻 버튼이 없다');
+  assert.equal(bot.dataset.source, 'Welcome back!');
+  assert.ok(!me.childNodes.some((n) => n.className === 'meaning'));
+});

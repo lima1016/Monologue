@@ -191,12 +191,54 @@ test('a failed translation says so instead of blanking the line', async () => {
   stubFetch(async () => jsonResponse({ detail: 'down' }, { ok: false, status: 503 }));
 
   const el = document.createElement('li');
-  el.dataset.ja = 'こんにちは';
+  el.dataset.source = 'こんにちは';
   const body = document.createElement('span');
   await toggleMeaning(el, body);
 
   assert.match(body.textContent, /뜻을 가져오지 못했습니다/);
-  assert.equal(el.dataset.ja, 'こんにちは', '원문은 그대로 남는다');
+  assert.equal(el.dataset.source, 'こんにちは', '원문은 그대로 남는다');
+});
+
+test('an English line gets a meaning toggle that asks for English', async () => {
+  resetDom();
+  const { attachMeaning, toggleMeaning } = await import('./reading.js');
+  const posted = [];
+  stubFetch(async (url, options) => {
+    posted.push(JSON.parse(options.body));
+    return jsonResponse({ meaning: '몇 분이세요?' });
+  });
+
+  const el = document.createElement('div');
+  el.textContent = 'How many are in your party?';
+  attachMeaning(el, 'en', 'How many are in your party?');
+
+  const [button, body] = el.childNodes.slice(-2);
+  assert.equal(button.className, 'meaning');
+  assert.equal(body.className, 'meaning-body');
+  assert.equal(body.hidden, true);
+  assert.equal(el.dataset.source, 'How many are in your party?');
+
+  await toggleMeaning(el, body);
+  assert.deepEqual(posted, [{ language: 'en', text: 'How many are in your party?' }]);
+  assert.equal(body.textContent, '몇 분이세요?');
+});
+
+test('a Japanese line annotated for reading asks for Japanese', async () => {
+  resetDom();
+  const { annotate, toggleMeaning } = await import('./reading.js');
+  const posted = [];
+  stubFetch(async (url, options) => {
+    if (String(url).includes('/translate')) {
+      posted.push(JSON.parse(options.body));
+      return jsonResponse({ meaning: '안녕하세요' });
+    }
+    return jsonResponse({ readings: [[{ surface: 'こんにちは', reading: 'こんにちは',
+      romaji: 'konnichiwa', parts: [{ text: 'こんにちは', ruby: null }] }]] });
+  });
+  const el = document.createElement('li');
+  await annotate([{ el, text: 'こんにちは' }]);
+  await toggleMeaning(el, document.createElement('span'));
+  assert.deepEqual(posted, [{ language: 'ja', text: 'こんにちは' }]);
 });
 
 test('getPrefs returns the defaults, and a copy rather than a live reference', () => {
