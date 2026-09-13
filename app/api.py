@@ -788,7 +788,29 @@ def resumable(language: Language):
 
 @router.get("/stats/home")
 def home_stats(language: Language):
-    return db.home_stats(language)
+    stats = db.home_stats(language)
+    stats["recent"] = [_recent_row(r) for r in db.recent_sessions(language)]
+    return stats
+
+
+def _recent_row(row: dict) -> dict:
+    """최근 연습 한 줄. title 은 절대 비지 않는다.
+
+    순서는 /sessions/resumable 이 제목을 고르는 순서와 같다: 시나리오가 있으면
+    그 제목, 없으면 topic, 둘 다 없으면 고정 문자열. 다만 마지막 고정 문자열은
+    다르다 -- resumable은 "수업"으로 떨어지고(다시 들어갈 살아 있는 수업 하나를
+    가리키므로), 이쪽은 "자유 대화"로 떨어진다(모든 모드의 끝난 세션을 나열하는
+    목록이므로). 그래서 이 로직을 resumable과 공유하지 않는다: 두 화면은 애초에
+    같이 움직여야 할 이유가 없고, 공유하면 한쪽만 바뀌어야 할 때 다른 쪽도 따라
+    바뀌어야 한다.
+    """
+    scenario = scenarios.get_scenario(row["scenario_id"]) if row["scenario_id"] else None
+    return {
+        "id": row["id"],
+        "title": (scenario["title"] if scenario else row["topic"]) or "자유 대화",
+        "ended_at": row["ended_at"],
+        "fixed": row["fixed"],
+    }
 
 
 def _resumable_audio_key(text: str, language: str, voice: str) -> str | None:

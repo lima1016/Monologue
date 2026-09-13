@@ -584,6 +584,35 @@ def list_sessions(limit=20) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def recent_sessions(language, limit=3) -> list[dict]:
+    """홈 화면 오른쪽의 "최근 연습". 끝난 세션만, 최신순.
+
+    list_sessions()는 언어로 거르지도, 세션별로 집계하지도 않는다. 그 함수에
+    두 기능을 더하면 호출자마다 다른 절반만 쓰는 함수가 되므로 따로 쓴다.
+
+    등급은 싣지 않는다. stable_level()이 이미 결론낸 대로 한 세션의 레벨 추정은
+    노이즈이고 -- 같은 전사를 세 번 돌리면 세 번 다르게 나온다 -- 화면 한 칸을
+    채우려고 그 결론을 되돌리지 않는다.
+
+    title이 비는 경우가 실제로 있다(시나리오 없이 시작한 자유 세션). 빈 값을
+    클라이언트로 내보내면 그 빈칸이 화면마다 다르게 메워지므로, 여기서 정한다.
+    scenario_id는 카탈로그 조회가 필요해 여기서 풀지 않고 그대로 실어 보낸다 --
+    제목 해석은 scenarios 를 아는 api.py 의 몫이다.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT s.id, s.scenario_id, s.topic, s.ended_at,"
+            "       (SELECT COUNT(*) FROM messages m"
+            "         WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok = 0)"
+            "       AS fixed"
+            " FROM sessions s"
+            " WHERE s.language = ? AND s.ended_at IS NOT NULL"
+            " ORDER BY s.ended_at DESC, s.id DESC LIMIT ?",
+            (language, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_setting(key, default=None):
     with connect() as conn:
         row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()

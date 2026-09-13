@@ -594,6 +594,40 @@ def test_home_stats_streak_counts_one_korean_day_across_a_utc_midnight(store):
     assert store.home_stats("en")["streak"] == 1
 
 
+def test_recent_sessions_returns_finished_sessions_newest_first(store):
+    a = store.create_session(language="en", mode="free", scenario_id="clinic", topic=None)
+    b = store.create_session(language="en", mode="free", scenario_id="cafe", topic=None)
+    store.end_session(a, "{}", "beginner")
+    store.end_session(b, "{}", "beginner")
+
+    rows = store.recent_sessions("en")
+
+    assert [r["id"] for r in rows] == [b, a]
+
+
+def test_recent_sessions_skips_unfinished_and_other_languages(store):
+    live = store.create_session(language="en", mode="free", scenario_id="clinic", topic=None)
+    ja = store.create_session(language="ja", mode="free", scenario_id="office", topic=None)
+    store.end_session(ja, "{}", "beginner")
+
+    assert [r["id"] for r in store.recent_sessions("en")] == []
+    assert live not in [r["id"] for r in store.recent_sessions("ja")]
+
+
+def test_recent_sessions_counts_this_sessions_fixes(store):
+    sid = store.create_session(language="en", mode="free", scenario_id="clinic", topic=None)
+    other = store.create_session(language="en", mode="free", scenario_id="cafe", topic=None)
+    _add_wrong_user_message(store, sid, tag="관사")
+    _add_wrong_user_message(store, sid, tag="관사")
+    _add_wrong_user_message(store, other, tag="어순")
+    store.end_session(sid, "{}", "beginner")
+    store.end_session(other, "{}", "beginner")
+
+    by_id = {r["id"]: r for r in store.recent_sessions("en")}
+    assert by_id[sid]["fixed"] == 2
+    assert by_id[other]["fixed"] == 1
+
+
 FREE_SCENARIO = {
     "id": "user-interview-1", "language": "en", "type": "free",
     "title": "구직 면접", "goal": "경력을 설명하고 질문에 답한다",
