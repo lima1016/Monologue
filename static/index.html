@@ -127,6 +127,17 @@
         <button id="btn-end" class="ghost">세션 끝내기</button>
       </div>
     </div>
+
+    <!-- The report is written by the local model and takes 10-20s. Without
+         this the session screen just sits there, and pressing again looks
+         like the button is broken. -->
+    <div id="report-wait" class="report-wait" role="status" aria-live="polite" hidden>
+      <div class="report-wait-card">
+        <div class="thinking"><i></i><i></i><i></i></div>
+        <p class="report-wait-title">리포트를 만들고 있어요</p>
+        <p class="hint">보통 10~20초 걸려요</p>
+      </div>
+    </div>
   </section>
 
   <section id="report" hidden>
