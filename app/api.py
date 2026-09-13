@@ -39,7 +39,8 @@ def selected_voice(language: str) -> str:
 
 @router.get("/health")
 def health():
-    return {"ollama": llm.is_healthy(), "voicevox": voicevox_backend.is_healthy()}
+    return {"ollama": llm.is_healthy(), "voicevox": voicevox_backend.is_healthy(),
+            "whisper": stt.status()}
 
 
 @router.get("/scenarios")
