@@ -41,9 +41,9 @@ test('an event with no transition leaves the state untouched', () => {
 });
 
 test('every state pins exactly which controls are live', () => {
-  const T = { mic: true,  send: true,  undo: true,  next: true,  respeak: true,  end: true, stop: false };
-  const S = { mic: true,  send: true,  undo: false, next: false, respeak: false, end: true, stop: false };
-  const F = { mic: false, send: false, undo: false, next: false, respeak: false, end: true, stop: false };
+  const T = { mic: true,  send: true,  undo: true,  next: true,  respeak: true,  end: true, stop: false, cancel: false };
+  const S = { mic: true,  send: true,  undo: false, next: false, respeak: false, end: true, stop: false, cancel: false };
+  const F = { mic: false, send: false, undo: false, next: false, respeak: false, end: true, stop: false, cancel: false };
 
   assert.deepEqual(controls('idle'), T);
   // Interactive, not in-flight: the learner may answer over the bot's clip,
@@ -56,10 +56,10 @@ test('every state pins exactly which controls are live', () => {
   // never finish without Chrome finalising on its own (and for respeak,
   // "finalising on its own" mid-phrase is a false negative on the very
   // sentence the learner is trying to get right).
-  assert.deepEqual(controls('listening'), { ...F, stop: true });
+  assert.deepEqual(controls('listening'), { ...F, stop: true, cancel: true });
   assert.deepEqual(controls('sending'), F);
   assert.deepEqual(controls('undoing'), F);
-  assert.deepEqual(controls('respeaking'), { ...F, stop: true });
+  assert.deepEqual(controls('respeaking'), { ...F, stop: true, cancel: true });
 });
 
 test('the session can always be ended, even mid-flight', () => {
@@ -77,7 +77,7 @@ test('the mic is free again while the bot is still speaking', () => {
 test('every enabled control has a transition that answers it', () => {
   // The bug this file exists to prevent: a button that renders live and does
   // nothing because the machine has no transition for it.
-  const EVENT = { mic: 'MIC', send: 'SEND', undo: 'UNDO', respeak: 'RESPEAK' };
+  const EVENT = { mic: 'MIC', send: 'SEND', undo: 'UNDO', respeak: 'RESPEAK', cancel: 'CANCEL' };
   for (const state of ['idle', 'listening', 'sending', 'speaking', 'undoing', 'respeaking']) {
     const c = controls(state);
     for (const [control, event] of Object.entries(EVENT)) {
@@ -105,5 +105,15 @@ test('stop has no event of its own, but HEARD and HEARD_NOTHING answer it', () =
     assert.equal(controls(state).stop, true);
     assert.notEqual(next(state, 'HEARD'), state);
     assert.notEqual(next(state, 'HEARD_NOTHING'), state);
+  }
+});
+
+test('cancel drops a listen or a re-speak straight back to idle, sending nothing', () => {
+  // Pressing the mic again sends what was heard; there was no way to change
+  // your mind. CANCEL goes to idle directly -- never through `sending`.
+  assert.equal(next('listening', 'CANCEL'), 'idle');
+  assert.equal(next('respeaking', 'CANCEL'), 'idle');
+  for (const s of ['idle', 'sending', 'speaking', 'undoing']) {
+    assert.equal(next(s, 'CANCEL'), s, `CANCEL must do nothing in ${s}`);
   }
 });

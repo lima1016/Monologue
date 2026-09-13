@@ -304,3 +304,18 @@ test('an English bot bubble carries a meaning toggle; a learner bubble does not'
   assert.equal(bot.dataset.source, 'Welcome back!');
   assert.ok(!me.childNodes.some((n) => n.className === 'meaning'));
 });
+
+test('cancelling a listen returns to idle, hides the cancel button, and sends nothing', async () => {
+  resetDom();
+  const requests = [];
+  stubFetch(async (url) => { requests.push(url); return jsonResponse({}); });
+
+  session.setTurnState('MIC');
+  assert.equal($('btn-cancel').hidden, false, '듣는 동안 취소 버튼이 보여야 한다');
+
+  session.handleCancelled();
+  assert.equal($('btn-cancel').hidden, true);
+  assert.equal(session.canDo('send'), true, '취소 뒤에는 바로 다시 말하거나 입력할 수 있어야 한다');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(requests, [], '취소한 발화가 서버로 가면 안 된다');
+});

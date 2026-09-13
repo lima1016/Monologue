@@ -259,6 +259,9 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .mic:disabled:not(.listening) { opacity: .4; }
 
 #mic-hint { font-size: var(--text-xs); color: var(--text-faint); margin: var(--space-2) 0 0; }
+/* Shown only while listening, under the live transcript it would throw away. */
+#btn-cancel { display: block; margin: var(--space-2) auto 0; font-size: var(--text-xs);
+              padding: var(--space-1) var(--space-3); }
 
 #controls { justify-content: center; margin-top: var(--space-3); }
 #controls input { max-width: 420px; flex: 0 1 420px; }

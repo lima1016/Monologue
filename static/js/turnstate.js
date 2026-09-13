@@ -12,11 +12,11 @@ export const INITIAL = 'idle';
 
 const TRANSITIONS = {
   idle:       { MIC: 'listening', SEND: 'sending', UNDO: 'undoing', RESPEAK: 'respeaking' },
-  listening:  { HEARD: 'sending', HEARD_NOTHING: 'idle' },
+  listening:  { HEARD: 'sending', HEARD_NOTHING: 'idle', CANCEL: 'idle' },
   sending:    { REPLY: 'speaking', SEND_FAILED: 'idle' },
   speaking:   { AUDIO_DONE: 'idle', MIC: 'listening', SEND: 'sending' },
   undoing:    { UNDO_DONE: 'idle', UNDO_FAILED: 'idle' },
-  respeaking: { HEARD: 'idle', HEARD_NOTHING: 'idle' },
+  respeaking: { HEARD: 'idle', HEARD_NOTHING: 'idle', CANCEL: 'idle' },
 };
 
 export function next(state, event) {
@@ -62,5 +62,10 @@ export function controls(state) {
     // mistake, not a narrower-but-valid choice -- it left re-speak with no
     // way to end at all except a 90s safety net (audio.js).
     stop: state === 'listening' || state === 'respeaking',
+    // The other way out of a listen: throw away what was said instead of
+    // sending it. Live exactly where `stop` is. Unlike `stop` it has its own
+    // event -- nothing about Chrome's onend should decide whether a cancelled
+    // utterance is sent, so session.js raises CANCEL itself.
+    cancel: state === 'listening' || state === 'respeaking',
   };
 }

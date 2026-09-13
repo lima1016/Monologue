@@ -1,5 +1,5 @@
 import { $, api, getJSON, postJSON, state, notify } from './api.js';
-import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler } from './audio.js';
+import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening } from './audio.js';
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
@@ -87,6 +87,7 @@ function syncControls() {
     ? (liveHeard || '듣고 있습니다...')
     : '누르고 말한 뒤, 다 말하면 다시 눌러서 전송하세요';
   $('thinking').hidden = turnState !== 'sending';
+  $('btn-cancel').hidden = !canDo('cancel');
 }
 
 export function setTurnState(event) {
@@ -121,6 +122,26 @@ function handleHeard(transcript) {
   sendText(transcript);
 }
 setHeardHandler(handleHeard);
+
+/* Cancel: the learner changed their mind mid-utterance. Everything heard is
+   dropped (audio.js discards the recording and does not deliver) and the turn
+   goes straight back to idle. A cancelled re-speak clears its chip's result
+   line rather than claiming it heard nothing -- nothing was attempted. */
+export function cancelTurn() {
+  if (canDo('cancel')) cancelListening();
+}
+
+export function handleCancelled() {
+  const respeak = activeRespeak;
+  clearActiveRespeak();
+  if (respeak) {
+    respeak.resultEl.textContent = '';
+    respeak.resultEl.hidden = true;
+  }
+  liveHeard = '';
+  setTurnState('CANCEL');
+}
+setCancelHandler(handleCancelled);
 // Streams the live transcript into #mic-hint via syncControls -- see
 // `liveHeard`'s own comment for why it's reset separately, in setTurnState.
 // While a re-speak is the one listening, the same text also goes to its own

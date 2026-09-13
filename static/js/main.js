@@ -1,7 +1,7 @@
 import { $, postJSON, notify, state } from './api.js';
 import { play, recognition, BCP47, startRecording, stopRecording, setRespeakHandler } from './audio.js';
 import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
-         setTurnState, canDo } from './session.js';
+         setTurnState, canDo, cancelTurn } from './session.js';
 import { loadChips, loadHome, resumeSession, startFromHome } from './home.js';
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
@@ -61,6 +61,15 @@ $('text-input').addEventListener('keydown', (e) => {
     if (canDo('send')) sendTurn();
   } else if (canDo('next')) {
     nextScriptLine();
+  }
+});
+$('btn-cancel').addEventListener('click', cancelTurn);
+// Esc cancels only while a listen is live -- canDo('cancel') is false
+// everywhere else, so it cannot fight the settings dialog's own Esc.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && canDo('cancel')) {
+    e.preventDefault();
+    cancelTurn();
   }
 });
 $('btn-mic').addEventListener('click', () => {
