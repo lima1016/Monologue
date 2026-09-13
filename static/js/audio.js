@@ -174,8 +174,9 @@ function setupRecognition() {
   };
   // onend fires whether or not anything was recognised, and it is the only
   // event that always arrives -- so it is the one place delivery can safely
-  // happen. utt.text() empty is the exact definition of "heard nothing": no
-  // final result ever arrived (or onerror just cleared what had). A learner
+  // happen. utt.text() empty means the browser heard nothing -- not that the
+  // turn was silent: Whisper transcribes from the recording independently,
+  // and may still recover a turn Chrome's live recognition missed. A learner
   // pressing the mic again to stop is what gets here in the normal case --
   // recognition.stop() lets Chrome flush any last final result first, so it
   // is already in utt by the time this runs.

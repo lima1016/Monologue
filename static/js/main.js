@@ -75,7 +75,7 @@ $('btn-mic').addEventListener('click', () => {
   if (canDo('stop')) {
     // Ends the turn: recognition.stop() lets Chrome flush any last final
     // result, then fires onend, which delivers to handleHeard and raises
-    // HEARD or HEARD_NOTHING there -- not here. Two places calling
+    // HEARD, HEARD_AUDIO, or HEARD_NOTHING there -- not here. Two places calling
     // setTurnState for the same recognition session is exactly what
     // turnstate.js's header comment warns against; this button only ever
     // asks for the stop, never decides what state it leads to.

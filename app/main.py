@@ -1,7 +1,10 @@
 """Application entry point.
 
 Run with:
-    venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --port 8000
+    venv\\Scripts\\python.exe -m uvicorn app.main:app --port 8000
+
+Without --reload: a reload re-loads the 1.6GB Whisper model, and on
+Windows the reloader has been seen to hang serving old code.
 """
 from contextlib import asynccontextmanager
 
