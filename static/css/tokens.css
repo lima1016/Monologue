@@ -21,7 +21,7 @@
   --surface-sunken: #f0e7da;
   --line: #e8ded0;
   --text: #2b2520;          /* 14.0:1 on --bg */
-  /* 4.89:1 on --bg. This one carries body-sized text (hints, mode
+  /* 4.87:1 on --bg. This one carries body-sized text (hints, mode
      descriptions), so it clears 4.5:1 rather than sitting just under it. */
   --text-dim: #756a5e;
   /* Placeholders and small labels only -- under 4.5:1, the same call the
@@ -34,13 +34,13 @@
   /* Ink for anything painted on an --accent fill: the primary button, the
      resume card, the mic glyph, and the focus ring on a control that sits on
      the card (an --accent ring on an --accent background is invisible).
-     5.01:1 on --accent. Restated in the dark block on purpose -- see there. */
+     4.83:1 on --accent. Restated in the dark block on purpose -- see there. */
   --on-accent: #fffaf5;
 
   /* Correction and suggestion stay toned down: a learner sees these every
      single turn, and red/green reads as being told off.
 
-     The correction colour moved from coral (#e8896b) to a dusty rose when the
+     The correction hue moved from coral (#e8896b) to a dusty rose when the
      accent became terracotta. Coral and terracotta are the same family -- with
      both on screen, "here is what to fix" and "here is what to press" stopped
      being distinguishable. Rose pulls the correction away from the accent
@@ -50,7 +50,7 @@
   --correct-ink: #6d3230;   /* 8.6:1 on --correct-bg */
   --suggest: #6f9469;
   --suggest-bg: #eff4ec;
-  --suggest-ink: #3a5235;   /* 7.63:1 on --suggest-bg */
+  --suggest-ink: #3a5235;   /* 7.72:1 on --suggest-bg */
 
   /* System notices (Ollama/VOICEVOX down, etc.), kept separate from the
      correction palette above -- a warning is not a grammar correction. */
