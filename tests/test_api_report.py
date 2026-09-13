@@ -193,6 +193,16 @@ def test_report_stats_include_ungraded_count(client, monkeypatch):
     assert body["stats"]["ungraded"] == 1
 
 
+def test_finish_session_reports_minutes_as_an_int(client, session, monkeypatch):
+    """The report's right-hand panel shows active minutes -- an int, always
+    present, even for the tiny `session` fixture whose two messages land
+    within the same second."""
+    monkeypatch.setattr("app.api.llm.chat_json",
+                        lambda messages, schema, **kw: dict(REPORT_RESULT))
+    body = client.post(f"/api/sessions/{session}/end").json()
+    assert isinstance(body["stats"]["minutes"], int)
+
+
 def test_history_lists_sessions_newest_first(client, session):
     later = db.create_session("ja", "lesson", topic="て form")
     ids = [s["id"] for s in client.get("/api/sessions").json()["sessions"]]

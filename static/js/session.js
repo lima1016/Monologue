@@ -627,8 +627,22 @@ export async function endSession() {
    would just be a coin flip the learner believes. The value is still stored
    -- a later phase needs the history to compute a level over several
    sessions -- this function just does not render it. */
-function renderReport(data) {
+export function renderReport(data) {
   const s = data.stats || {};
+  // 헤드라인. LLM 에 새 필드를 요구하지 않는다 -- 리포트 프롬프트는 여러 라운드에
+  // 걸쳐 다듬어졌고, 필드를 하나 더 넣는 것만으로 그 품질이 회귀할 수 있다.
+  // 이미 손에 있는 숫자로 조립한다.
+  //
+  // state.scenarioTitle: session.js가 들고 있는 state에는 이 필드가 없다 --
+  // 시나리오를 고르는 화면(home.js)이 scenarioId만 startSession에 넘기고
+  // 제목은 버리기 때문이다. 그래서 이 프로퍼티 접근은 항상 undefined이고,
+  // `|| ''`가 kicker를 그대로 비워 둔다 -- 없는 상태를 새로 만들어 채우지
+  // 않는다.
+  $('report-kicker').textContent = state.scenarioTitle || '';
+  $('report-headline').textContent = state.mode === 'script'
+    ? `대본 ${s.turns ?? 0}줄을 읽었어요.`
+    : `오늘 ${s.turns ?? 0}턴을 주고받았어요.`;
+
   // Script mode stores ok=None on every learner turn by design (Fix 3): the
   // learner read a line, they did not compose one, so there is nothing to
   // grade. That makes s.wrong always 0 and s.ungraded always equal to
@@ -665,6 +679,34 @@ function renderReport(data) {
   if (s.wrong > 0 && !hasWeakPoints && !hasSentenceCard) {
     body.append(reportCard('부족한 부분', ['고칠 곳이 있었지만 자세한 내용을 만들지 못했습니다.']));
   }
+
+  $('rep-turns').textContent = s.turns ?? 0;
+  // 대본 세션은 문법 교정을 하지 않는다(위 counts 분기와 같은 이유) -- "0 고침"은
+  // 완벽하게 읽었다는 뜻으로 오해되므로, 애초에 세지 않는다는 뜻의 '—'를 대신 쓴다.
+  $('rep-wrong').textContent = state.mode === 'script' ? '—' : String(s.wrong ?? 0);
+  $('rep-minutes').textContent = s.minutes ?? 0;
+
+  // 누적 약점. 이 세션이 아니라 앱 전체 기록이라, 리포트가 매번 똑같아 보이지
+  // 않게 하는 것이 이 패널의 목적이다. /stats/home 이 이미 3회 하한을 걸어
+  // 돌려주므로 여기서 다시 거르지 않는다.
+  loadWeakPoints().catch(() => {});   // 리포트를 막지 않는다
+}
+
+async function loadWeakPoints() {
+  const list = $('weak-list');
+  list.replaceChildren();
+  const { top_tags: tags = [] } = await getJSON(`/stats/home?language=${state.language}`);
+  for (const t of tags) {
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.textContent = t.tag;
+    const n = document.createElement('span');
+    n.className = 'weak-n';
+    n.textContent = `${t.n}회`;
+    li.append(name, n);
+    list.append(li);
+  }
+  $('report-weak').hidden = tags.length === 0;
 }
 
 function reportCard(title, items) {

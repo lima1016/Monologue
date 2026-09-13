@@ -419,6 +419,29 @@ def abandon_stale_sessions(hours=24) -> int:
         return cur.rowcount
 
 
+def active_minutes(session_id, pause_cap_seconds=300) -> int:
+    """Time actually spent practising in this session, in minutes.
+
+    Not `now - started_at`: a session can sit open and be resumed up to 24
+    hours later (see resumable_session), so the raw elapsed time since it
+    opened includes however long the learner was away, not just the time
+    they spent talking. This instead sums the gaps between consecutive
+    messages -- each capped at `pause_cap_seconds` -- so a pause longer than
+    five minutes reads as the learner stepping away, not as five more
+    minutes (or twenty-two hours) of practice. Fewer than two messages means
+    there is no gap to measure, so 0.
+    """
+    rows = get_messages(session_id)
+    if len(rows) < 2:
+        return 0
+    total_seconds = 0.0
+    for prev, cur in zip(rows, rows[1:]):
+        gap = (datetime.fromisoformat(cur["created_at"])
+               - datetime.fromisoformat(prev["created_at"])).total_seconds()
+        total_seconds += min(gap, pause_cap_seconds)
+    return int(total_seconds // 60)
+
+
 def session_stats(session_id) -> dict:
     """Exact counts for the end-of-session report.
 

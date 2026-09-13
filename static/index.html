@@ -113,12 +113,27 @@
   </section>
 
   <section id="report" hidden>
-    <h2>수업 리포트</h2>
-    <div id="report-head">
+    <div class="report-main">
+      <p class="report-kicker" id="report-kicker"></p>
+      <h2 id="report-headline"></h2>
       <p id="report-counts" class="hint"></p>
+      <div id="report-body"></div>
+      <button id="btn-restart" class="primary">새 세션</button>
     </div>
-    <div id="report-body"></div>
-    <button id="btn-restart" class="primary">새 세션</button>
+    <aside class="report-aside">
+      <div class="panel" id="report-numbers">
+        <p class="label">이번 세션</p>
+        <div class="stat-row">
+          <div class="stat"><span class="v" id="rep-turns">0</span><span class="k">턴</span></div>
+          <div class="stat"><span class="v" id="rep-wrong">0</span><span class="k">고침</span></div>
+          <div class="stat"><span class="v" id="rep-minutes">0</span><span class="k">분</span></div>
+        </div>
+      </div>
+      <div class="panel" id="report-weak" hidden>
+        <p class="label">자주 놓치는 것</p>
+        <ul id="weak-list"></ul>
+      </div>
+    </aside>
   </section>
 </main>
 

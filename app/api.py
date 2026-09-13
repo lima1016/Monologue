@@ -702,6 +702,9 @@ def finish_session(session_id: int):
         raise HTTPException(409, "this session has already ended")
 
     stats = db.session_stats(session_id)
+    # The right-hand panel's "분" -- active time, not wall time since the
+    # session opened (see db.active_minutes).
+    stats["minutes"] = db.active_minutes(session_id)
     try:
         result = llm.chat_json(
             prompts.build_report_messages(session["language"], _transcript(session_id), stats),

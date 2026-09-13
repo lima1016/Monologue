@@ -435,6 +435,53 @@ def test_abandon_stale_sessions_closes_them_and_they_stop_being_offered(store):
     assert store.get_session(sid)["ended_at"] is not None
 
 
+def test_active_minutes_sums_two_minute_gaps(store):
+    """7 messages, each 2 minutes after the last, is 6 gaps -- 12 minutes of
+    active practice."""
+    sid = store.create_session("en", "free")
+    for i in range(7):
+        store.add_message(sid, "user", f"m{i}")
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    with store.connect() as conn:
+        for turn in range(1, 8):
+            stamp = (base + timedelta(minutes=2 * (turn - 1))).isoformat(timespec="seconds")
+            conn.execute(
+                "UPDATE messages SET created_at = ? WHERE session_id = ? AND turn = ?",
+                (stamp, sid, turn),
+            )
+    assert store.active_minutes(sid) == 12
+
+
+def test_active_minutes_caps_a_long_pause_at_five_minutes(store):
+    """A session resumed 22 hours later must not count that gap as 22 hours of
+    practice -- the learner was away, not talking. The gap counts for at most
+    five minutes, same as any other pause."""
+    sid = store.create_session("en", "free")
+    for i in range(3):
+        store.add_message(sid, "user", f"m{i}")
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    stamps = [
+        base,
+        base + timedelta(minutes=1),
+        base + timedelta(minutes=1) + timedelta(hours=22),
+    ]
+    with store.connect() as conn:
+        for turn, stamp in zip(range(1, 4), stamps):
+            conn.execute(
+                "UPDATE messages SET created_at = ? WHERE session_id = ? AND turn = ?",
+                (stamp.isoformat(timespec="seconds"), sid, turn),
+            )
+    # gap 1: 1 minute (60s, under the cap) + gap 2: 22 hours (capped at 300s)
+    # = 360s = 6 minutes.
+    assert store.active_minutes(sid) == 6
+
+
+def test_active_minutes_with_one_message_is_zero(store):
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "only one")
+    assert store.active_minutes(sid) == 0
+
+
 def test_session_stats_counts_only_the_learners_wrong_turns(store):
     sid = store.create_session("en", "free")
     store.add_message(sid, "bot", "Good evening!")
