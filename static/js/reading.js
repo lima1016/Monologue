@@ -17,9 +17,9 @@ let prefs = { furigana: true, romaji: true, pron_script: 'hangul' };
 export function getPrefs() { return { ...prefs }; }
 
 /* 켜고 끄는 것은 그리기가 아니라 CSS 클래스다 -- annotate는 항상 두 층을
-   다 그리고(아래), body의 클래스만 무엇이 보이는지 결정한다. 그래서 이미
+   다 그리고(발음 줄은 두 표기 모두), body의 클래스만 무엇이 보이는지 결정한다. 그래서 이미
    화면에 있는 줄도 다음 렌더를 기다리지 않고 즉시 반응한다. 다시 켜는
-   방향도 마찬가지다: 꺼져 있는 동안 그려진 줄도 로마자 span과 rt는 이미
+   방향도 마찬가지다: 꺼져 있는 동안 그려진 줄도 로마자·한글 span과 rt는 이미
    DOM에 있으므로, 클래스만 벗기면 그 자리에서 나타난다. */
 export function setPrefs(next) {
   prefs = { ...prefs, ...next };
