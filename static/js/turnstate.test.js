@@ -60,12 +60,15 @@ test('every state pins exactly which controls are live', () => {
   assert.deepEqual(controls('sending'), F);
   assert.deepEqual(controls('undoing'), F);
   assert.deepEqual(controls('respeaking'), { ...F, stop: true, cancel: true });
+  // Whisper is working on the recording. Nothing may start a new turn over
+  // it, but the learner can still throw it away.
+  assert.deepEqual(controls('transcribing'), { ...F, cancel: true });
 });
 
 test('the session can always be ended, even mid-flight', () => {
   // Trapping a learner in a hung turn with no way out is worse than an
   // interrupted request.
-  for (const s of ['idle', 'listening', 'sending', 'speaking', 'undoing', 'respeaking']) {
+  for (const s of ['idle', 'listening', 'sending', 'speaking', 'undoing', 'respeaking', 'transcribing']) {
     assert.equal(controls(s).end, true, `end must stay available in ${s}`);
   }
 });
@@ -78,7 +81,7 @@ test('every enabled control has a transition that answers it', () => {
   // The bug this file exists to prevent: a button that renders live and does
   // nothing because the machine has no transition for it.
   const EVENT = { mic: 'MIC', send: 'SEND', undo: 'UNDO', respeak: 'RESPEAK', cancel: 'CANCEL' };
-  for (const state of ['idle', 'listening', 'sending', 'speaking', 'undoing', 'respeaking']) {
+  for (const state of ['idle', 'listening', 'sending', 'speaking', 'undoing', 'respeaking', 'transcribing']) {
     const c = controls(state);
     for (const [control, event] of Object.entries(EVENT)) {
       if (!c[control]) continue;
@@ -115,5 +118,17 @@ test('cancel drops a listen or a re-speak straight back to idle, sending nothing
   assert.equal(next('respeaking', 'CANCEL'), 'idle');
   for (const s of ['idle', 'sending', 'speaking', 'undoing']) {
     assert.equal(next(s, 'CANCEL'), s, `CANCEL must do nothing in ${s}`);
+  }
+});
+
+test('a listen with a recording goes through transcribing before it is sent', () => {
+  assert.equal(next('listening', 'HEARD_AUDIO'), 'transcribing');
+  assert.equal(next('transcribing', 'HEARD'), 'sending');
+  assert.equal(next('transcribing', 'HEARD_NOTHING'), 'idle');
+  assert.equal(next('transcribing', 'CANCEL'), 'idle');
+  // A listen with no recording still sends straight away, as before.
+  assert.equal(next('listening', 'HEARD'), 'sending');
+  for (const s of ['idle', 'sending', 'speaking', 'undoing', 'respeaking']) {
+    assert.equal(next(s, 'HEARD_AUDIO'), s, `HEARD_AUDIO must do nothing in ${s}`);
   }
 });

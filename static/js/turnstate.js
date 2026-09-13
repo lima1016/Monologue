@@ -12,11 +12,12 @@ export const INITIAL = 'idle';
 
 const TRANSITIONS = {
   idle:       { MIC: 'listening', SEND: 'sending', UNDO: 'undoing', RESPEAK: 'respeaking' },
-  listening:  { HEARD: 'sending', HEARD_NOTHING: 'idle', CANCEL: 'idle' },
+  listening:  { HEARD: 'sending', HEARD_AUDIO: 'transcribing', HEARD_NOTHING: 'idle', CANCEL: 'idle' },
   sending:    { REPLY: 'speaking', SEND_FAILED: 'idle' },
   speaking:   { AUDIO_DONE: 'idle', MIC: 'listening', SEND: 'sending' },
   undoing:    { UNDO_DONE: 'idle', UNDO_FAILED: 'idle' },
   respeaking: { HEARD: 'idle', HEARD_NOTHING: 'idle', CANCEL: 'idle' },
+  transcribing: { HEARD: 'sending', HEARD_NOTHING: 'idle', CANCEL: 'idle' },
 };
 
 export function next(state, event) {
@@ -67,7 +68,8 @@ export function controls(state) {
     // event: the decision to cancel is the learner's (audio.js's
     // cancelListening), and the onend that follows only reports it -- what
     // was heard is never weighed -- so session.js's cancel handler raises
-    // CANCEL instead of HEARD or HEARD_NOTHING.
-    cancel: state === 'listening' || state === 'respeaking',
+    // CANCEL instead of HEARD or HEARD_NOTHING. Also live while Whisper transcribes: the recording
+    // is on its way to the server, and cancelling drops whatever comes back.
+    cancel: state === 'listening' || state === 'respeaking' || state === 'transcribing',
   };
 }
