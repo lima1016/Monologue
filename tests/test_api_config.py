@@ -16,8 +16,9 @@ def client(tmp_path, monkeypatch):
 def test_health_reports_both_services(client, monkeypatch):
     monkeypatch.setattr("app.api.llm.is_healthy", lambda: True)
     monkeypatch.setattr("app.api.voicevox_backend.is_healthy", lambda: False)
+    monkeypatch.setattr("app.api.stt.status", lambda: "ready")
     body = client.get("/api/health").json()
-    assert body == {"ollama": True, "voicevox": False}
+    assert body == {"ollama": True, "voicevox": False, "whisper": "ready"}
 
 
 def test_scenarios_filtered_by_language(client):

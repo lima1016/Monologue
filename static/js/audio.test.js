@@ -24,12 +24,14 @@ class FakeRecognition {
 window.webkitSpeechRecognition = FakeRecognition;
 
 class FakeRecorder {
-  constructor(stream) { this.stream = stream; this.state = 'inactive'; }
+  constructor(stream) { this.stream = stream; this.state = 'inactive'; this.listeners = {}; }
   start() { this.state = 'recording'; }
-  // 실제 MediaRecorder처럼 stop()이 마지막 dataavailable을 한 번 쏜다.
+  addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  // 실제 MediaRecorder처럼 stop()이 마지막 dataavailable을 한 번 쏜 뒤 stop 이벤트를 낸다.
   stop() {
     this.state = 'inactive';
     if (this.ondataavailable) this.ondataavailable({ data: 'late' });
+    for (const fn of this.listeners.stop || []) fn();
   }
 }
 globalThis.MediaRecorder = FakeRecorder;
@@ -61,7 +63,7 @@ let cancelled;
 beforeEach(() => {
   heard = [];
   cancelled = 0;
-  audio.setHeardHandler((t) => heard.push(t));
+  audio.setHeardHandler((t, audioPromise) => heard.push(t));
   audio.setCancelHandler(() => { cancelled += 1; });
   state.recorder = null;
   state.chunks = [];
@@ -165,4 +167,34 @@ test('a cancel whose onend never arrives does not swallow the next listen', () =
   rec.onend();
   assert.deepEqual(heard, ['hello']);
   assert.equal(cancelled, 0);
+});
+
+test('the heard handler gets the finished recording, last chunk included', async () => {
+  let got = null;
+  audio.setHeardHandler((t, audioPromise) => { got = { t, audioPromise }; });
+  const recorder = new FakeRecorder(fakeStream());
+  recorder.ondataavailable = (e) => state.chunks.push(e.data);
+  recorder.start();
+  state.recorder = recorder;
+  state.chunks = ['early'];
+
+  audio.beginListening();
+  rec.onstart();
+  rec.onresult(finalResult('hello'));
+  rec.onend();
+
+  assert.equal(got.t, 'hello');
+  const blob = await got.audioPromise;
+  assert.ok(blob instanceof Blob);
+  assert.equal(await blob.text(), 'earlylate', 'stop() 뒤에 오는 마지막 조각까지 담겨야 한다');
+  assert.deepEqual(state.chunks, ['early', 'late'], '업로드가 뒤에서 쓰므로 비우지 않는다');
+});
+
+test('with no recorder the recording is null', async () => {
+  let got = null;
+  audio.setHeardHandler((t, audioPromise) => { got = audioPromise; });
+  audio.beginListening();
+  rec.onstart();
+  rec.onend();
+  assert.equal(await got, null);
 });

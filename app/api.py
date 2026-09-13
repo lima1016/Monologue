@@ -1,6 +1,7 @@
 """HTTP routes. Thin — every route delegates to a module and shapes the response."""
 import functools
 import json
+import logging
 import re
 import uuid
 from pathlib import Path
@@ -8,11 +9,14 @@ from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
-from app import config, db, llm, prompts, reading, scenarios, text_cleanup, tts
+from app import config, db, llm, prompts, reading, scenarios, stt, text_cleanup, tts
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -35,7 +39,8 @@ def selected_voice(language: str) -> str:
 
 @router.get("/health")
 def health():
-    return {"ollama": llm.is_healthy(), "voicevox": voicevox_backend.is_healthy()}
+    return {"ollama": llm.is_healthy(), "voicevox": voicevox_backend.is_healthy(),
+            "whisper": stt.status()}
 
 
 @router.get("/scenarios")
@@ -161,6 +166,38 @@ def _cached_reading(text: str) -> list[dict]:
 class TranslateRequest(BaseModel):
     language: Language
     text: str
+
+
+# 90초 안전 제한까지 녹음해도 webm/opus는 수 MB다. 넉넉한 상한.
+_MAX_TRANSCRIBE_BYTES = 25 * 1024 * 1024
+
+
+@router.post("/transcribe")
+async def transcribe_turn(language: Language = Form(...), file: UploadFile = File(...)):
+    """한 턴 녹음의 최종 받아쓰기. 저장하지 않는다 -- 녹음 보관은
+    /sessions/{id}/audio의 몫이고, 이 요청은 턴을 보내기 전에 온다.
+
+    503은 "브라우저 인식으로 보내라"는 뜻이다(모델 적재 중, CUDA 없음, 실패).
+    받아쓰기는 GPU를 몇백 ms 붙잡으므로 이벤트 루프 밖에서 돈다.
+    """
+    audio = await file.read(_MAX_TRANSCRIBE_BYTES + 1)
+    if len(audio) > _MAX_TRANSCRIBE_BYTES:
+        raise HTTPException(413, "녹음이 너무 큽니다")
+    try:
+        text = await run_in_threadpool(stt.transcribe, audio, language)
+    except stt.SttUnavailable:
+        # Expected while the model is loading (or on a machine without CUDA) --
+        # not worth a warning every time a learner speaks before it is ready.
+        log.debug("stt unavailable; the turn falls back to the browser transcript")
+        raise HTTPException(503, "받아쓰기를 할 수 없습니다")
+    except Exception:
+        # Anything else is a real failure on a clip that should have worked
+        # (decode error, CUDA OOM, cuDNN mismatch) -- silent 503s here would
+        # make a broken model indistinguishable from one still loading.
+        log.warning("transcription failed; the turn falls back to the browser transcript",
+                   exc_info=True)
+        raise HTTPException(503, "받아쓰기를 할 수 없습니다")
+    return {"text": text}
 
 
 @router.post("/translate")

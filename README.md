@@ -45,6 +45,14 @@ Everything runs locally. Running cost is zero.
    .\venv\Scripts\python.exe -m pip install -r requirements.txt
    ```
 
+4. Whisper (final transcripts) downloads `large-v3-turbo` (~1.6GB) the first
+   time the server starts, so that first start needs the internet. It runs on
+   the GPU next to Ollama (+1.2GB VRAM). Without CUDA the app still works —
+   turns are sent with Chrome's own transcript. Until the model finishes
+   loading — or if loading fails — turns fall back the same way, and a
+   warning is printed in the server console. The nvidia wheels in
+   `requirements.txt` add about 1GB to the install.
+
 ## Running
 
 ```powershell
