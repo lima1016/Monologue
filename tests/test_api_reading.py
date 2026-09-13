@@ -291,3 +291,21 @@ def test_reading_prefs_round_trip(client):
     assert client.get("/api/reading-prefs").json() == {
         "furigana": True, "romaji": False,
     }
+
+
+def test_a_quoted_kanji_expression_from_the_line_itself_is_a_quote_not_a_leak():
+    """수업 대사는 한자 표현 자체를 가르친다("大丈夫"는 괜찮다는 뜻). 인용한 한자가
+    원문 줄에 실제로 있는 문자열이면 인용이고, 원문에 없는 한자는 새는 중이다."""
+    from app import api
+    line = "「大丈夫」は「괜찮다」という意味です。"
+    assert api._is_korean_meaning('"大丈夫"는 괜찮다는 뜻이에요.', source=line)
+    assert not api._is_korean_meaning('"大丈夫"는 괜찮다는 뜻이에요.', source="こんにちは")
+    assert not api._is_korean_meaning("손님, “请问几位”?", source="何名様ですか？")
+
+
+def test_translate_passes_the_original_line_to_the_korean_check(client, monkeypatch):
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    monkeypatch.setattr(llm, "chat", lambda messages, **kw: '"大丈夫"는 괜찮다는 뜻이에요.')
+    res = client.post("/api/translate", json={"language": "ja", "text": "「大丈夫」を使ってみましょう。"})
+    assert res.status_code == 200

@@ -190,18 +190,28 @@ _QUOTED = re.compile(
     r'"[^"]*"|“[^”]*”|(?<![A-Za-z])\'[^\']*\'|‘[^’]*’|「[^」]*」|『[^』]*』')
 
 
-def _drop_quoted(match: re.Match) -> str:
-    # 한자는 인용 안에서도 면제하지 않는다. 가르치는 표현이 한자일 수도 있지만,
-    # 중국어 누출과 글자로는 구별되지 않고 -- 틀린 뜻을 믿게 하느니 503이 낫다.
-    span = match.group(0)
-    return span if _CJK_IDEOGRAPH.search(span) else ""
+def _quote_dropper(source: str):
+    """인용을 지우되, 한자가 든 인용은 원문 줄에 실제로 있을 때만 지운다.
+
+    한자만 보고는 가르치는 표현("大丈夫"는 괜찮다는 뜻)과 중국어 누출("请问几位")을
+    구별할 수 없다. 구별하는 것은 원문이다: 학습자가 펼친 그 줄에 있는 한자면
+    인용이고, 없는 한자면 모델이 만들어낸 것이다.
+    """
+    def drop(match: re.Match) -> str:
+        span = match.group(0)
+        if not _CJK_IDEOGRAPH.search(span):
+            return ""
+        inner = span[1:-1].strip()
+        return "" if inner and inner in source else span
+    return drop
 
 
-def _is_korean_meaning(text: str) -> bool:
+def _is_korean_meaning(text: str, source: str = "") -> bool:
     """뜻이 정말 한국어인가. 틀린 언어로 보여주느니 503이 낫다.
 
     인용한 부분은 빼고 본다: 수업 대사는 "たぶん" 같은 표현 자체를 가르치므로
-    따옴표 안의 가나·영어는 누출이 아니라 번역의 일부다(한자는 예외, 위 참고).
+    따옴표 안의 가나·영어는 누출이 아니라 번역의 일부다. 따옴표 안의 한자는
+    `source`(원문 줄)에 있는 문자열일 때만 인용으로 친다(_quote_dropper 참고).
     그 밖에서는 한글과 영문이 아닌 글자가 한 자라도 있으면 새는 중이다 --
     실제로 샌 모양은 한국어로 시작해 문장 중간에 중국어로 넘어가는 것이었고,
     영어 줄에서는 키릴 문자가 한 단어 섞여 나왔다. 영문은 허용하되(PDF, OK 같은
@@ -209,7 +219,7 @@ def _is_korean_meaning(text: str) -> bool:
     수 이상이어야 한다. 영문을 글자로 세면 `PDF를 USB로 주세요`처럼 약어 몇 개로
     한국어 뜻이 거절된다.
     """
-    bare = _QUOTED.sub(_drop_quoted, text)
+    bare = _QUOTED.sub(_quote_dropper(source), text)
     hangul = len(_HANGUL.findall(bare))
     latin_words = len(_LATIN_WORD.findall(bare))
     foreign = sum(1 for ch in bare
@@ -242,7 +252,7 @@ def _successful_translation(language: str, text: str) -> str:
     try:
         messages = prompts.build_translate_messages(language, text)
         meaning = _first_line(_translate_call(messages))
-        if meaning and not _is_korean_meaning(meaning):
+        if meaning and not _is_korean_meaning(meaning, source=text):
             # One retry, with the leaked answer in view. In the prompt probe
             # (29 Japanese lines x3 = 87 calls on the real model, judged by the
             # probe's own Korean check) it took Korean meanings from 56% to
@@ -255,7 +265,7 @@ def _successful_translation(language: str, text: str) -> str:
             meaning = _first_line(_translate_call(messages))
     except Exception as exc:
         raise _NoMeaning from exc
-    if not (meaning and _is_korean_meaning(meaning)):
+    if not (meaning and _is_korean_meaning(meaning, source=text)):
         raise _NoMeaning
     return meaning
 
