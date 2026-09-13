@@ -415,6 +415,12 @@ export function startRespeak(target, resultEl, btn) {
     recognition.stop();
     return;
   }
+  // Whisper is already working on what this same chip's recognition heard --
+  // there is nothing left to stop, and canDo('respeak') is false here (the
+  // machine is in `respeaking`, not `idle`), so without this the same click
+  // would fall through to the "bot is speaking" notice below, which is not
+  // what is happening at all.
+  if (transcribingRespeak && transcribingRespeak.btn === btn) return;
   if (!canDo('respeak')) {
     notify('봇이 말하는 동안에는 다시 말할 수 없습니다. 끝날 때까지 기다려주세요.');
     return;
