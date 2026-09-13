@@ -1,3 +1,5 @@
+import pytest
+
 from app import reading
 
 
@@ -132,7 +134,7 @@ def test_analyse_never_raises_when_the_dictionary_is_unavailable(monkeypatch):
     줄이 사라지는 것은 다른 문제다."""
     monkeypatch.setattr(reading, "_tagger", _boom)
     tokens = reading.analyse("寿司を食べる")
-    assert tokens == [{"surface": "寿司を食べる", "reading": None, "romaji": None,
+    assert tokens == [{"surface": "寿司を食べる", "reading": None, "romaji": None, "hangul": None,
                        "parts": [{"text": "寿司を食べる", "ruby": None}]}]
 
 
@@ -178,7 +180,7 @@ def test_analyse_recovers_from_a_bad_token_without_losing_the_rest(monkeypatch):
     assert tokens[0]["parts"] == [{"text": "寿司", "ruby": "すし"}]
     assert tokens[1]["parts"] == [{"text": "を", "ruby": None}]
     assert tokens[2] == {
-        "surface": "食べる", "reading": None, "romaji": None,
+        "surface": "食べる", "reading": None, "romaji": None, "hangul": None,
         "parts": [{"text": "食べる", "ruby": None}],
     }
 
@@ -196,3 +198,48 @@ def test_ruby_is_kept_when_the_core_mixes_kanji_with_non_kana_characters():
     assert reading.align("100円", "ひゃくえん") == [
         {"text": "100円", "ruby": "ひゃくえん"}
     ]
+
+
+@pytest.mark.parametrize("pron, hangul", [
+    ("アリガトー", "아리가토오"),   # 장음은 앞 모음을 한 번 더
+    ("ガッコー", "갓코오"),         # 촉음은 앞 글자의 ㅅ 받침
+    ("トーキョー", "토오쿄오"),
+    ("コンニチワ", "콘니치와"),     # ん은 ㄴ 받침
+    ("センセー", "센세에"),
+    ("オハヨー", "오하요오"),
+    ("ツクエ", "쓰쿠에"),
+    ("コーヒー", "코오히이"),
+    ("シャシン", "샤신"),           # 요음은 한 음절
+    ("キョー", "쿄오"),
+    ("チュー", "추우"),
+    ("ジャ", "자"),
+    ("ニュース", "뉴우스"),
+    ("リョコー", "료코오"),
+    ("ファイル", "파이루"),         # 외래어 작은 모음
+    ("ティー", "티이"),
+    ("ウィ", "위"),
+    ("ミッツ", "밋쓰"),
+    ("ラーメン", "라아멘"),
+    ("イッ", "잇"),                 # 言っ -- 토큰 끝의 촉음도 받침으로 남는다
+    ("ワ", "와"),
+    ("オ", "오"),
+])
+def test_hangul_follows_the_sound(pron, hangul):
+    """소리 나는 대로다. か행은 늘 거센소리(카), が행은 예사소리(가)로 적어
+    맑은소리와 흐린소리가 한글에서도 갈린다."""
+    assert reading.to_hangul(pron) == hangul
+
+
+def test_hangul_returns_none_for_nothing_to_convert():
+    assert reading.to_hangul(None) is None
+    assert reading.to_hangul("") is None
+
+
+def test_analyse_gives_each_word_a_hangul_reading_from_its_pronunciation():
+    """로마자와 달리 한글은 늘 발음(pron)을 따른다 -- 장음을 모음 반복으로 적으니
+    pron의 'ー'를 피할 이유가 없다."""
+    assert reading.analyse("ありがとう")[0]["hangul"] == "아리가토오"
+    assert reading.analyse("学校")[0]["hangul"] == "갓코오"
+    assert reading.analyse("こんにちは")[0]["hangul"] == "콘니치와"
+    particle = [t for t in reading.analyse("私は学生です") if t["surface"] == "は"][0]
+    assert particle["hangul"] == "와"
