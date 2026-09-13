@@ -8,7 +8,7 @@ body {
   padding: 0 var(--space-6) var(--space-8);
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: 1.55;
 }

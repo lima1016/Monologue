@@ -1,0 +1,18 @@
+/* Pretendard, served from this app. Deliberately not a CDN: Ollama and
+   VOICEVOX both run locally, so this app works with no internet -- and a
+   remote font would mean that on an offline day everything keeps working
+   except the typeface, which silently falls back to Malgun Gothic. That is
+   the exact look the visual rebuild was for.
+
+   One variable file covers every weight the app uses (450 body, 650 headings,
+   750 the greeting), so there is one request rather than four. */
+@font-face {
+  font-family: Pretendard;
+  src: url("/fonts/PretendardVariable.woff2") format("woff2-variations");
+  font-weight: 45 920;
+  font-style: normal;
+  /* The fallback stack renders immediately and is swapped when the file
+     lands. A blocking load would leave the first paint blank on a cold
+     cache, and this screen is opened every day. */
+  font-display: swap;
+}
