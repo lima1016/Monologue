@@ -95,10 +95,26 @@ def test_analyse_romanises_the_direction_particle_as_e_not_he():
 
 def test_analyse_still_romanises_a_long_vowel_word_with_the_written_form():
     """pron은 장음을 'ー'로 뭉뚱그려서(ガッコー) kana(ガッコウ)와 다르게 적는다.
-    조사가 아닌 토큰까지 pron으로 바꾸면 学校가 gakkoo가 되어버린다 -- 이 게이트가
-    조사에만 적용됨을 고정하는 회귀 테스트다."""
+    pron에 'ー'가 있으면 kana로 돌아가야 学校가 gakkoo가 되지 않는다."""
     tokens = reading.analyse("学校")
     assert tokens[0]["romaji"] == "gakkou"
+
+
+def test_analyse_reads_the_ha_inside_a_greeting_as_wa():
+    """こんにちは의 は도 조사 は와 같은 이유로 '와'다. 예전 규칙은 품사가 助詞일
+    때만 발음을 봐서, 감동사 하나로 굳은 이 인사말이 konnichiha로 나왔다."""
+    tokens = reading.analyse("こんにちは")
+    assert tokens[0]["romaji"] == "konnichiwa"
+
+
+def test_analyse_keeps_the_written_vowels_of_arigatou_and_toukyou():
+    assert reading.analyse("ありがとう")[0]["romaji"] == "arigatou"
+    assert reading.analyse("東京")[0]["romaji"] == "toukyou"
+
+
+def test_analyse_romanises_the_object_particle_as_o():
+    tokens = reading.analyse("コーヒーを飲む")
+    assert [t["romaji"] for t in tokens[:2]] == ["koohii", "o"]
 
 
 def test_analyse_returns_one_token_per_word_with_parts():
