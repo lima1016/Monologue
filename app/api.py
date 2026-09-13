@@ -1,6 +1,7 @@
 """HTTP routes. Thin — every route delegates to a module and shapes the response."""
 import functools
 import json
+import logging
 import re
 import uuid
 from pathlib import Path
@@ -14,6 +15,8 @@ from app import config, db, llm, prompts, reading, scenarios, stt, text_cleanup,
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -181,7 +184,17 @@ async def transcribe_turn(language: Language = Form(...), file: UploadFile = Fil
         raise HTTPException(413, "녹음이 너무 큽니다")
     try:
         text = await run_in_threadpool(stt.transcribe, audio, language)
+    except stt.SttUnavailable:
+        # Expected while the model is loading (or on a machine without CUDA) --
+        # not worth a warning every time a learner speaks before it is ready.
+        log.debug("stt unavailable; the turn falls back to the browser transcript")
+        raise HTTPException(503, "받아쓰기를 할 수 없습니다")
     except Exception:
+        # Anything else is a real failure on a clip that should have worked
+        # (decode error, CUDA OOM, cuDNN mismatch) -- silent 503s here would
+        # make a broken model indistinguishable from one still loading.
+        log.warning("transcription failed; the turn falls back to the browser transcript",
+                   exc_info=True)
         raise HTTPException(503, "받아쓰기를 할 수 없습니다")
     return {"text": text}
 

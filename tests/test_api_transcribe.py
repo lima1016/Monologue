@@ -44,6 +44,26 @@ def test_503_when_transcription_itself_fails(client, monkeypatch):
     assert post(client).status_code == 503
 
 
+def test_an_unexpected_failure_is_logged_as_a_warning(client, monkeypatch, caplog):
+    def boom(audio, language):
+        raise RuntimeError("cuda out of memory")
+    monkeypatch.setattr(stt, "transcribe", boom)
+    with caplog.at_level("DEBUG", logger="app.api"):
+        post(client)
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert warnings[0].exc_info is not None
+
+
+def test_the_model_still_loading_is_not_logged_as_a_warning(client, monkeypatch, caplog):
+    def not_ready(audio, language):
+        raise stt.SttUnavailable("loading")
+    monkeypatch.setattr(stt, "transcribe", not_ready)
+    with caplog.at_level("DEBUG", logger="app.api"):
+        post(client)
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
 def test_an_unknown_language_is_refused(client, monkeypatch):
     monkeypatch.setattr(stt, "transcribe", lambda audio, language: "x")
     assert post(client, "ko").status_code == 422
