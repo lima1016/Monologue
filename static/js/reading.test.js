@@ -191,12 +191,79 @@ test('a failed translation says so instead of blanking the line', async () => {
   stubFetch(async () => jsonResponse({ detail: 'down' }, { ok: false, status: 503 }));
 
   const el = document.createElement('li');
-  el.dataset.ja = 'こんにちは';
+  el.dataset.source = 'こんにちは';
   const body = document.createElement('span');
   await toggleMeaning(el, body);
 
   assert.match(body.textContent, /뜻을 가져오지 못했습니다/);
-  assert.equal(el.dataset.ja, 'こんにちは', '원문은 그대로 남는다');
+  assert.equal(el.dataset.source, 'こんにちは', '원문은 그대로 남는다');
+});
+
+test('a failed translation is not kept, so opening again asks again', async () => {
+  /* 실패 문구를 뜻 칸에 쓴 채로 "이미 받았다"고 치면, 학습자는 그 줄의 뜻을
+     다시는 요청할 수 없다. 모델이 한 번 샌 것뿐인데도. */
+  resetDom();
+  const { toggleMeaning } = await import('./reading.js');
+  let calls = 0;
+  stubFetch(async () => {
+    calls += 1;
+    return calls === 1
+      ? jsonResponse({ detail: 'down' }, { ok: false, status: 503 })
+      : jsonResponse({ meaning: '안녕하세요' });
+  });
+
+  const el = document.createElement('li');
+  el.dataset.source = 'こんにちは';
+  const body = document.createElement('span');
+  await toggleMeaning(el, body);
+  assert.match(body.textContent, /뜻을 가져오지 못했습니다/);
+
+  await toggleMeaning(el, body);
+  assert.equal(calls, 2, '실패 뒤의 펼침은 다시 요청해야 한다');
+  assert.equal(body.textContent, '안녕하세요');
+  assert.equal(body.hidden, false);
+});
+
+test('an English line gets a meaning toggle that asks for English', async () => {
+  resetDom();
+  const { attachMeaning, toggleMeaning } = await import('./reading.js');
+  const posted = [];
+  stubFetch(async (url, options) => {
+    posted.push(JSON.parse(options.body));
+    return jsonResponse({ meaning: '몇 분이세요?' });
+  });
+
+  const el = document.createElement('div');
+  el.textContent = 'How many are in your party?';
+  attachMeaning(el, 'en', 'How many are in your party?');
+
+  const [button, body] = el.childNodes.slice(-2);
+  assert.equal(button.className, 'meaning');
+  assert.equal(body.className, 'meaning-body');
+  assert.equal(body.hidden, true);
+  assert.equal(el.dataset.source, 'How many are in your party?');
+
+  await toggleMeaning(el, body);
+  assert.deepEqual(posted, [{ language: 'en', text: 'How many are in your party?' }]);
+  assert.equal(body.textContent, '몇 분이세요?');
+});
+
+test('a Japanese line annotated for reading asks for Japanese', async () => {
+  resetDom();
+  const { annotate, toggleMeaning } = await import('./reading.js');
+  const posted = [];
+  stubFetch(async (url, options) => {
+    if (String(url).includes('/translate')) {
+      posted.push(JSON.parse(options.body));
+      return jsonResponse({ meaning: '안녕하세요' });
+    }
+    return jsonResponse({ readings: [[{ surface: 'こんにちは', reading: 'こんにちは',
+      romaji: 'konnichiwa', parts: [{ text: 'こんにちは', ruby: null }] }]] });
+  });
+  const el = document.createElement('li');
+  await annotate([{ el, text: 'こんにちは' }]);
+  await toggleMeaning(el, document.createElement('span'));
+  assert.deepEqual(posted, [{ language: 'ja', text: 'こんにちは' }]);
 });
 
 test('getPrefs returns the defaults, and a copy rather than a live reference', () => {
@@ -240,4 +307,40 @@ test('the next test never sees a previous test\'s setPrefs call', () => {
   }];
   const html = renderTokens(tokens); // no options
   assert.match(html, /sushi/);
+});
+
+/* 로마자 줄은 토큰마다 공백으로 잇는데, 구두점까지 그렇게 이으면
+   `kyou wa hayai desu ne 。` 처럼 문장부호가 단어처럼 떨어져 나온다. */
+function romajiLine(tokens) {
+  const html = renderTokens(tokens, { furigana: false, romaji: true });
+  return html.match(/<span class="romaji">([^<]*)<\/span>/)[1].replace(/&quot;/g, '"');
+}
+const word = (surface, romaji) => ({ surface, reading: null, romaji, parts: [{ text: surface, ruby: null }] });
+const mark = (surface) => ({ surface, reading: null, romaji: null, parts: [{ text: surface, ruby: null }] });
+
+test('closing punctuation sits against the word before it', () => {
+  const line = romajiLine([word('今日', 'kyou'), word('は', 'wa'), word('早い', 'hayai'),
+    mark('。'), word('はい', 'hai'), mark('、'), word('そう', 'sou'), mark('！')]);
+  assert.equal(line, 'kyou wa hayai. hai, sou!');
+});
+
+test('opening brackets sit against the word after them', () => {
+  const line = romajiLine([word('彼', 'kare'), word('は', 'wa'), mark('「'),
+    word('はい', 'hai'), mark('」'), word('と', 'to'), word('言った', 'itta'), mark('。')]);
+  assert.equal(line, 'kare wa "hai" to itta.');
+});
+
+test('straight quotes open and close in turn', () => {
+  const line = romajiLine([mark('"'), word('たぶん', 'tabun'), mark('"'), word('は', 'wa')]);
+  assert.equal(line, '"tabun" wa');
+});
+
+test('a token made only of punctuation maps mark by mark', () => {
+  /* 사전은 `！？`나 `……`를 한 토큰으로 준다. 한 글자짜리만 표에서 찾으면 이런
+     토큰은 전각 그대로 단어처럼 떨어져 나온다. */
+  assert.equal(romajiLine([word('そう', 'sou'), mark('！？')]), 'sou!?');
+  assert.equal(romajiLine([word('ええ', 'ee'), mark('……')]), 'ee......');
+  assert.equal(romajiLine([word('ね', 'ne'), mark('～'), word('はい', 'hai'), mark('〜')]), 'ne~ hai~');
+  assert.equal(romajiLine([word('時間', 'jikan'), mark('：'), word('三', 'san'), mark('；')]), 'jikan: san;');
+  assert.equal(romajiLine([word('コーヒー', 'koohii'), mark('・'), word('ケーキ', 'keeki')]), 'koohii keeki');
 });

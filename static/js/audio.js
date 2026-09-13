@@ -80,8 +80,14 @@ let pendingRespeakHandler = null;
 // #mic-hint. Same shape as setHeardHandler -- one setter, one slot -- to
 // match this file's convention.
 let interimHandler = null;
+// Set by cancelListening() and consumed by the onend it causes. A cancelled
+// listen must not deliver: onend normally hands whatever was heard to the
+// turn, and the whole point of cancelling is that it goes nowhere.
+let cancelHandler = null;
+let cancelling = false;
 
 export function setHeardHandler(fn) { heardHandler = fn; }
+export function setCancelHandler(fn) { cancelHandler = fn; }
 export function setRespeakHandler(fn) { pendingRespeakHandler = fn; }
 export function setInterimHandler(fn) { interimHandler = fn; }
 
@@ -162,7 +168,9 @@ function setupRecognition() {
       respeakHandler = pendingRespeakHandler;
       pendingRespeakHandler = null;
     }
-    notify(`음성 인식 실패(${e.error}). 입력창에 직접 입력하세요.`);
+    // abort() raises `aborted` on its way to onend -- that is the cancel
+    // working, not a failure to tell the learner about.
+    if (!cancelling) notify(`음성 인식 실패(${e.error}). 입력창에 직접 입력하세요.`);
   };
   // onend fires whether or not anything was recognised, and it is the only
   // event that always arrives -- so it is the one place delivery can safely
@@ -172,8 +180,19 @@ function setupRecognition() {
   // recognition.stop() lets Chrome flush any last final result first, so it
   // is already in utt by the time this runs.
   recognition.onend = () => {
+    // A short utterance can end before getUserMedia resolves; the bump makes
+    // that late recorder close instead of recording into the next turn.
+    recordingGeneration += 1;
     stopRecording();
     clearTimeout(safetyTimer);
+    if (cancelling) {
+      cancelling = false;
+      utt.begin();
+      respeakHandler = null;
+      pendingRespeakHandler = null;
+      if (cancelHandler) cancelHandler();
+      return;
+    }
     deliver(utt.text() || null);
   };
   return recognition;
@@ -181,9 +200,20 @@ function setupRecognition() {
 
 export const recognition = setupRecognition();
 
+/* Bumped by every cancel and every onend. getUserMedia is awaited, so the end
+   of a listen can land before the recorder exists; without this the recorder
+   would start afterwards and its audio would ride along with the learner's
+   next turn. */
+let recordingGeneration = 0;
+
 export async function startRecording() {
+  const generation = recordingGeneration;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (generation !== recordingGeneration) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
     state.recorder = new MediaRecorder(stream);
     state.chunks = [];
     state.recorder.ondataavailable = (e) => state.chunks.push(e.data);
@@ -191,6 +221,40 @@ export async function startRecording() {
   } catch {
     state.recorder = null; // mic denied — text input still works
   }
+}
+
+/* Throws the current listen away: nothing heard is delivered and the
+   recording is discarded, not uploaded. abort() rather than stop() -- stop()
+   asks Chrome to flush a last final result, which is exactly what a cancel
+   does not want. onend still fires, and is where the cancel is reported. */
+export function cancelListening() {
+  if (!recognition) return;
+  cancelling = true;
+  recordingGeneration += 1;
+  discardRecording();
+  recognition.abort();
+}
+
+/* Every recognition.start() goes through here. `cancelling` is otherwise only
+   cleared by the onend a cancel causes, and abort() on a recognition Chrome
+   had no live session for raises no onend at all -- the flag would then
+   silence the next listen's errors and turn its onend into a cancel, dropping
+   the learner's next sentence without a word. Clearing it here is safe: the
+   mic and re-speak buttons cannot be pressed while a cancel is still pending,
+   so no onend of a cancel can be left to arrive after this. */
+export function beginListening() {
+  cancelling = false;
+  recognition.start();
+}
+
+export function discardRecording() {
+  if (state.recorder) {
+    // stop() fires one last dataavailable; detach first so it cannot refill
+    // the chunks cleared below.
+    state.recorder.ondataavailable = null;
+    if (state.recorder.state !== 'inactive') state.recorder.stop();
+  }
+  state.chunks = [];
 }
 
 export function stopRecording() {

@@ -1,7 +1,7 @@
 import { $, postJSON, notify, state } from './api.js';
-import { play, recognition, BCP47, startRecording, stopRecording, setRespeakHandler } from './audio.js';
+import { play, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
 import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
-         setTurnState, canDo } from './session.js';
+         setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
 import { loadChips, loadHome, resumeSession, startFromHome } from './home.js';
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
@@ -63,6 +63,14 @@ $('text-input').addEventListener('keydown', (e) => {
     nextScriptLine();
   }
 });
+$('btn-cancel').addEventListener('click', cancelTurn);
+// Esc cancels a live listen; session.js's escapeCancels says when it must not.
+document.addEventListener('keydown', (e) => {
+  if (escapeCancels(e)) {
+    e.preventDefault();
+    cancelTurn();
+  }
+});
 $('btn-mic').addEventListener('click', () => {
   if (canDo('stop')) {
     // Ends the turn: recognition.stop() lets Chrome flush any last final
@@ -91,7 +99,7 @@ $('btn-mic').addEventListener('click', () => {
   setRespeakHandler(null);
   recognition.lang = BCP47[state.language];
   try {
-    recognition.start();
+    beginListening();
   } catch (err) {
     // e.g. an InvalidStateError from a recognition that's already running.
     // onend never fires when start() itself throws, so nothing would
@@ -99,8 +107,10 @@ $('btn-mic').addEventListener('click', () => {
     // the same thing a real "heard nothing" result would. startRecording()
     // is async and un-awaited above, so the stream/recorder it opens may not
     // exist yet -- stop it once that promise actually settles, or the mic
-    // stays open until the next startRecording() call replaces it.
-    recording.then(stopRecording);
+    // stays open until the next startRecording() call replaces it. Discard,
+    // not stop: this turn has no utterance, and chunks left behind would be
+    // uploaded with whatever the learner types next.
+    recording.then(discardRecording);
     notify(`음성 인식을 시작하지 못했습니다: ${err.message}`);
     setTurnState('HEARD_NOTHING');
   }
@@ -131,7 +141,9 @@ $('conversation').addEventListener('click', (e) => {
   // ...) here would tell the learner "서버 음성 생성에 실패해" for a clip that
   // was never asked for, and fall them back to browser speech for nothing.
   if (!bubble.dataset.audioKey) return;
-  play(bubble.dataset.audioKey, bubble.dataset.ja || bubble.textContent);
+  // dataset.source, not textContent: a bubble with a meaning toggle also holds
+  // the button's label and, once opened, the Korean meaning.
+  play(bubble.dataset.audioKey, bubble.dataset.source || bubble.textContent);
 });
 
 $('panel-body').addEventListener('click', (e) => {

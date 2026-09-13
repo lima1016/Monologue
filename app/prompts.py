@@ -556,20 +556,71 @@ def build_scenario_messages(language, kind, wish) -> list[dict]:
     ]
 
 
-TRANSLATE_SYSTEM = """당신은 일본어를 한국어로 옮기는 번역가입니다.
+_TRANSLATE_SOURCE = {"ja": "일본어", "en": "영어"}
 
-주어진 일본어 문장의 뜻을 자연스러운 한국어 한 줄로만 답하세요.
+TRANSLATE_SYSTEM = """당신은 {source}를 한국어로 옮기는 번역가입니다.
+
+주어진 {source} 문장의 뜻을 자연스러운 한국어 한 줄로만 답하세요.
+답은 반드시 한글로만 씁니다. 중국어, 한자, {source} 원문을 답에 섞지 마세요.
 설명, 문법 풀이, 로마자, 원문 반복을 넣지 마세요. 번역문만 답하세요."""
 
+# 예시 문장은 앱이 실제로 만드는 대사의 모양을 따른다: 손님을 맞는 질문,
+# 한자가 많은 업무 문장, 두 문장짜리 대사. 벤치마크에서 새는 자리가 바로
+# 그런 줄이었다(한국어로 시작해 두 번째 문장에서 중국어로 넘어감).
+TRANSLATE_EXAMPLES = {
+    "ja": [
+        ("いらっしゃいませ。何名様ですか？", "어서 오세요. 몇 분이세요?"),
+        ("会議の時間が変更になったので、確認をお願いします。",
+         "회의 시간이 바뀌었으니 확인 부탁드립니다."),
+        ("すみません、駅までの道を教えていただけますか。", "실례합니다, 역까지 가는 길을 알려주실 수 있나요?"),
+        ("大丈夫ですよ。少し休んでから始めましょう。", "괜찮아요. 조금 쉬었다가 시작해요."),
+    ],
+    "en": [
+        ("Welcome! How many are in your party?", "어서 오세요! 몇 분이세요?"),
+        ("Could you send me the report by Friday?", "금요일까지 보고서를 보내주실 수 있나요?"),
+        ("Take the second left and it's right there.", "두 번째에서 왼쪽으로 돌면 바로 거기 있어요."),
+        ("No worries. Let's take a short break first.", "괜찮아요. 먼저 잠깐 쉬어요."),
+    ],
+}
 
-def build_translate_messages(text) -> list[dict]:
+
+def build_translate_messages(language, text) -> list[dict]:
     """한 줄짜리 뜻을 요청한다.
 
     시스템 프롬프트가 한국어인 것은 style이 아니라 fix다 -- build_feedback_messages의
     docstring에 적힌 것과 같은 이유로, 이 로컬 모델은 자기가 불린 언어로 답한다.
     영어로 "answer in Korean"이라고 쓰면 영어 답이 섞여 나온다.
+
+    실제 모델로 일본어 29줄을 세 번씩(87회) 돌린 프롬프트 탐침이 이 모양을
+    정했다. 아래 횟수는 탐침 자체의 한국어 판정으로 센, 87회 중 샌 횟수다:
+    - 규칙만: 47회가 중국어로 샘. 예시 대화를 더해도 44회 -- 예시만으로는 못 막는다.
+    - 사용자 턴을 한국어 요청으로 감싸면 38회(한국어 56%). 마지막 턴이 순수
+      일본어면 모델이 그 문자권으로 끌려가는데, 감싸면 그 끌림이 약해진다.
+    - 샌 답에 한 번 되묻기(build_translate_retry_messages)까지 하면 18회(79%).
+    앱의 실제 경로를 _is_korean_meaning으로 잰 수치는 이와 다르다: 일본어 87회 중
+    65회(75%), 영어 20회 중 19회(95%) -- tests/test_translate_quality.py 참고.
+    남는 누출은 api._cached_translation의 한글 검사가 503으로 막는다 -- 틀린
+    언어로 뜻을 보여주지는 않는다.
     """
-    return [
-        {"role": "system", "content": TRANSLATE_SYSTEM},
-        {"role": "user", "content": text},
-    ]
+    source = _TRANSLATE_SOURCE[language]
+    messages = [{"role": "system", "content": TRANSLATE_SYSTEM.format(source=source)}]
+    for original, meaning in TRANSLATE_EXAMPLES[language]:
+        messages.append({"role": "user", "content": _translate_request(source, original)})
+        messages.append({"role": "assistant", "content": meaning})
+    messages.append({"role": "user", "content": _translate_request(source, text)})
+    return messages
+
+
+def _translate_request(source, text):
+    return f"다음 {source} 문장을 자연스러운 한국어 한 줄로 옮기세요. 번역문만 한글로 답하세요.\n\n{source}: {text}"
+
+
+TRANSLATE_RETRY = "방금 답에 한자나 일본어, 중국어, 영어 원문이 섞였습니다. 같은 뜻을 한글로만 다시 한 줄로 쓰세요."
+
+
+def build_translate_retry_messages(messages, bad_answer) -> list[dict]:
+    """샌 답을 대화에 그대로 보여주고 한국어로 다시 요청한다. 한 번만 쓴다 --
+    두 번째에도 새는 줄은 세 번째도 거의 같은 곳에서 샜다(온도 0.2)."""
+    return [*messages,
+            {"role": "assistant", "content": bad_answer},
+            {"role": "user", "content": TRANSLATE_RETRY}]

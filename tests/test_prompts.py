@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from app import prompts
@@ -316,3 +318,37 @@ def test_scenario_schema_differs_by_kind():
     script = prompts.scenario_schema("script")
     assert "lines" in script["required"]
     assert script["properties"]["lines"]["type"] == "array"
+
+
+@pytest.mark.parametrize("language", ["ja", "en"])
+def test_translate_prompt_carries_worked_examples(language):
+    """규칙만으로는 이 모델이 한국어에 머물지 않았다 -- 벤치마크에서 87회 중
+    47회가 중국어로 샜다. 교정 프롬프트가 같은 이유로 few-shot을 쓰는 것처럼,
+    번역도 예시 대화가 시스템 프롬프트와 실제 줄 사이에 있어야 한다."""
+    messages = prompts.build_translate_messages(language, "テスト")
+    assert messages[0]["role"] == "system"
+    shots = messages[1:-1]
+    assert len(shots) >= 6 and len(shots) % 2 == 0
+    assert [m["role"] for m in shots] == ["user", "assistant"] * (len(shots) // 2)
+    for answer in shots[1::2]:
+        assert re.search(r"[가-힣]", answer["content"])
+        assert not re.search(r"[一-鿿぀-ヿ]", answer["content"])
+
+
+@pytest.mark.parametrize("language", ["ja", "en"])
+def test_translate_prompt_wraps_every_line_in_a_korean_request(language):
+    """마지막 사용자 턴이 순수 일본어면 모델이 그 문자권(한자)으로 끌려갔다.
+    예시든 실제 줄이든 사용자 턴은 한국어 요청 안에 원문을 담는다."""
+    messages = prompts.build_translate_messages(language, "テスト")
+    for turn in [m for m in messages if m["role"] == "user"]:
+        assert re.search(r"[가-힣]", turn["content"])
+    assert "テスト" in messages[-1]["content"]
+
+
+def test_translate_retry_asks_again_in_korean_with_the_bad_answer_in_view():
+    first = prompts.build_translate_messages("ja", "テスト")
+    again = prompts.build_translate_retry_messages(first, "오늘은几位呢？")
+    assert again[:len(first)] == first
+    assert again[len(first)] == {"role": "assistant", "content": "오늘은几位呢？"}
+    assert again[-1]["role"] == "user"
+    assert "한글" in again[-1]["content"]

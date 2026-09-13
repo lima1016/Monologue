@@ -1,9 +1,9 @@
 import { $, api, getJSON, postJSON, state, notify } from './api.js';
-import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler } from './audio.js';
+import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening, beginListening } from './audio.js';
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
-import { annotate, escapeHtml } from './reading.js';
+import { annotate, attachMeaning, escapeHtml } from './reading.js';
 
 /* ---------- turn state ---------- */
 
@@ -87,6 +87,7 @@ function syncControls() {
     ? (liveHeard || '듣고 있습니다...')
     : '누르고 말한 뒤, 다 말하면 다시 눌러서 전송하세요';
   $('thinking').hidden = turnState !== 'sending';
+  $('btn-cancel').hidden = !canDo('cancel');
 }
 
 export function setTurnState(event) {
@@ -121,6 +122,37 @@ function handleHeard(transcript) {
   sendText(transcript);
 }
 setHeardHandler(handleHeard);
+
+/* Cancel: the learner changed their mind mid-utterance. Everything heard is
+   dropped (audio.js discards the recording and does not deliver) and the turn
+   goes straight back to idle. A cancelled re-speak clears its chip's result
+   line rather than claiming it heard nothing -- nothing was attempted. */
+export function cancelTurn() {
+  if (canDo('cancel')) cancelListening();
+}
+
+/* Esc cancels a live listen, except where Esc already means something else.
+   The settings dialog can be opened mid-listen, and its Esc closes it -- taken
+   here (main.js calls preventDefault), the dialog stays open and the
+   recording is what disappears. During IME composition Esc backs out of the
+   conversion, which a learner typing Japanese does constantly. */
+export function escapeCancels(e) {
+  if (e.key !== 'Escape' || e.isComposing) return false;
+  if ($('settings').open) return false;
+  return canDo('cancel');
+}
+
+export function handleCancelled() {
+  const respeak = activeRespeak;
+  clearActiveRespeak();
+  if (respeak) {
+    respeak.resultEl.textContent = '';
+    respeak.resultEl.hidden = true;
+  }
+  liveHeard = '';
+  setTurnState('CANCEL');
+}
+setCancelHandler(handleCancelled);
 // Streams the live transcript into #mic-hint via syncControls -- see
 // `liveHeard`'s own comment for why it's reset separately, in setTurnState.
 // While a re-speak is the one listening, the same text also goes to its own
@@ -224,6 +256,10 @@ export function addMessage(who, text, audioKey = null) {
   if (who === 'bot' && state.language === 'ja') {
     annotate([{ el: div, text }]);
   }
+  // 영어 봇 문장도 뜻이 막히면 대화가 멈춘다. 읽기 보조는 없으니 뜻 버튼만.
+  if (who === 'bot' && state.language === 'en') {
+    attachMeaning(div, 'en', text);
+  }
   return div;
 }
 
@@ -325,7 +361,7 @@ export function startRespeak(target, resultEl, btn) {
   });
   recognition.lang = BCP47[state.language];
   try {
-    recognition.start();
+    beginListening();
   } catch (err) {
     // Mirrors main.js's mic handler: onend never fires when start() itself
     // throws, so nothing else would return the machine from `respeaking`.
@@ -441,9 +477,11 @@ function startScript(lines) {
     .map((l, i) => `<li data-i="${i}"><b>${l.speaker === 'bot' ? '봇' : '나'}</b> `
       + `<span class="line">${escapeHtml(l.text)}</span></li>`)
     .join('')}</ol>`;
+  const items = [...$('panel-body').querySelectorAll('li .line')];
   if (state.language === 'ja') {
-    const items = [...$('panel-body').querySelectorAll('li .line')];
     annotate(items.map((el, i) => ({ el, text: lines[i].text })));
+  } else {
+    items.forEach((el, i) => attachMeaning(el, state.language, lines[i].text));
   }
   advanceScript();
 }

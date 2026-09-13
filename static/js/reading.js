@@ -29,6 +29,39 @@ export const escapeHtml = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+/* 로마자 줄의 문장부호는 영문 표기로 바꾸고, 영문처럼 붙인다. 토큰마다 공백으로
+   잇기만 하면 `hayai desu ne 。` 처럼 문장부호가 단어 하나로 떨어져 나와, 로마자로
+   읽는 초보에게 어디서 문장이 끝나는지가 흐려진다. */
+const CLOSING = { '。': '.', '、': ',', '，': ',', '．': '.', '！': '!', '？': '?',
+  '」': '"', '』': '"', '）': ')', '!': '!', '?': '?', '.': '.', ',': ',', ')': ')',
+  '…': '...', '～': '~', '〜': '~', '：': ':', '；': ';',
+  // 가운뎃점은 낱말 사이의 경계일 뿐이다. 다음 낱말이 제 공백을 가져온다.
+  '・': '' };
+// 사전은 `！？`, `……` 같은 연속 부호를 한 토큰으로 준다. 한 글자씩 옮긴다.
+const isClosing = (piece) => [...piece].every((ch) => ch in CLOSING);
+const mapClosing = (piece) => [...piece].map((ch) => CLOSING[ch]).join('');
+const OPENING = { '「': '"', '『': '"', '（': '(', '(': '(' };
+
+function romajiLine(tokens) {
+  let line = '';
+  let glueNext = false;      // 직전이 여는 괄호였으면 다음 단어를 붙인다
+  let quoteOpen = false;     // 곧은 따옴표는 여닫이를 번갈아 판단한다
+  for (const t of tokens) {
+    const piece = (t.romaji || t.surface).trim();
+    if (!piece) continue;
+    if (!t.romaji && piece === '"') {
+      if (quoteOpen) { line += '"'; glueNext = false; } else { line += (line ? ' ' : '') + '"'; glueNext = true; }
+      quoteOpen = !quoteOpen;
+      continue;
+    }
+    if (!t.romaji && isClosing(piece)) { line += mapClosing(piece); glueNext = false; continue; }
+    if (!t.romaji && piece in OPENING) { line += (line ? ' ' : '') + OPENING[piece]; glueNext = true; continue; }
+    line += (line && !glueNext ? ' ' : '') + piece;
+    glueNext = false;
+  }
+  return line;
+}
+
 export function renderTokens(tokens, options = prefs) {
   const body = tokens.map((t) => t.parts.map((p) => {
     const text = escapeHtml(p.text);
@@ -36,9 +69,7 @@ export function renderTokens(tokens, options = prefs) {
     return `<ruby>${text}<rt>${escapeHtml(p.ruby)}</rt></ruby>`;
   }).join('')).join('');
 
-  const romaji = options.romaji
-    ? tokens.map((t) => t.romaji || t.surface).join(' ').trim()
-    : '';
+  const romaji = options.romaji ? romajiLine(tokens) : '';
 
   return `<span class="ja">${body}</span>`
     + (romaji ? `<span class="romaji">${escapeHtml(romaji)}</span>` : '')
@@ -73,23 +104,44 @@ export async function annotate(entries) {
     // 때 이 줄에는 다시 그릴 계기가 없어서 켜도/꺼도 반응하지 않는다.
     // 무엇을 보여줄지는 setPrefs가 바꾸는 body 클래스가 정한다.
     entry.el.innerHTML = renderTokens(tokens, { furigana: true, romaji: true });
-    entry.el.dataset.ja = entry.text;
+    entry.el.dataset.source = entry.text;
+    entry.el.dataset.sourceLang = 'ja';
   });
+}
+
+/* 영어 줄의 뜻 버튼. 일본어는 annotate가 renderTokens로 버튼까지 그리지만,
+   영어에는 덧입힐 읽기 보조가 없으므로 버튼과 빈 뜻 칸만 뒤에 붙인다.
+   원문은 dataset.source에 따로 둔다 -- 이 뒤로 el.textContent에는 버튼 글자와
+   펼친 뜻이 섞이므로, 원문이 필요한 곳(재생, 번역)은 이 값을 읽어야 한다. */
+export function attachMeaning(el, language, text) {
+  const button = document.createElement('button');
+  button.className = 'meaning';
+  button.type = 'button';
+  button.textContent = '▸ 뜻';
+  const body = document.createElement('span');
+  body.className = 'meaning-body';
+  body.hidden = true;
+  el.append(button, body);
+  el.dataset.source = text;
+  el.dataset.sourceLang = language;
 }
 
 /* 뜻은 el.dataset.meaning에 한 번만 담아두고, 그 뒤로는 열고 닫기만 한다.
    서버도 캐시하지만 여기서 한 번 더 막는 이유는, 왕복 자체를 없애야 접었다
-   폈다 하는 동작이 즉각적으로 느껴지기 때문이다. */
+   폈다 하는 동작이 즉각적으로 느껴지기 때문이다. 받은 것의 표시는 뜻 칸의
+   글자가 아니라 dataset.meaning이다 -- 실패 문구도 글자이므로, 그것을 받은
+   뜻으로 치면 한 번 샌 줄은 다시 요청할 길이 없다. */
 export async function toggleMeaning(el, body) {
-  if (body.textContent) {
+  if (el.dataset.meaning) {
     body.hidden = !body.hidden;
     return;
   }
   try {
     const { meaning } = await postJSON('/translate', {
-      language: 'ja',
-      text: el.dataset.ja,
+      language: el.dataset.sourceLang || 'ja',
+      text: el.dataset.source,
     });
+    el.dataset.meaning = meaning;
     body.textContent = meaning;
   } catch {
     body.textContent = '뜻을 가져오지 못했습니다.';

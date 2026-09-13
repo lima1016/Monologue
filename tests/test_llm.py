@@ -127,6 +127,24 @@ def test_chat_sends_temperature(monkeypatch):
     assert captured["body"]["options"]["temperature"] == 0.3
 
 
+def test_chat_caps_the_reply_length_only_when_asked(monkeypatch):
+    """번역에서 샌 답은 중국어 해설을 길게 늘어놓다 타임아웃까지 갔다. 상한은
+    부르는 쪽이 정한다 -- 대화와 리포트는 길이를 제한하면 안 된다."""
+    captured = {}
+
+    def handler(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"message": {"content": "ok"}})
+
+    monkeypatch.setattr(llm, "_transport_for_tests", _transport(handler))
+
+    llm.chat([{"role": "user", "content": "x"}])
+    assert "num_predict" not in captured["body"]["options"]
+
+    llm.chat([{"role": "user", "content": "x"}], max_tokens=160)
+    assert captured["body"]["options"]["num_predict"] == 160
+
+
 @pytest.mark.engine
 def test_real_ollama_answers():
     if not llm.is_healthy():

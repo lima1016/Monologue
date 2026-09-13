@@ -171,45 +171,145 @@ def translate_line(payload: TranslateRequest):
     느려지고, 펼쳐보지도 않을 줄까지 번역하게 된다. 먼저 짐작하고 확인하는
     편이 학습에 남는다는 것도 같은 방향이다.
     """
-    if payload.language != "ja":
-        raise HTTPException(400, "translation is only offered for Japanese")
-    meaning = _cached_translation(payload.text)
+    meaning = _cached_translation(payload.language, payload.text)
     if meaning is None:
         raise HTTPException(503, "번역할 수 없습니다")
     return {"meaning": meaning}
 
 
-@functools.lru_cache(maxsize=512)
-def _cached_translation(text: str) -> str | None:
-    """None은 캐시되지 않아야 할 것 같지만, 캐시된다 -- 그리고 그래도 된다.
-    모델이 죽어 있는 동안 같은 줄을 반복해서 펼쳐도 매번 14b를 두드리지
-    않는다. 모델이 살아나면 서버를 재시작하거나 다른 줄을 펼치면 되고,
-    이것은 실패한 번역이지 잘못된 번역이 아니다."""
+# 음절에 더해 호환 자모(ㅋㅋ, ㅠㅠ)도 한글이다.
+_HANGUL = re.compile(r"[가-힣ㄱ-ㆎ]")
+# 영문으로 치는 글자: ASCII, 라틴-1(café), 라틴 확장(로마자의 ō), 전각(ＯＫ).
+_LATIN = r"A-Za-zÀ-ÖØ-öø-ɏＡ-Ｚａ-ｚ"
+_LATIN_LETTER = re.compile(f"[{_LATIN}]")
+_LATIN_WORD = re.compile(f"[{_LATIN}]+")
+_CJK_IDEOGRAPH = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
+# 곧은 작은따옴표는 낱말 속 아포스트로피(don't)와 같은 글자다. 글자 바로 뒤의
+# 것은 인용을 열지 못하게 해야 `don't 请问 isn't` 사이가 인용으로 지워지지 않는다.
+_QUOTED = re.compile(
+    r'"[^"]*"|“[^”]*”|(?<![A-Za-z])\'[^\']*\'|‘[^’]*’|「[^」]*」|『[^』]*』')
+
+
+_MAX_QUOTED_EXPRESSION = 12
+
+
+def _quote_dropper(source: str):
+    """인용을 지우되, 한자가 든 인용은 원문 줄에 실제로 있을 때만 지운다.
+
+    한자만 보고는 가르치는 표현("大丈夫"는 괜찮다는 뜻)과 중국어 누출("请问几位")을
+    구별할 수 없다. 구별하는 것은 원문이다: 학습자가 펼친 그 줄에 있는 한자면
+    인용이고, 없는 한자면 모델이 만들어낸 것이다.
+    """
+    def drop(match: re.Match) -> str:
+        span = match.group(0)
+        if not _CJK_IDEOGRAPH.search(span):
+            return ""
+        inner = span[1:-1].strip()
+        # 표현 하나 크기만 인용으로 친다. 원문 줄을 통째로(또는 거의 다) 따옴표에
+        # 넣고 "는 뜻이에요"만 붙인 것은 번역하지 않은 되풀이다.
+        expression_sized = len(inner) <= _MAX_QUOTED_EXPRESSION and len(inner) * 2 < len(source)
+        return "" if inner and expression_sized and inner in source else span
+    return drop
+
+
+def _is_korean_meaning(text: str, source: str = "") -> bool:
+    """뜻이 정말 한국어인가. 틀린 언어로 보여주느니 503이 낫다.
+
+    인용한 부분은 빼고 본다: 수업 대사는 "たぶん" 같은 표현 자체를 가르치므로
+    따옴표 안의 가나·영어는 누출이 아니라 번역의 일부다. 따옴표 안의 한자는
+    `source`(원문 줄)에 있는 문자열일 때만 인용으로 친다(_quote_dropper 참고).
+    그 밖에서는 한글과 영문이 아닌 글자가 한 자라도 있으면 새는 중이다 --
+    실제로 샌 모양은 한국어로 시작해 문장 중간에 중국어로 넘어가는 것이었고,
+    영어 줄에서는 키릴 문자가 한 단어 섞여 나왔다. 영문은 허용하되(PDF, OK 같은
+    표기) 영어 원문이 통째로 되돌아온 경우를 막으려고 한글 글자 수가 영문 낱말
+    수 이상이어야 한다. 영문을 글자로 세면 `PDF를 USB로 주세요`처럼 약어 몇 개로
+    한국어 뜻이 거절된다.
+    """
+    bare = _QUOTED.sub(_quote_dropper(source), text)
+    hangul = len(_HANGUL.findall(bare))
+    latin_words = len(_LATIN_WORD.findall(bare))
+    foreign = sum(1 for ch in bare
+                  if ch.isalpha() and not _HANGUL.match(ch) and not _LATIN_LETTER.match(ch))
+    return hangul > 0 and foreign == 0 and hangul >= latin_words
+
+
+class _NoMeaning(Exception):
+    pass
+
+
+def _cached_translation(language: str, text: str) -> str | None:
+    """성공한 뜻만 기억한다. 실패(None)는 캐시하지 않는다.
+
+    실패는 모델이 죽은 경우만이 아니다 -- 일본어 줄은 되묻고도 두 번 새는
+    경우가 흔하다. 그 None이 남으면 그 줄은 대본 패널, 같은 말풍선, 이어서
+    하기까지 서버를 재시작할 때까지 즉시 503이 된다. 모델이 죽어 있는 동안
+    펼칠 때마다 14b를 다시 두드리는 비용은 학습자가 버튼을 누를 때뿐이라
+    감수할 만하다.
+    lru_cache는 예외를 캐시하지 않으므로, 실패를 예외로 바꿔 그 아래로
+    보내고 여기서 None으로 되돌린다."""
     try:
-        raw = llm.chat(prompts.build_translate_messages(text), temperature=0.2)
-        # An empty (or whitespace-only) completion is a success by llm.chat's
-        # contract -- it did not raise -- but it is exactly the string the 503
-        # exists to prevent: a line whose meaning renders as genuinely absent,
-        # indistinguishable on screen from a broken feature. Falling through to
-        # `return None` here folds that case into the same failure path as a
-        # model that is down.
-        #
-        # Taking only the first non-empty line also enforces the "one line"
-        # contract server-side: a model that appends a parenthetical aside or a
-        # second sentence still yields a single clean line here. This is
-        # deliberately not more clever than that -- no attempt is made to
-        # detect or strip an echoed Japanese source line, since a heuristic for
-        # that would also mangle a legitimate translation that quotes a
-        # loanword, place name, or term in quotation marks. An echo is visible
-        # on screen and reportable; an empty string was not, which is the only
-        # reason one of these is worth guarding against here and the other isn't.
-        for line in raw.strip().splitlines():
-            line = line.strip()
-            if line:
-                return line
+        return _successful_translation(language, text)
+    except _NoMeaning:
         return None
-    except Exception:
-        return None
+
+
+@functools.lru_cache(maxsize=512)
+def _successful_translation(language: str, text: str) -> str:
+    try:
+        messages = prompts.build_translate_messages(language, text)
+        meaning = _first_line(_translate_call(messages))
+        if meaning and not _is_korean_meaning(meaning, source=text):
+            # One retry, with the leaked answer in view. In the prompt probe
+            # (29 Japanese lines x3 = 87 calls on the real model, judged by the
+            # probe's own Korean check) it took Korean meanings from 56% to
+            # 79% over the wrapped prompt alone. The app's real path, judged
+            # by _is_korean_meaning, measured 75% (65/87) Japanese and 95%
+            # (19/20) English -- see test_translate_quality.py. A second retry
+            # was not worth it at temperature 0.2, where a line that leaks
+            # twice leaks in the same place again.
+            messages = prompts.build_translate_retry_messages(messages, meaning)
+            meaning = _first_line(_translate_call(messages))
+    except Exception as exc:
+        raise _NoMeaning from exc
+    if not (meaning and _is_korean_meaning(meaning, source=text)):
+        raise _NoMeaning
+    return meaning
+
+
+# 테스트는 캐시를 이 이름으로 비운다.
+_cached_translation.cache_clear = _successful_translation.cache_clear
+
+
+# A meaning is one line. Leaking answers ran on in Chinese commentary until the
+# request timed out, so the cap is what keeps a failure fast. It is still well
+# above one line: an honest meaning cut off at the cap would pass the Korean
+# check and be served half-finished, as if it were complete.
+_TRANSLATE_MAX_TOKENS = 300
+
+
+def _translate_call(messages):
+    return llm.chat(messages, temperature=0.2, max_tokens=_TRANSLATE_MAX_TOKENS)
+
+
+def _first_line(raw: str) -> str | None:
+    """The first non-empty line, or None.
+
+    An empty (or whitespace-only) completion is a success by llm.chat's
+    contract -- it did not raise -- but it is exactly the string the 503 exists
+    to prevent: a line whose meaning renders as genuinely absent,
+    indistinguishable on screen from a broken feature. Taking only the first
+    line also enforces the "one line" contract server-side: a model that
+    appends a parenthetical aside or a second sentence still yields a single
+    clean line. An echoed source line is not stripped here; _is_korean_meaning
+    refuses it -- an echoed Japanese line has kana or kanji outside quotation
+    marks, and an echoed English line has fewer Hangul letters than Latin
+    words (Latin itself is allowed, for PDF or OK).
+    """
+    for line in raw.strip().splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return None
 
 
 class ReadingPrefs(BaseModel):

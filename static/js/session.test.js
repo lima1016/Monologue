@@ -294,3 +294,43 @@ test('자유 세션의 헤드라인', () => {
   assert.equal($('report-headline').textContent, '오늘 12턴을 주고받았어요.');
   assert.equal($('rep-wrong').textContent, '5');
 });
+
+test('an English bot bubble carries a meaning toggle; a learner bubble does not', () => {
+  resetDom();
+  state.language = 'en';
+  const bot = session.addMessage('bot', 'Welcome back!');
+  const me = session.addMessage('user', 'Thanks.');
+  assert.ok(bot.childNodes.some((n) => n.className === 'meaning'), '봇 말풍선에 ▸ 뜻 버튼이 없다');
+  assert.equal(bot.dataset.source, 'Welcome back!');
+  assert.ok(!me.childNodes.some((n) => n.className === 'meaning'));
+});
+
+test('Esc cancels a listen, but not while the settings dialog is open or an IME is composing', () => {
+  /* 설정 창의 Esc는 창을 닫는 키다. 여기서 preventDefault로 가로채면 창이
+     안 닫히고 녹음만 사라진다. 일본어 IME의 Esc는 변환을 취소하는 키다. */
+  resetDom();
+  session.setTurnState('MIC');
+  assert.equal(session.escapeCancels({ key: 'Escape', isComposing: false }), true);
+  assert.equal(session.escapeCancels({ key: 'Enter', isComposing: false }), false);
+  assert.equal(session.escapeCancels({ key: 'Escape', isComposing: true }), false);
+  $('settings').open = true;
+  assert.equal(session.escapeCancels({ key: 'Escape', isComposing: false }), false);
+  $('settings').open = false;
+  session.setTurnState('CANCEL');
+  assert.equal(session.escapeCancels({ key: 'Escape', isComposing: false }), false);
+});
+
+test('cancelling a listen returns to idle, hides the cancel button, and sends nothing', async () => {
+  resetDom();
+  const requests = [];
+  stubFetch(async (url) => { requests.push(url); return jsonResponse({}); });
+
+  session.setTurnState('MIC');
+  assert.equal($('btn-cancel').hidden, false, '듣는 동안 취소 버튼이 보여야 한다');
+
+  session.handleCancelled();
+  assert.equal($('btn-cancel').hidden, true);
+  assert.equal(session.canDo('send'), true, '취소 뒤에는 바로 다시 말하거나 입력할 수 있어야 한다');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(requests, [], '취소한 발화가 서버로 가면 안 된다');
+});
