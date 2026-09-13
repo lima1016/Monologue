@@ -91,10 +91,10 @@ export function setCancelHandler(fn) { cancelHandler = fn; }
 export function setRespeakHandler(fn) { pendingRespeakHandler = fn; }
 export function setInterimHandler(fn) { interimHandler = fn; }
 
-function deliver(transcript) {
+function deliver(transcript, audioPromise) {
   const handler = respeakHandler || heardHandler;
   respeakHandler = null;
-  if (handler) handler(transcript);
+  if (handler) handler(transcript, audioPromise);
 }
 
 // Nothing sends on its own any more (see utterance.js) -- the learner ends a
@@ -183,9 +183,9 @@ function setupRecognition() {
     // A short utterance can end before getUserMedia resolves; the bump makes
     // that late recorder close instead of recording into the next turn.
     recordingGeneration += 1;
-    stopRecording();
     clearTimeout(safetyTimer);
     if (cancelling) {
+      stopRecording();
       cancelling = false;
       utt.begin();
       respeakHandler = null;
@@ -193,7 +193,10 @@ function setupRecognition() {
       if (cancelHandler) cancelHandler();
       return;
     }
-    deliver(utt.text() || null);
+    // The recording has not finished yet: MediaRecorder hands over its last
+    // chunk asynchronously after stop(). Whisper needs that chunk, so the
+    // turn gets a Promise of the finished file rather than a file.
+    deliver(utt.text() || null, finishRecording());
   };
   return recognition;
 }
@@ -255,6 +258,21 @@ export function discardRecording() {
     if (state.recorder.state !== 'inactive') state.recorder.stop();
   }
   state.chunks = [];
+}
+
+/* Stops the recorder and resolves with everything it recorded, including the
+   chunk MediaRecorder delivers after stop(). Null when there is no recorder
+   (microphone denied) or nothing was captured. state.chunks is left alone --
+   uploadPendingRecording attaches the same audio to the message afterwards. */
+export function finishRecording() {
+  const recorder = state.recorder;
+  const build = () => (state.chunks.length ? new Blob(state.chunks, { type: 'audio/webm' }) : null);
+  if (!recorder) return Promise.resolve(null);
+  if (recorder.state === 'inactive') return Promise.resolve(build());
+  return new Promise((resolve) => {
+    recorder.addEventListener('stop', () => resolve(build()), { once: true });
+    recorder.stop();
+  });
 }
 
 export function stopRecording() {
