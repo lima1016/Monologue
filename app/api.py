@@ -8,8 +8,9 @@ from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
-from app import config, db, llm, prompts, reading, scenarios, text_cleanup, tts
+from app import config, db, llm, prompts, reading, scenarios, stt, text_cleanup, tts
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
@@ -161,6 +162,28 @@ def _cached_reading(text: str) -> list[dict]:
 class TranslateRequest(BaseModel):
     language: Language
     text: str
+
+
+# 90초 안전 제한까지 녹음해도 webm/opus는 수 MB다. 넉넉한 상한.
+_MAX_TRANSCRIBE_BYTES = 25 * 1024 * 1024
+
+
+@router.post("/transcribe")
+async def transcribe_turn(language: Language = Form(...), file: UploadFile = File(...)):
+    """한 턴 녹음의 최종 받아쓰기. 저장하지 않는다 -- 녹음 보관은
+    /sessions/{id}/audio의 몫이고, 이 요청은 턴을 보내기 전에 온다.
+
+    503은 "브라우저 인식으로 보내라"는 뜻이다(모델 적재 중, CUDA 없음, 실패).
+    받아쓰기는 GPU를 몇백 ms 붙잡으므로 이벤트 루프 밖에서 돈다.
+    """
+    audio = await file.read(_MAX_TRANSCRIBE_BYTES + 1)
+    if len(audio) > _MAX_TRANSCRIBE_BYTES:
+        raise HTTPException(413, "녹음이 너무 큽니다")
+    try:
+        text = await run_in_threadpool(stt.transcribe, audio, language)
+    except Exception:
+        raise HTTPException(503, "받아쓰기를 할 수 없습니다")
+    return {"text": text}
 
 
 @router.post("/translate")
