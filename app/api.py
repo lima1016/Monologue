@@ -177,25 +177,44 @@ def translate_line(payload: TranslateRequest):
     return {"meaning": meaning}
 
 
-_HANGUL = re.compile(r"[가-힣]")
-_QUOTED = re.compile(r'"[^"]*"|“[^”]*”|\'[^\']*\'|‘[^’]*’|「[^」]*」|『[^』]*』')
+# 음절에 더해 호환 자모(ㅋㅋ, ㅠㅠ)도 한글이다.
+_HANGUL = re.compile(r"[가-힣ㄱ-ㆎ]")
+# 영문으로 치는 글자: ASCII, 라틴-1(café), 라틴 확장(로마자의 ō), 전각(ＯＫ).
+_LATIN = r"A-Za-zÀ-ÖØ-öø-ɏＡ-Ｚａ-ｚ"
+_LATIN_LETTER = re.compile(f"[{_LATIN}]")
+_LATIN_WORD = re.compile(f"[{_LATIN}]+")
+_CJK_IDEOGRAPH = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
+# 곧은 작은따옴표는 낱말 속 아포스트로피(don't)와 같은 글자다. 글자 바로 뒤의
+# 것은 인용을 열지 못하게 해야 `don't 请问 isn't` 사이가 인용으로 지워지지 않는다.
+_QUOTED = re.compile(
+    r'"[^"]*"|“[^”]*”|(?<![A-Za-z])\'[^\']*\'|‘[^’]*’|「[^」]*」|『[^』]*』')
+
+
+def _drop_quoted(match: re.Match) -> str:
+    # 한자는 인용 안에서도 면제하지 않는다. 가르치는 표현이 한자일 수도 있지만,
+    # 중국어 누출과 글자로는 구별되지 않고 -- 틀린 뜻을 믿게 하느니 503이 낫다.
+    span = match.group(0)
+    return span if _CJK_IDEOGRAPH.search(span) else ""
 
 
 def _is_korean_meaning(text: str) -> bool:
     """뜻이 정말 한국어인가. 틀린 언어로 보여주느니 503이 낫다.
 
     인용한 부분은 빼고 본다: 수업 대사는 "たぶん" 같은 표현 자체를 가르치므로
-    따옴표 안의 가나·영어는 누출이 아니라 번역의 일부다. 그 밖에서는 한글과
-    영문 알파벳이 아닌 글자가 한 자라도 있으면 새는 중이다 -- 실제로 샌 모양은
-    한국어로 시작해 문장 중간에 중국어로 넘어가는 것이었고, 영어 줄에서는
-    키릴 문자가 한 단어 섞여 나왔다. 영문은 허용하되(PDF, OK 같은 표기) 영어
-    원문이 통째로 되돌아온 경우를 막으려고 한글이 글자의 절반은 넘어야 한다.
+    따옴표 안의 가나·영어는 누출이 아니라 번역의 일부다(한자는 예외, 위 참고).
+    그 밖에서는 한글과 영문이 아닌 글자가 한 자라도 있으면 새는 중이다 --
+    실제로 샌 모양은 한국어로 시작해 문장 중간에 중국어로 넘어가는 것이었고,
+    영어 줄에서는 키릴 문자가 한 단어 섞여 나왔다. 영문은 허용하되(PDF, OK 같은
+    표기) 영어 원문이 통째로 되돌아온 경우를 막으려고 한글 글자 수가 영문 낱말
+    수 이상이어야 한다. 영문을 글자로 세면 `PDF를 USB로 주세요`처럼 약어 몇 개로
+    한국어 뜻이 거절된다.
     """
-    bare = _QUOTED.sub("", text)
-    letters = [ch for ch in bare if ch.isalpha()]
-    hangul = sum(1 for ch in letters if _HANGUL.match(ch))
-    foreign = sum(1 for ch in letters if not _HANGUL.match(ch) and not ch.isascii())
-    return bool(letters) and foreign == 0 and hangul * 2 >= len(letters)
+    bare = _QUOTED.sub(_drop_quoted, text)
+    hangul = len(_HANGUL.findall(bare))
+    latin_words = len(_LATIN_WORD.findall(bare))
+    foreign = sum(1 for ch in bare
+                  if ch.isalpha() and not _HANGUL.match(ch) and not _LATIN_LETTER.match(ch))
+    return hangul > 0 and foreign == 0 and hangul >= latin_words
 
 
 class _NoMeaning(Exception):
@@ -242,8 +261,10 @@ _cached_translation.cache_clear = _successful_translation.cache_clear
 
 
 # A meaning is one line. Leaking answers ran on in Chinese commentary until the
-# request timed out, so the cap is what keeps a failure fast.
-_TRANSLATE_MAX_TOKENS = 160
+# request timed out, so the cap is what keeps a failure fast. It is still well
+# above one line: an honest meaning cut off at the cap would pass the Korean
+# check and be served half-finished, as if it were complete.
+_TRANSLATE_MAX_TOKENS = 300
 
 
 def _translate_call(messages):

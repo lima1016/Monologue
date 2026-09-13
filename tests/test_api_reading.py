@@ -149,6 +149,31 @@ def test_translate_refuses_a_meaning_in_the_wrong_language(client, monkeypatch, 
     assert res.status_code == 503
 
 
+@pytest.mark.parametrize("meaning", [
+    "PDF를 USB로 주세요",                 # 영문 약어는 글자로 세면 한글보다 많아진다
+    "API와 SDK 문서를 GitHub에서 확인",
+    "ㅋㅋ 진짜요?",                        # 호환 자모도 한글이다
+    "카페 라테 말고 café 주세요",            # 라틴-1 글자는 외국 문자가 아니다
+    "ＯＫ, 알겠습니다",                     # 전각 영문도 영문이다
+    "'I'm fine'은 괜찮다는 뜻이에요",
+])
+def test_a_korean_meaning_with_latin_words_is_korean(meaning):
+    from app import api
+    assert api._is_korean_meaning(meaning)
+
+
+@pytest.mark.parametrize("leak", [
+    "손님, “请问几位”?",       # 따옴표 안이라도 한자는 가르치는 표현이 아니라 새는 중이다
+    '손님, "请问几位"?',
+    "손님, '请问几位'?",
+    "don't 请问几位 isn't 괜찮아요 정말 괜찮아요",  # 낱말 속 아포스트로피가 인용을 열면 안 된다
+    "don't вашего isn't 괜찮아요 정말 괜찮아요",   # 한자가 없어도 마찬가지
+])
+def test_quoting_does_not_hide_a_leak(leak):
+    from app import api
+    assert not api._is_korean_meaning(leak)
+
+
 def test_translate_asks_once_more_when_the_first_answer_leaks(client, monkeypatch):
     """실제 모델로 잰 결과: 한 번 되묻기가 한국어 뜻을 56%에서 79%로 올렸다."""
     from app import api, llm
