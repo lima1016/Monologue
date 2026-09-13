@@ -110,7 +110,7 @@ async function armResumeCard() {
                                        goal: '접수한다', turns: 4 } });
     }
     if (url.startsWith('/api/stats/home')) {
-      return jsonResponse({ streak: 1, week_turns: 4, fixed_total: 0, top_tag: null });
+      return jsonResponse({ streak: 1, week_turns: 4, fixed_total: 0, top_tags: [] });
     }
     return jsonResponse({});
   });

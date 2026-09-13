@@ -497,9 +497,14 @@ def stable_level(language, recent=5, min_sessions=3):
 def home_stats(language) -> dict:
     """Numbers for the home screen. All computed, none estimated.
 
-    `top_tag` is withheld until a tag has appeared at least three times: a
+    `top_tags` withholds any tag until it has appeared at least three times: a
     weakness ranked off one mistake is a guess wearing the costume of a fact,
-    and the home screen is where the learner decides what to practise.
+    and the home screen is where the learner decides what to practise. Up to
+    three tags are returned, ranked by count. The `m.tag DESC` in
+    `ORDER BY n DESC, m.tag DESC` is a secondary sort key that fixes the order
+    of tags tied on count -- without it, ties would break on whatever order
+    SQLite happens to visit rows in, and both the LIMIT 3 cutoff and the
+    panel's list would shuffle between runs.
 
     `streak` walks backwards from the most recent practice day, but that walk
     starts at *yesterday* when today has no messages yet, rather than always
@@ -536,20 +541,20 @@ def home_stats(language) -> dict:
             " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0",
             (language,),
         ).fetchone()[0]
-        tag_row = conn.execute(
+        tag_rows = conn.execute(
             "SELECT m.tag, COUNT(*) n FROM messages m JOIN sessions s ON s.id = m.session_id"
             " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0"
             "   AND m.tag IS NOT NULL AND m.tag <> '없음'"
-            " GROUP BY m.tag ORDER BY n DESC LIMIT 1",
+            " GROUP BY m.tag HAVING n >= 3 ORDER BY n DESC, m.tag DESC LIMIT 3",
             (language,),
-        ).fetchone()
+        ).fetchall()
         days = [r[0] for r in conn.execute(
             "SELECT DISTINCT substr(datetime(m.created_at, 'localtime'), 1, 10) d"
             " FROM messages m JOIN sessions s ON s.id = m.session_id"
             " WHERE s.language = ? AND m.speaker = 'user'"
             " ORDER BY d DESC", (language,))]
 
-    top_tag = tag_row["tag"] if tag_row and tag_row["n"] >= 3 else None
+    top_tags = [{"tag": r["tag"], "n": r["n"]} for r in tag_rows]
 
     streak = 0
     if days:
@@ -568,7 +573,7 @@ def home_stats(language) -> dict:
                 day -= timedelta(days=1)
 
     return {"streak": streak, "week_turns": week_turns,
-            "fixed_total": fixed_total, "top_tag": top_tag}
+            "fixed_total": fixed_total, "top_tags": top_tags}
 
 
 def list_sessions(limit=20) -> list[dict]:

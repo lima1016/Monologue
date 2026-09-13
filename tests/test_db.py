@@ -488,18 +488,53 @@ def test_home_stats_counts_this_weeks_turns_and_total_fixes(store):
     assert stats["fixed_total"] == 1
 
 
-def test_home_stats_has_no_top_tag_before_there_is_evidence(store):
+def test_home_stats_has_no_top_tags_before_there_is_evidence(store):
     """A weakness ranked off one or two mistakes is a guess dressed as a fact."""
     sid = store.create_session("en", "free")
     store.add_message(sid, "user", "a", ok=False, fixed="A", tag="시제")
-    assert store.home_stats("en")["top_tag"] is None
+    assert store.home_stats("en")["top_tags"] == []
 
 
 def test_home_stats_reports_a_tag_once_it_has_appeared_three_times(store):
     sid = store.create_session("en", "free")
     for text in ("a", "b", "c"):
         store.add_message(sid, "user", text, ok=False, fixed=text.upper(), tag="시제")
-    assert store.home_stats("en")["top_tag"] == "시제"
+    assert store.home_stats("en")["top_tags"] == [{"tag": "시제", "n": 3}]
+
+
+def _add_wrong_user_message(store, sid, tag):
+    return store.add_message(sid, "user", "I go there yesterday", ok=0, tag=tag)
+
+
+def test_top_tags_ranks_by_count_and_caps_at_three(store):
+    sid = store.create_session("en", "free")
+    # 과거 시제 5, 관사 4, 전치사 3, 어순 3, 철자 2
+    for tag, times in [("과거 시제", 5), ("관사", 4), ("전치사", 3),
+                       ("어순", 3), ("철자", 2)]:
+        for _ in range(times):
+            _add_wrong_user_message(store, sid, tag=tag)
+
+    tags = store.home_stats("en")["top_tags"]
+
+    assert [t["tag"] for t in tags] == ["과거 시제", "관사", "전치사"]
+    assert [t["n"] for t in tags] == [5, 4, 3]
+
+
+def test_top_tags_withholds_anything_under_three(store):
+    """3회 미만은 약점이 아니라 추측이다 -- home_stats 가 원래부터 지키던 규칙."""
+    sid = store.create_session("en", "free")
+    _add_wrong_user_message(store, sid, tag="관사")
+    _add_wrong_user_message(store, sid, tag="관사")   # 2회뿐
+
+    assert store.home_stats("en")["top_tags"] == []
+
+
+def test_top_tags_excludes_the_no_mistake_tag(store):
+    sid = store.create_session("en", "free")
+    for _ in range(5):
+        _add_wrong_user_message(store, sid, tag="없음")
+
+    assert store.home_stats("en")["top_tags"] == []
 
 
 def test_home_stats_streak_counts_consecutive_days_ending_today(store):

@@ -76,9 +76,11 @@ export async function loadHome() {
     $('stat-fixed').textContent = stats.fixed_total;
     $('home-stats').hidden = !(stats.streak || stats.week_turns || stats.fixed_total);
 
-    $('recommend').hidden = !stats.top_tag;
-    if (stats.top_tag) {
-      $('recommend').textContent = `요즘 ${stats.top_tag}에서 자주 걸립니다. 오늘은 그쪽을 노려볼까요?`;
+    const worst = stats.top_tags && stats.top_tags[0];
+    $('recommend').hidden = !worst;
+    if (worst) {
+      $('recommend').textContent =
+        `요즘 ${worst.tag}에서 자주 걸립니다. 오늘은 그쪽을 노려볼까요?`;
     }
   } catch {
     // history is a nicety -- never block the learner from starting. But the

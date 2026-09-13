@@ -112,4 +112,4 @@ def test_home_stats_route_returns_the_computed_counters(client):
     sid = db.create_session("en", "free")
     db.add_message(sid, "user", "hello")
     body = client.get("/api/stats/home", params={"language": "en"}).json()
-    assert body == {"streak": 1, "week_turns": 1, "fixed_total": 0, "top_tag": None}
+    assert body == {"streak": 1, "week_turns": 1, "fixed_total": 0, "top_tags": []}
