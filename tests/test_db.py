@@ -516,7 +516,7 @@ def test_top_tags_ranks_by_count_and_caps_at_three(store):
 
     tags = store.home_stats("en")["top_tags"]
 
-    assert [t["tag"] for t in tags] == ["과거 시제", "관사", "전치사"]
+    assert [t["tag"] for t in tags] == ["과거 시제", "관사", "어순"]
     assert [t["n"] for t in tags] == [5, 4, 3]
 
 

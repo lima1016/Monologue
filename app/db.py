@@ -500,11 +500,11 @@ def home_stats(language) -> dict:
     `top_tags` withholds any tag until it has appeared at least three times: a
     weakness ranked off one mistake is a guess wearing the costume of a fact,
     and the home screen is where the learner decides what to practise. Up to
-    three tags are returned, ranked by count. The `m.tag DESC` in
-    `ORDER BY n DESC, m.tag DESC` is a secondary sort key that fixes the order
-    of tags tied on count -- without it, ties would break on whatever order
-    SQLite happens to visit rows in, and both the LIMIT 3 cutoff and the
-    panel's list would shuffle between runs.
+    three tags are returned, ranked by count. The `m.tag` in
+    `ORDER BY n DESC, m.tag` is a secondary sort key that breaks ties on
+    count in ascending tag order -- without it, ties would break on
+    whatever order SQLite happens to visit rows in, and both the LIMIT 3
+    cutoff and the panel's list would shuffle between runs.
 
     `streak` walks backwards from the most recent practice day, but that walk
     starts at *yesterday* when today has no messages yet, rather than always
@@ -545,7 +545,7 @@ def home_stats(language) -> dict:
             "SELECT m.tag, COUNT(*) n FROM messages m JOIN sessions s ON s.id = m.session_id"
             " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0"
             "   AND m.tag IS NOT NULL AND m.tag <> '없음'"
-            " GROUP BY m.tag HAVING n >= 3 ORDER BY n DESC, m.tag DESC LIMIT 3",
+            " GROUP BY m.tag HAVING n >= 3 ORDER BY n DESC, m.tag LIMIT 3",
             (language,),
         ).fetchall()
         days = [r[0] for r in conn.execute(
