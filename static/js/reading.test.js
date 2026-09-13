@@ -334,3 +334,13 @@ test('straight quotes open and close in turn', () => {
   const line = romajiLine([mark('"'), word('たぶん', 'tabun'), mark('"'), word('は', 'wa')]);
   assert.equal(line, '"tabun" wa');
 });
+
+test('a token made only of punctuation maps mark by mark', () => {
+  /* 사전은 `！？`나 `……`를 한 토큰으로 준다. 한 글자짜리만 표에서 찾으면 이런
+     토큰은 전각 그대로 단어처럼 떨어져 나온다. */
+  assert.equal(romajiLine([word('そう', 'sou'), mark('！？')]), 'sou!?');
+  assert.equal(romajiLine([word('ええ', 'ee'), mark('……')]), 'ee......');
+  assert.equal(romajiLine([word('ね', 'ne'), mark('～'), word('はい', 'hai'), mark('〜')]), 'ne~ hai~');
+  assert.equal(romajiLine([word('時間', 'jikan'), mark('：'), word('三', 'san'), mark('；')]), 'jikan: san;');
+  assert.equal(romajiLine([word('コーヒー', 'koohii'), mark('・'), word('ケーキ', 'keeki')]), 'koohii keeki');
+});

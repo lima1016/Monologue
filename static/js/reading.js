@@ -33,7 +33,13 @@ export const escapeHtml = (s) => String(s)
    잇기만 하면 `hayai desu ne 。` 처럼 문장부호가 단어 하나로 떨어져 나와, 로마자로
    읽는 초보에게 어디서 문장이 끝나는지가 흐려진다. */
 const CLOSING = { '。': '.', '、': ',', '，': ',', '．': '.', '！': '!', '？': '?',
-  '」': '"', '』': '"', '）': ')', '!': '!', '?': '?', '.': '.', ',': ',', ')': ')' };
+  '」': '"', '』': '"', '）': ')', '!': '!', '?': '?', '.': '.', ',': ',', ')': ')',
+  '…': '...', '～': '~', '〜': '~', '：': ':', '；': ';',
+  // 가운뎃점은 낱말 사이의 경계일 뿐이다. 다음 낱말이 제 공백을 가져온다.
+  '・': '' };
+// 사전은 `！？`, `……` 같은 연속 부호를 한 토큰으로 준다. 한 글자씩 옮긴다.
+const isClosing = (piece) => [...piece].every((ch) => ch in CLOSING);
+const mapClosing = (piece) => [...piece].map((ch) => CLOSING[ch]).join('');
 const OPENING = { '「': '"', '『': '"', '（': '(', '(': '(' };
 
 function romajiLine(tokens) {
@@ -48,7 +54,7 @@ function romajiLine(tokens) {
       quoteOpen = !quoteOpen;
       continue;
     }
-    if (!t.romaji && piece in CLOSING) { line += CLOSING[piece]; glueNext = false; continue; }
+    if (!t.romaji && isClosing(piece)) { line += mapClosing(piece); glueNext = false; continue; }
     if (!t.romaji && piece in OPENING) { line += (line ? ' ' : '') + OPENING[piece]; glueNext = true; continue; }
     line += (line && !glueNext ? ' ' : '') + piece;
     glueNext = false;
