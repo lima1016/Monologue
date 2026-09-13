@@ -3,7 +3,7 @@ import { play, recognition, BCP47, startRecording, stopRecording, setRespeakHand
 import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo } from './session.js';
 import { loadChips, loadHome, resumeSession, startFromHome } from './home.js';
-import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs } from './settings.js';
+import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import * as router from './router.js';
 
@@ -156,11 +156,15 @@ loadReadingPrefs();
 
 $('btn-settings').addEventListener('click', async () => {
   $('settings-language').value = state.language;
+  syncLanguageSections();
   await renderVoiceList();
   await loadReadingPrefs();
   $('settings').showModal();
 });
-$('settings-language').addEventListener('change', renderVoiceList);
+$('settings-language').addEventListener('change', () => {
+  syncLanguageSections();
+  renderVoiceList();
+});
 $('btn-close-settings').addEventListener('click', () => $('settings').close());
 $('voice-list').addEventListener('click', (e) => {
   const preview = e.target.dataset.preview;

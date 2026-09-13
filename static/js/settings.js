@@ -4,6 +4,14 @@ import { setPrefs } from './reading.js';
 let currentPreviewAudio = null;
 let currentPreviewUrl = null;
 
+/* Only the dialog's chosen language's settings are shown. The voice list
+   follows the select by being re-fetched; the reading aids are Japanese-only,
+   so they are hidden rather than re-rendered. Hiding changes nothing stored --
+   the prefs still apply to every Japanese session. */
+export function syncLanguageSections() {
+  $('reading-prefs').hidden = $('settings-language').value !== 'ja';
+}
+
 export async function renderVoiceList() {
   const language = $('settings-language').value;
   try {
