@@ -180,6 +180,9 @@ function setupRecognition() {
   // recognition.stop() lets Chrome flush any last final result first, so it
   // is already in utt by the time this runs.
   recognition.onend = () => {
+    // A short utterance can end before getUserMedia resolves; the bump makes
+    // that late recorder close instead of recording into the next turn.
+    recordingGeneration += 1;
     stopRecording();
     clearTimeout(safetyTimer);
     if (cancelling) {
@@ -197,9 +200,10 @@ function setupRecognition() {
 
 export const recognition = setupRecognition();
 
-/* Bumped by every cancel. getUserMedia is awaited, so a cancel can land
-   before the recorder exists; without this the recorder would start after
-   the cancel and its audio would ride along with the learner's next turn. */
+/* Bumped by every cancel and every onend. getUserMedia is awaited, so the end
+   of a listen can land before the recorder exists; without this the recorder
+   would start afterwards and its audio would ride along with the learner's
+   next turn. */
 let recordingGeneration = 0;
 
 export async function startRecording() {
@@ -231,7 +235,19 @@ export function cancelListening() {
   recognition.abort();
 }
 
-function discardRecording() {
+/* Every recognition.start() goes through here. `cancelling` is otherwise only
+   cleared by the onend a cancel causes, and abort() on a recognition Chrome
+   had no live session for raises no onend at all -- the flag would then
+   silence the next listen's errors and turn its onend into a cancel, dropping
+   the learner's next sentence without a word. Clearing it here is safe: the
+   mic and re-speak buttons cannot be pressed while a cancel is still pending,
+   so no onend of a cancel can be left to arrive after this. */
+export function beginListening() {
+  cancelling = false;
+  recognition.start();
+}
+
+export function discardRecording() {
   if (state.recorder) {
     // stop() fires one last dataavailable; detach first so it cannot refill
     // the chunks cleared below.

@@ -1,5 +1,5 @@
 import { $, postJSON, notify, state } from './api.js';
-import { play, recognition, BCP47, startRecording, stopRecording, setRespeakHandler } from './audio.js';
+import { play, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
 import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn } from './session.js';
 import { loadChips, loadHome, resumeSession, startFromHome } from './home.js';
@@ -100,7 +100,7 @@ $('btn-mic').addEventListener('click', () => {
   setRespeakHandler(null);
   recognition.lang = BCP47[state.language];
   try {
-    recognition.start();
+    beginListening();
   } catch (err) {
     // e.g. an InvalidStateError from a recognition that's already running.
     // onend never fires when start() itself throws, so nothing would
@@ -108,8 +108,10 @@ $('btn-mic').addEventListener('click', () => {
     // the same thing a real "heard nothing" result would. startRecording()
     // is async and un-awaited above, so the stream/recorder it opens may not
     // exist yet -- stop it once that promise actually settles, or the mic
-    // stays open until the next startRecording() call replaces it.
-    recording.then(stopRecording);
+    // stays open until the next startRecording() call replaces it. Discard,
+    // not stop: this turn has no utterance, and chunks left behind would be
+    // uploaded with whatever the learner types next.
+    recording.then(discardRecording);
     notify(`음성 인식을 시작하지 못했습니다: ${err.message}`);
     setTurnState('HEARD_NOTHING');
   }

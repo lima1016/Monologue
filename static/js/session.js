@@ -1,5 +1,5 @@
 import { $, api, getJSON, postJSON, state, notify } from './api.js';
-import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening } from './audio.js';
+import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening, beginListening } from './audio.js';
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
@@ -350,7 +350,7 @@ export function startRespeak(target, resultEl, btn) {
   });
   recognition.lang = BCP47[state.language];
   try {
-    recognition.start();
+    beginListening();
   } catch (err) {
     // Mirrors main.js's mic handler: onend never fires when start() itself
     // throws, so nothing else would return the machine from `respeaking`.
