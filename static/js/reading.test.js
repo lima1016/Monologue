@@ -199,6 +199,31 @@ test('a failed translation says so instead of blanking the line', async () => {
   assert.equal(el.dataset.source, 'こんにちは', '원문은 그대로 남는다');
 });
 
+test('a failed translation is not kept, so opening again asks again', async () => {
+  /* 실패 문구를 뜻 칸에 쓴 채로 "이미 받았다"고 치면, 학습자는 그 줄의 뜻을
+     다시는 요청할 수 없다. 모델이 한 번 샌 것뿐인데도. */
+  resetDom();
+  const { toggleMeaning } = await import('./reading.js');
+  let calls = 0;
+  stubFetch(async () => {
+    calls += 1;
+    return calls === 1
+      ? jsonResponse({ detail: 'down' }, { ok: false, status: 503 })
+      : jsonResponse({ meaning: '안녕하세요' });
+  });
+
+  const el = document.createElement('li');
+  el.dataset.source = 'こんにちは';
+  const body = document.createElement('span');
+  await toggleMeaning(el, body);
+  assert.match(body.textContent, /뜻을 가져오지 못했습니다/);
+
+  await toggleMeaning(el, body);
+  assert.equal(calls, 2, '실패 뒤의 펼침은 다시 요청해야 한다');
+  assert.equal(body.textContent, '안녕하세요');
+  assert.equal(body.hidden, false);
+});
+
 test('an English line gets a meaning toggle that asks for English', async () => {
   resetDom();
   const { attachMeaning, toggleMeaning } = await import('./reading.js');

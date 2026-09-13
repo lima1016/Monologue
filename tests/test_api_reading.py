@@ -80,6 +80,28 @@ def test_translate_says_so_when_the_model_is_down(client, monkeypatch):
     assert res.status_code == 503
 
 
+def test_a_failed_translation_is_not_remembered(client, monkeypatch):
+    """실패는 캐시하지 않는다. 일본어 줄의 상당수가 두 번 새서 실패하는데, 그
+    실패가 남으면 그 줄은 서버를 재시작할 때까지 영영 503이다 -- 대본 패널의
+    줄과 같은 말풍선, 이어서 하기까지 전부."""
+    from app import api, llm
+    api._cached_translation.cache_clear()
+    answers = iter(["好久等了", "好久等了", "오래 기다리셨습니다"])
+    calls = []
+
+    def chat(messages, **kw):
+        calls.append(messages)
+        return next(answers)
+
+    monkeypatch.setattr(llm, "chat", chat)
+    body = {"language": "ja", "text": "お待たせしました。"}
+    assert client.post("/api/translate", json=body).status_code == 503
+    res = client.post("/api/translate", json=body)
+    assert res.status_code == 200
+    assert res.json()["meaning"] == "오래 기다리셨습니다"
+    assert len(calls) == 3
+
+
 def test_translate_says_so_when_the_model_returns_nothing(client, monkeypatch):
     """빈 문자열은 실패가 아니라 성공처럼 보이지만, 뜻이 원래 없는 줄과
     구분되지 않으므로 503으로 취급해야 한다."""

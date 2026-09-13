@@ -198,12 +198,28 @@ def _is_korean_meaning(text: str) -> bool:
     return bool(letters) and foreign == 0 and hangul * 2 >= len(letters)
 
 
-@functools.lru_cache(maxsize=512)
+class _NoMeaning(Exception):
+    pass
+
+
 def _cached_translation(language: str, text: str) -> str | None:
-    """None은 캐시되지 않아야 할 것 같지만, 캐시된다 -- 그리고 그래도 된다.
-    모델이 죽어 있는 동안 같은 줄을 반복해서 펼쳐도 매번 14b를 두드리지
-    않는다. 모델이 살아나면 서버를 재시작하거나 다른 줄을 펼치면 되고,
-    이것은 실패한 번역이지 잘못된 번역이 아니다."""
+    """성공한 뜻만 기억한다. 실패(None)는 캐시하지 않는다.
+
+    실패는 모델이 죽은 경우만이 아니다 -- 일본어 줄은 되묻고도 두 번 새는
+    경우가 흔하다. 그 None이 남으면 그 줄은 대본 패널, 같은 말풍선, 이어서
+    하기까지 서버를 재시작할 때까지 즉시 503이 된다. 모델이 죽어 있는 동안
+    펼칠 때마다 14b를 다시 두드리는 비용은 학습자가 버튼을 누를 때뿐이라
+    감수할 만하다.
+    lru_cache는 예외를 캐시하지 않으므로, 실패를 예외로 바꿔 그 아래로
+    보내고 여기서 None으로 되돌린다."""
+    try:
+        return _successful_translation(language, text)
+    except _NoMeaning:
+        return None
+
+
+@functools.lru_cache(maxsize=512)
+def _successful_translation(language: str, text: str) -> str:
     try:
         messages = prompts.build_translate_messages(language, text)
         meaning = _first_line(_translate_call(messages))
@@ -214,9 +230,15 @@ def _cached_translation(language: str, text: str) -> str | None:
             # leaks in the same place again.
             messages = prompts.build_translate_retry_messages(messages, meaning)
             meaning = _first_line(_translate_call(messages))
-        return meaning if meaning and _is_korean_meaning(meaning) else None
-    except Exception:
-        return None
+    except Exception as exc:
+        raise _NoMeaning from exc
+    if not (meaning and _is_korean_meaning(meaning)):
+        raise _NoMeaning
+    return meaning
+
+
+# 테스트는 캐시를 이 이름으로 비운다.
+_cached_translation.cache_clear = _successful_translation.cache_clear
 
 
 # A meaning is one line. Leaking answers ran on in Chinese commentary until the

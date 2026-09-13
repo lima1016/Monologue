@@ -122,9 +122,11 @@ export function attachMeaning(el, language, text) {
 
 /* 뜻은 el.dataset.meaning에 한 번만 담아두고, 그 뒤로는 열고 닫기만 한다.
    서버도 캐시하지만 여기서 한 번 더 막는 이유는, 왕복 자체를 없애야 접었다
-   폈다 하는 동작이 즉각적으로 느껴지기 때문이다. */
+   폈다 하는 동작이 즉각적으로 느껴지기 때문이다. 받은 것의 표시는 뜻 칸의
+   글자가 아니라 dataset.meaning이다 -- 실패 문구도 글자이므로, 그것을 받은
+   뜻으로 치면 한 번 샌 줄은 다시 요청할 길이 없다. */
 export async function toggleMeaning(el, body) {
-  if (body.textContent) {
+  if (el.dataset.meaning) {
     body.hidden = !body.hidden;
     return;
   }
@@ -133,6 +135,7 @@ export async function toggleMeaning(el, body) {
       language: el.dataset.sourceLang || 'ja',
       text: el.dataset.source,
     });
+    el.dataset.meaning = meaning;
     body.textContent = meaning;
   } catch {
     body.textContent = '뜻을 가져오지 못했습니다.';
