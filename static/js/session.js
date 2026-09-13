@@ -632,13 +632,6 @@ export function renderReport(data) {
   // 헤드라인. LLM 에 새 필드를 요구하지 않는다 -- 리포트 프롬프트는 여러 라운드에
   // 걸쳐 다듬어졌고, 필드를 하나 더 넣는 것만으로 그 품질이 회귀할 수 있다.
   // 이미 손에 있는 숫자로 조립한다.
-  //
-  // state.scenarioTitle: session.js가 들고 있는 state에는 이 필드가 없다 --
-  // 시나리오를 고르는 화면(home.js)이 scenarioId만 startSession에 넘기고
-  // 제목은 버리기 때문이다. 그래서 이 프로퍼티 접근은 항상 undefined이고,
-  // `|| ''`가 kicker를 그대로 비워 둔다 -- 없는 상태를 새로 만들어 채우지
-  // 않는다.
-  $('report-kicker').textContent = state.scenarioTitle || '';
   $('report-headline').textContent = state.mode === 'script'
     ? `대본 ${s.turns ?? 0}줄을 읽었어요.`
     : `오늘 ${s.turns ?? 0}턴을 주고받았어요.`;
