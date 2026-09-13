@@ -168,10 +168,14 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    it. Making #session fill the viewport gives the grid room to grow into
    (flex: 1 below) so the dock lands at the bottom on a short conversation,
    while the sticky behaviour still holds it there once a long one scrolls. */
+/* Narrower than main's 1100px: a single conversation column plus its side
+   panel doesn't need the extra width the two-column home/report screens do. */
 #session {
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 140px);
+  max-width: 900px;
+  margin: 0 auto;
 }
 
 .session-grid {
