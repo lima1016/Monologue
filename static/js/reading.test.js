@@ -241,3 +241,29 @@ test('the next test never sees a previous test\'s setPrefs call', () => {
   const html = renderTokens(tokens); // no options
   assert.match(html, /sushi/);
 });
+
+/* 로마자 줄은 토큰마다 공백으로 잇는데, 구두점까지 그렇게 이으면
+   `kyou wa hayai desu ne 。` 처럼 문장부호가 단어처럼 떨어져 나온다. */
+function romajiLine(tokens) {
+  const html = renderTokens(tokens, { furigana: false, romaji: true });
+  return html.match(/<span class="romaji">([^<]*)<\/span>/)[1].replace(/&quot;/g, '"');
+}
+const word = (surface, romaji) => ({ surface, reading: null, romaji, parts: [{ text: surface, ruby: null }] });
+const mark = (surface) => ({ surface, reading: null, romaji: null, parts: [{ text: surface, ruby: null }] });
+
+test('closing punctuation sits against the word before it', () => {
+  const line = romajiLine([word('今日', 'kyou'), word('は', 'wa'), word('早い', 'hayai'),
+    mark('。'), word('はい', 'hai'), mark('、'), word('そう', 'sou'), mark('！')]);
+  assert.equal(line, 'kyou wa hayai. hai, sou!');
+});
+
+test('opening brackets sit against the word after them', () => {
+  const line = romajiLine([word('彼', 'kare'), word('は', 'wa'), mark('「'),
+    word('はい', 'hai'), mark('」'), word('と', 'to'), word('言った', 'itta'), mark('。')]);
+  assert.equal(line, 'kare wa "hai" to itta.');
+});
+
+test('straight quotes open and close in turn', () => {
+  const line = romajiLine([mark('"'), word('たぶん', 'tabun'), mark('"'), word('は', 'wa')]);
+  assert.equal(line, '"tabun" wa');
+});

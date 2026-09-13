@@ -29,6 +29,33 @@ export const escapeHtml = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+/* 로마자 줄의 문장부호는 영문 표기로 바꾸고, 영문처럼 붙인다. 토큰마다 공백으로
+   잇기만 하면 `hayai desu ne 。` 처럼 문장부호가 단어 하나로 떨어져 나와, 로마자로
+   읽는 초보에게 어디서 문장이 끝나는지가 흐려진다. */
+const CLOSING = { '。': '.', '、': ',', '，': ',', '．': '.', '！': '!', '？': '?',
+  '」': '"', '』': '"', '）': ')', '!': '!', '?': '?', '.': '.', ',': ',', ')': ')' };
+const OPENING = { '「': '"', '『': '"', '（': '(', '(': '(' };
+
+function romajiLine(tokens) {
+  let line = '';
+  let glueNext = false;      // 직전이 여는 괄호였으면 다음 단어를 붙인다
+  let quoteOpen = false;     // 곧은 따옴표는 여닫이를 번갈아 판단한다
+  for (const t of tokens) {
+    const piece = (t.romaji || t.surface).trim();
+    if (!piece) continue;
+    if (!t.romaji && piece === '"') {
+      if (quoteOpen) { line += '"'; glueNext = false; } else { line += (line ? ' ' : '') + '"'; glueNext = true; }
+      quoteOpen = !quoteOpen;
+      continue;
+    }
+    if (!t.romaji && piece in CLOSING) { line += CLOSING[piece]; glueNext = false; continue; }
+    if (!t.romaji && piece in OPENING) { line += (line ? ' ' : '') + OPENING[piece]; glueNext = true; continue; }
+    line += (line && !glueNext ? ' ' : '') + piece;
+    glueNext = false;
+  }
+  return line;
+}
+
 export function renderTokens(tokens, options = prefs) {
   const body = tokens.map((t) => t.parts.map((p) => {
     const text = escapeHtml(p.text);
@@ -36,9 +63,7 @@ export function renderTokens(tokens, options = prefs) {
     return `<ruby>${text}<rt>${escapeHtml(p.ruby)}</rt></ruby>`;
   }).join('')).join('');
 
-  const romaji = options.romaji
-    ? tokens.map((t) => t.romaji || t.surface).join(' ').trim()
-    : '';
+  const romaji = options.romaji ? romajiLine(tokens) : '';
 
   return `<span class="ja">${body}</span>`
     + (romaji ? `<span class="romaji">${escapeHtml(romaji)}</span>` : '')
