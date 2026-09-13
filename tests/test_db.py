@@ -482,6 +482,22 @@ def test_active_minutes_with_one_message_is_zero(store):
     assert store.active_minutes(sid) == 0
 
 
+def test_active_minutes_is_zero_when_a_timestamp_cannot_be_parsed(store):
+    """A report must never turn into an error over one unreadable line of
+    timing -- an unparseable created_at should read as no measurable active
+    time, not raise."""
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "m0")
+    store.add_message(sid, "user", "m1")
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE messages SET created_at = 'not-a-date'"
+            " WHERE session_id = ? AND turn = 1",
+            (sid,),
+        )
+    assert store.active_minutes(sid) == 0
+
+
 def test_session_stats_counts_only_the_learners_wrong_turns(store):
     sid = store.create_session("en", "free")
     store.add_message(sid, "bot", "Good evening!")

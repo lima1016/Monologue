@@ -430,15 +430,23 @@ def active_minutes(session_id, pause_cap_seconds=300) -> int:
     five minutes reads as the learner stepping away, not as five more
     minutes (or twenty-two hours) of practice. Fewer than two messages means
     there is no gap to measure, so 0.
+
+    A report must never turn into an error over one line of timing: if any
+    created_at can't be parsed, this returns 0 instead of raising. Each gap
+    is also clamped to be non-negative before the cap is applied, so a
+    clock oddity can't subtract from the total.
     """
     rows = get_messages(session_id)
     if len(rows) < 2:
         return 0
     total_seconds = 0.0
-    for prev, cur in zip(rows, rows[1:]):
-        gap = (datetime.fromisoformat(cur["created_at"])
-               - datetime.fromisoformat(prev["created_at"])).total_seconds()
-        total_seconds += min(gap, pause_cap_seconds)
+    try:
+        for prev, cur in zip(rows, rows[1:]):
+            gap = (datetime.fromisoformat(cur["created_at"])
+                   - datetime.fromisoformat(prev["created_at"])).total_seconds()
+            total_seconds += max(0, min(gap, pause_cap_seconds))
+    except (ValueError, TypeError):
+        return 0
     return int(total_seconds // 60)
 
 
