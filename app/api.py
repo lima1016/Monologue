@@ -314,23 +314,34 @@ def _first_line(raw: str) -> str | None:
 
 class ReadingPrefs(BaseModel):
     furigana: bool
+    # 발음 줄을 보일지. 이름이 romaji인 것은 표기 선택이 생기기 전부터 저장된 값을
+    # 그대로 잇기 위해서다 -- 로마자를 꺼 둔 사람은 발음 줄도 꺼진 채로 남는다.
     romaji: bool
+    # 발음 줄의 표기. 한글이 기본이다: 가나를 아직 못 읽는 한국어 화자에게는
+    # 로마자보다 한글이 바로 소리로 읽힌다. 두 필드만 보내던 요청도 받는다.
+    pron_script: Literal["hangul", "romaji"] = "hangul"
 
 
 _PREF_KEYS = {"furigana": "reading_furigana", "romaji": "reading_romaji"}
+_PRON_SCRIPT_KEY = "reading_pron_script"
 
 
 @router.get("/reading-prefs")
 def get_reading_prefs():
     # 기본은 둘 다 켜짐 -- 완전 초보가 아무것도 설정하지 않고 읽을 수 있어야 한다.
-    return {name: db.get_setting(key, "1") == "1" for name, key in _PREF_KEYS.items()}
+    prefs = {name: db.get_setting(key, "1") == "1" for name, key in _PREF_KEYS.items()}
+    script = db.get_setting(_PRON_SCRIPT_KEY, "hangul")
+    prefs["pron_script"] = script if script in ("hangul", "romaji") else "hangul"
+    return prefs
 
 
 @router.post("/reading-prefs")
 def set_reading_prefs(payload: ReadingPrefs):
     for name, key in _PREF_KEYS.items():
         db.set_setting(key, "1" if getattr(payload, name) else "0")
-    return {"furigana": payload.furigana, "romaji": payload.romaji}
+    db.set_setting(_PRON_SCRIPT_KEY, payload.pron_script)
+    return {"furigana": payload.furigana, "romaji": payload.romaji,
+            "pron_script": payload.pron_script}
 
 
 class SessionStart(BaseModel):

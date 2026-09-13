@@ -438,7 +438,12 @@ rt { font-size: .55em; color: var(--text-dim); font-weight: 400; }
 body.hide-furigana rt { display: none; }
 .romaji { display: block; font-size: var(--text-xs); color: var(--text-dim);
           letter-spacing: .01em; margin-top: 2px; }
-body.hide-romaji .romaji { display: none; }
+.hangul { display: block; font-size: var(--text-xs); color: var(--text-dim); margin-top: 2px; }
+/* 발음 줄은 한글이 기본이고, 로마자를 고르면 body.pron-romaji가 붙는다. */
+body:not(.pron-romaji) .romaji { display: none; }
+body.pron-romaji .hangul { display: none; }
+body.hide-romaji .romaji, body.hide-romaji .hangul { display: none; }
+.pron-script { display: flex; gap: var(--space-3); margin: 0 0 var(--space-2) var(--space-5); }
 /* 루비가 붙은 줄은 위로 자란다. 줄 간격을 넉넉히 주지 않으면 윗줄의
    후리가나와 아랫줄의 본문이 서로 닿는다. 후리가나가 꺼져 있으면 그릴 루비가
    없으므로 이 여백도 필요 없다 -- body.hide-furigana일 때까지 적용되면

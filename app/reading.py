@@ -85,6 +85,121 @@ def _romaji_of_next(text, i):
         return _DIGRAPHS[pair]
     return _SINGLES.get(text[i])
 
+# ---------- 한글 발음 ----------
+#
+# 소리 나는 대로 적는다. 외래어 표기법(도쿄, 규슈)이 아니라 발음 연습용이다:
+# - か행은 늘 거센소리(카), が행은 예사소리(가) -- 맑은소리/흐린소리가 한글에서도 갈린다
+# - 장음(ー)은 앞 모음을 한 번 더 적는다(토오쿄오). 표기법처럼 지우면 장음을 모르고 넘어간다
+# - 촉음(ッ)은 앞 글자의 ㅅ 받침, ん은 ㄴ 받침 -- 받침이라 토큰 끝에 와도(言っ -> 잇) 사라지지 않는다
+# 입력은 UniDic의 pron(발음)이다. は/へ/を가 와/에/오로 이미 바뀌어 있다.
+
+_LEADS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+_VOWELS = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
+_FINALS = "_ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ"
+
+
+def _syllable(lead, vowel):
+    return chr(0xAC00 + (_LEADS.index(lead) * 21 + _VOWELS.index(vowel)) * 28)
+
+
+def _with_final(syllable, final):
+    code = ord(syllable) - 0xAC00
+    if not 0 <= code < 11172 or code % 28:
+        return syllable  # 한글 음절이 아니거나 이미 받침이 있다
+    return chr(ord(syllable) + _FINALS.index(final))
+
+
+def _vowel_of(syllable):
+    code = ord(syllable) - 0xAC00
+    return _VOWELS[(code // 28) % 21] if 0 <= code < 11172 else None
+
+
+_GOJUON = {
+    "ㅇ": "アイウエオ", "ㅋ": "カキクケコ", "ㄱ": "ガギグゲゴ", "ㅅ": "サシスセソ",
+    "ㅈ": "ザジズゼゾ", "ㅌ": "タチツテト", "ㄷ": "ダヂヅデド", "ㄴ": "ナニヌネノ",
+    "ㅎ": "ハヒフヘホ", "ㅂ": "バビブベボ", "ㅍ": "パピプペポ", "ㅁ": "マミムメモ",
+    "ㄹ": "ラリルレロ",
+}
+_HANGUL_SINGLES = {kana: (lead, vowel)
+                   for lead, row in _GOJUON.items()
+                   for kana, vowel in zip(row, "ㅏㅣㅜㅔㅗ")}
+_HANGUL_SINGLES.update({
+    # u단은 한국어 '우'보다 입술을 덜 내민다. 스/즈/쓰는 '으'로 적는 편이 소리에 가깝다.
+    "ス": ("ㅅ", "ㅡ"), "ズ": ("ㅈ", "ㅡ"), "ヅ": ("ㅈ", "ㅡ"), "ツ": ("ㅆ", "ㅡ"),
+    "チ": ("ㅊ", "ㅣ"), "ヂ": ("ㅈ", "ㅣ"),
+    "ヤ": ("ㅇ", "ㅑ"), "ユ": ("ㅇ", "ㅠ"), "ヨ": ("ㅇ", "ㅛ"),
+    "ワ": ("ㅇ", "ㅘ"), "ヲ": ("ㅇ", "ㅗ"), "ヴ": ("ㅂ", "ㅜ"),
+    "ァ": ("ㅇ", "ㅏ"), "ィ": ("ㅇ", "ㅣ"), "ゥ": ("ㅇ", "ㅜ"), "ェ": ("ㅇ", "ㅔ"), "ォ": ("ㅇ", "ㅗ"),
+    "ヰ": ("ㅇ", "ㅣ"), "ヱ": ("ㅇ", "ㅔ"), "ヮ": ("ㅇ", "ㅘ"),
+})
+# 요음(キャ): 앞 글자의 초성 + 작은 ャュョ의 모음. ジャ/チャ는 자/차 -- ㅈ·ㅊ 뒤의
+# ㅑ는 ㅏ와 소리가 같으니 쟈·챠로 적을 이유가 없다. シャ는 사와 달라서 샤로 둔다.
+_YOON_VOWEL = {"ャ": "ㅑ", "ュ": "ㅠ", "ョ": "ㅛ"}
+_YOON_PLAIN_VOWEL = {"ャ": "ㅏ", "ュ": "ㅜ", "ョ": "ㅗ"}
+_YOON_LEAD = {"キ": "ㅋ", "ギ": "ㄱ", "シ": "ㅅ", "ジ": "ㅈ", "チ": "ㅊ", "ヂ": "ㅈ",
+              "ニ": "ㄴ", "ヒ": "ㅎ", "ビ": "ㅂ", "ピ": "ㅍ", "ミ": "ㅁ", "リ": "ㄹ", "ヴ": "ㅂ"}
+_YOON_PLAIN = {"ジ", "チ", "ヂ"}
+# 외래어의 작은 모음(ファ, ティ, ウィ): 앞 글자의 초성 + 그 모음 한 음절.
+_SMALL_VOWEL = {"ァ": "ㅏ", "ィ": "ㅣ", "ゥ": "ㅜ", "ェ": "ㅔ", "ォ": "ㅗ"}
+_SMALL_LEAD = {"フ": "ㅍ", "ヴ": "ㅂ", "テ": "ㅌ", "デ": "ㄷ", "ト": "ㅌ", "ド": "ㄷ",
+               "シ": "ㅅ", "ジ": "ㅈ", "チ": "ㅊ", "ツ": "ㅊ", "ク": "ㅋ", "グ": "ㄱ"}
+_W_VOWEL = {"ァ": "ㅘ", "ィ": "ㅟ", "ェ": "ㅞ", "ォ": "ㅝ"}
+# 작은 ヮ(クヮ, グヮ): 앞 글자의 초성 + ㅘ.
+_SMALL_WA_LEAD = {"ク": "ㅋ", "グ": "ㄱ"}
+# 장음으로 한 번 더 적을 모음. 이중모음은 끝소리만 남긴다(쿄오, 뉴우, 와아).
+_LONG_VOWEL = {"ㅑ": "ㅏ", "ㅛ": "ㅗ", "ㅠ": "ㅜ", "ㅘ": "ㅏ", "ㅝ": "ㅓ", "ㅞ": "ㅔ", "ㅟ": "ㅣ"}
+
+
+def to_hangul(pron):
+    """카타카나(또는 히라가나) 발음을 소리 나는 대로 한글로. 변환할 것이 없으면 None."""
+    if not pron:
+        return None
+    text = _to_katakana(pron)
+    out = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if nxt in _YOON_VOWEL and ch in _YOON_LEAD:
+            vowel = (_YOON_PLAIN_VOWEL if ch in _YOON_PLAIN else _YOON_VOWEL)[nxt]
+            out.append(_syllable(_YOON_LEAD[ch], vowel))
+            i += 2
+            continue
+        if nxt in _SMALL_VOWEL and (ch in _SMALL_LEAD or ch == "ウ"):
+            if ch == "ウ":
+                out.append(_syllable("ㅇ", _W_VOWEL.get(nxt, _SMALL_VOWEL[nxt])))
+            else:
+                out.append(_syllable(_SMALL_LEAD[ch], _SMALL_VOWEL[nxt]))
+            i += 2
+            continue
+        if nxt == "ヮ" and ch in _SMALL_WA_LEAD:
+            out.append(_syllable(_SMALL_WA_LEAD[ch], "ㅘ"))
+            i += 2
+            continue
+        if ch == "ッ":
+            # 받침을 붙일 한글 음절이 없으면(맨 앞, 숫자 뒤) 적을 소리도 없다.
+            if out:
+                out[-1] = _with_final(out[-1], "ㅅ")
+        elif ch == "ン":
+            joined = _with_final(out[-1], "ㄴ") if out else None
+            if joined and joined != out[-1]:
+                out[-1] = joined
+            else:
+                # 받침으로 붙일 음절이 없다(맨 앞, 숫자·부호 뒤, 이미 받침이 있음).
+                # 사라지게 두지 않고 제 음절로 적는다.
+                out.append("응")
+        elif ch == "ー":
+            vowel = _vowel_of(out[-1]) if out else None
+            if vowel:
+                out.append(_syllable("ㅇ", _LONG_VOWEL.get(vowel, vowel)))
+        elif ch in _HANGUL_SINGLES:
+            out.append(_syllable(*_HANGUL_SINGLES[ch]))
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 
 def _to_katakana(text):
     """히라가나를 카타카나로. 두 글자군은 코드포인트가 0x60 떨어져 있다."""
@@ -218,6 +333,9 @@ def analyse(text):
                 "surface": word.surface,
                 "reading": hira,
                 "romaji": to_romaji(romaji_source),
+                # 한글은 늘 발음을 따른다. 장음을 모음 반복으로 적으므로 로마자처럼
+                # 'ー'를 피해 kana로 돌아갈 이유가 없다.
+                "hangul": to_hangul(pron if pron and pron != "*" else kana),
                 "parts": align(word.surface, hira),
             })
         except Exception:
@@ -230,5 +348,5 @@ def analyse(text):
 
 
 def _plain(text):
-    return {"surface": text, "reading": None, "romaji": None,
+    return {"surface": text, "reading": None, "romaji": None, "hangul": None,
             "parts": [{"text": text, "ruby": None}]}

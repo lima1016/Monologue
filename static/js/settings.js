@@ -63,7 +63,10 @@ export async function loadReadingPrefs() {
     const prefs = await getJSON('/reading-prefs');
     $('pref-furigana').checked = prefs.furigana;
     $('pref-romaji').checked = prefs.romaji;
-    setPrefs(prefs);
+    const script = prefs.pron_script === 'romaji' ? 'romaji' : 'hangul';
+    $('pref-pron-hangul').checked = script === 'hangul';
+    $('pref-pron-romaji').checked = script === 'romaji';
+    setPrefs({ ...prefs, pron_script: script });
   } catch {
     // 기본값(둘 다 켜짐)이 이미 reading.js 안에 있다. 설정을 못 읽는 것이
     // 보조를 끄는 이유가 되어서는 안 된다.
@@ -74,6 +77,7 @@ export async function saveReadingPrefs() {
   const prefs = {
     furigana: $('pref-furigana').checked,
     romaji: $('pref-romaji').checked,
+    pron_script: $('pref-pron-romaji').checked ? 'romaji' : 'hangul',
   };
   setPrefs(prefs);
   try {

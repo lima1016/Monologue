@@ -23,7 +23,7 @@ const ALL = { furigana: true, romaji: true };
    asserting against the wrong object. An explicit reset stays correct as
    long as it lists every key `prefs` has; that's the accepted cost. */
 beforeEach(() => {
-  setPrefs({ furigana: true, romaji: true });
+  setPrefs({ furigana: true, romaji: true, pron_script: 'hangul' });
   // Belt and braces: setPrefs(ALL) already strips both hide-* classes as a
   // side effect, but a body class is one more piece of module-adjacent state
   // this file's tests share (dom-shim's `document.body` is a single instance
@@ -268,10 +268,10 @@ test('a Japanese line annotated for reading asks for Japanese', async () => {
 
 test('getPrefs returns the defaults, and a copy rather than a live reference', () => {
   const prefs = getPrefs();
-  assert.deepEqual(prefs, { furigana: true, romaji: true });
+  assert.deepEqual(prefs, { furigana: true, romaji: true, pron_script: 'hangul' });
 
   prefs.furigana = false; // mutating the returned object must not reach the module
-  assert.deepEqual(getPrefs(), { furigana: true, romaji: true });
+  assert.deepEqual(getPrefs(), { furigana: true, romaji: true, pron_script: 'hangul' });
 });
 
 test('setPrefs changes what renderTokens defaults to when no options are given', () => {
@@ -343,4 +343,27 @@ test('a token made only of punctuation maps mark by mark', () => {
   assert.equal(romajiLine([word('ね', 'ne'), mark('～'), word('はい', 'hai'), mark('〜')]), 'ne~ hai~');
   assert.equal(romajiLine([word('時間', 'jikan'), mark('：'), word('三', 'san'), mark('；')]), 'jikan: san;');
   assert.equal(romajiLine([word('コーヒー', 'koohii'), mark('・'), word('ケーキ', 'keeki')]), 'koohii keeki');
+});
+
+
+/* 발음 줄은 한글과 로마자 두 표기를 늘 함께 그리고, 보일 쪽은 body 클래스가 정한다.
+   표기를 바꿨을 때 이미 그려진 줄에도 바로 반영되려면 둘 다 DOM에 있어야 한다 --
+   후리가나·로마자 켜고 끄기와 같은 이유다. */
+test('the pronunciation line is drawn in both scripts', () => {
+  const tokens = [
+    { surface: 'ありがとう', reading: 'ありがとう', romaji: 'arigatou', hangul: '아리가토오',
+      parts: [{ text: 'ありがとう', ruby: null }] },
+    { surface: '。', reading: null, romaji: null, hangul: null, parts: [{ text: '。', ruby: null }] },
+  ];
+  const html = renderTokens(tokens, ALL);
+  assert.match(html, /<span class="romaji">arigatou\.<\/span>/);
+  assert.match(html, /<span class="hangul">아리가토오\.<\/span>/);
+});
+
+test('hangul is the default script, and choosing romaji swaps the body class', () => {
+  assert.equal(document.body.classList.contains('pron-romaji'), false, '기본은 한글');
+  setPrefs({ pron_script: 'romaji' });
+  assert.equal(document.body.classList.contains('pron-romaji'), true);
+  setPrefs({ pron_script: 'hangul' });
+  assert.equal(document.body.classList.contains('pron-romaji'), false);
 });
