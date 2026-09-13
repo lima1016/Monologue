@@ -4,9 +4,15 @@
 초록으로 남는다. 이 파일이 그걸 보는 유일한 계기다 -- 번역 프롬프트를 고친
 뒤에는 반드시 돌린다.
 
-문턱값은 측정치보다 낮게 둔다: 2026-09-13 실제 모델, 이 경로 그대로 일본어
-29줄 x 3회에서 75%, 영어 10줄 x 2회에서 95%가 한국어 뜻으로 나왔다. 아래 줄들은
-그 벤치마크에서 규칙만 있던 프롬프트가 새던 줄을 섞어 골랐다.
+문턱값은 측정치보다 낮게 둔다: 2026-09-13 실제 모델, 앱의 실제 경로
+(_cached_translation, 한글 판정은 _is_korean_meaning)로 일본어 29줄 x 3회 = 87회 중
+65회(75%), 영어 10줄 x 2회 = 20회 중 19회(95%)가 한국어 뜻으로 나왔다. (prompts.py와
+api.py의 56%->79%는 다른 측정이다: 프롬프트 탐침이 자체 판정으로 센 값.) 아래
+줄들은 그 벤치마크에서 규칙만 있던 프롬프트가 새던 줄을 섞어 골랐다. 일본어
+문턱값이 8줄 중 4줄인 것은, 75%라도 8줄짜리 표본은 흔들리기 때문이다.
+
+served에는 이미 한글 판정을 통과한 뜻만 남으므로, 그것을 다시 판정하는 단언은
+두지 않는다 -- 무엇이 와도 참이다.
 """
 import pytest
 
@@ -43,11 +49,9 @@ def _served(language, lines):
 
 def test_japanese_lines_mostly_come_back_as_korean_meanings():
     served = _served("ja", JA)
-    assert len(served) >= 5, f"{len(served)}/{len(JA)} -- 번역 프롬프트 회귀를 의심할 것"
-    assert all(api._is_korean_meaning(m) for m in served)
+    assert len(served) >= 4, f"{len(served)}/{len(JA)} -- 번역 프롬프트 회귀를 의심할 것"
 
 
 def test_english_lines_come_back_as_korean_meanings():
     served = _served("en", EN)
     assert len(served) >= 3, f"{len(served)}/{len(EN)}"
-    assert all(api._is_korean_meaning(m) for m in served)

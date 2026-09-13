@@ -140,7 +140,8 @@ def test_translate_keeps_only_the_first_line(client, monkeypatch):
     "вашего 비행기는 20분 후에 12번 게이트에서 탑승합니다.",  # 영어 줄에서 실제로 나온 키릴 문자
 ])
 def test_translate_refuses_a_meaning_in_the_wrong_language(client, monkeypatch, leak):
-    """실제 벤치마크(87회 중 47회)에서 나온 모양 그대로다. 틀린 언어로 뜻을
+    """규칙만 있던 프롬프트의 탐침(실제 모델, 87회 중 47회 샘)에서 나온 모양
+    그대로다. 틀린 언어로 뜻을
     보여주느니 503 -- 학습자는 중국어 뜻을 한국어 뜻으로 믿을 수 없다."""
     from app import api, llm
     api._cached_translation.cache_clear()
@@ -175,7 +176,9 @@ def test_quoting_does_not_hide_a_leak(leak):
 
 
 def test_translate_asks_once_more_when_the_first_answer_leaks(client, monkeypatch):
-    """실제 모델로 잰 결과: 한 번 되묻기가 한국어 뜻을 56%에서 79%로 올렸다."""
+    """프롬프트 탐침(실제 모델, 일본어 87회, 탐침 자체의 한국어 판정)에서 한 번
+    되묻기가 한국어 뜻을 56%에서 79%로 올렸다. 앱의 실제 경로로는 75%다
+    (test_translate_quality.py)."""
     from app import api, llm
     api._cached_translation.cache_clear()
     answers = iter(["오늘은几位呢？", "오늘은 몇 분이세요?"])

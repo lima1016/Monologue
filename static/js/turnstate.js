@@ -64,8 +64,10 @@ export function controls(state) {
     stop: state === 'listening' || state === 'respeaking',
     // The other way out of a listen: throw away what was said instead of
     // sending it. Live exactly where `stop` is. Unlike `stop` it has its own
-    // event -- nothing about Chrome's onend should decide whether a cancelled
-    // utterance is sent, so session.js raises CANCEL itself.
+    // event: the decision to cancel is the learner's (audio.js's
+    // cancelListening), and the onend that follows only reports it -- what
+    // was heard is never weighed -- so session.js's cancel handler raises
+    // CANCEL instead of HEARD or HEARD_NOTHING.
     cancel: state === 'listening' || state === 'respeaking',
   };
 }

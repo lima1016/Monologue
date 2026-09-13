@@ -246,9 +246,9 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
   mask: var(--mic-glyph) center / 22px 22px no-repeat;
   border-radius: 0;
 }
-/* Listening is a status, not a stop control -- the state machine has no
-   cancel-from-listening event, so pressing the mic here does nothing. Same
-   accent hue as idle, dimmed, and pulsing like .thinking; the hint text
+/* Listening reads as a status: same accent hue as idle, dimmed, and pulsing
+   like .thinking. Pressing the mic again still ends the turn, and throwing
+   the utterance away is #btn-cancel's job, not this button's. The hint text
    below is what actually tells the learner what's happening. */
 .mic.listening {
   opacity: .6;
@@ -259,7 +259,8 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .mic:disabled:not(.listening) { opacity: .4; }
 
 #mic-hint { font-size: var(--text-xs); color: var(--text-faint); margin: var(--space-2) 0 0; }
-/* Shown only while listening, under the live transcript it would throw away. */
+/* Shown only while listening or re-speaking, under the live transcript it
+   would throw away. */
 #btn-cancel { display: block; margin: var(--space-2) auto 0; font-size: var(--text-xs);
               padding: var(--space-1) var(--space-3); }
 

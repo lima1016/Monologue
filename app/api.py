@@ -243,10 +243,14 @@ def _successful_translation(language: str, text: str) -> str:
         messages = prompts.build_translate_messages(language, text)
         meaning = _first_line(_translate_call(messages))
         if meaning and not _is_korean_meaning(meaning):
-            # One retry, with the leaked answer in view. Measured on the real
-            # model it took Korean meanings from 56% to 79%; a second retry was
-            # not worth it at temperature 0.2, where a line that leaks twice
-            # leaks in the same place again.
+            # One retry, with the leaked answer in view. In the prompt probe
+            # (29 Japanese lines x3 = 87 calls on the real model, judged by the
+            # probe's own Korean check) it took Korean meanings from 56% to
+            # 79% over the wrapped prompt alone. The app's real path, judged
+            # by _is_korean_meaning, measured 75% (65/87) Japanese and 95%
+            # (19/20) English -- see test_translate_quality.py. A second retry
+            # was not worth it at temperature 0.2, where a line that leaks
+            # twice leaks in the same place again.
             messages = prompts.build_translate_retry_messages(messages, meaning)
             meaning = _first_line(_translate_call(messages))
     except Exception as exc:
@@ -281,8 +285,9 @@ def _first_line(raw: str) -> str | None:
     line also enforces the "one line" contract server-side: a model that
     appends a parenthetical aside or a second sentence still yields a single
     clean line. An echoed source line is not stripped here; _is_korean_meaning
-    refuses it, since kana or Latin outside quotation marks is not a Korean
-    meaning.
+    refuses it -- an echoed Japanese line has kana or kanji outside quotation
+    marks, and an echoed English line has fewer Hangul letters than Latin
+    words (Latin itself is allowed, for PDF or OK).
     """
     for line in raw.strip().splitlines():
         line = line.strip()
