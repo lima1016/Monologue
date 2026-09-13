@@ -608,7 +608,12 @@ def list_sessions(limit=20) -> list[dict]:
 
 
 def recent_sessions(language, limit=3) -> list[dict]:
-    """홈 화면 오른쪽의 "최근 연습". 끝난 세션만, 최신순.
+    """홈 화면 오른쪽의 "최근 연습". 끝마친 세션만 -- 리포트가 있는 것 -- 최신순.
+
+    ended_at IS NOT NULL 만으로는 부족하다. abandon_stale_sessions()도 아무도
+    돌아오지 않은 세션에 ended_at을 찍지만, 그건 스윕이 자기 시점으로 찍는
+    타임스탬프일 뿐 리포트는 쓰지 않는다 -- 그런 세션 중에는 봇의 첫 인사말만
+    들어있는 것도 있다. 그래서 report IS NOT NULL도 함께 요구한다.
 
     list_sessions()는 언어로 거르지도, 세션별로 집계하지도 않는다. 그 함수에
     두 기능을 더하면 호출자마다 다른 절반만 쓰는 함수가 되므로 따로 쓴다.
@@ -618,9 +623,9 @@ def recent_sessions(language, limit=3) -> list[dict]:
     채우려고 그 결론을 되돌리지 않는다.
 
     title이 비는 경우가 실제로 있다(시나리오 없이 시작한 자유 세션). 빈 값을
-    클라이언트로 내보내면 그 빈칸이 화면마다 다르게 메워지므로, 여기서 정한다.
-    scenario_id는 카탈로그 조회가 필요해 여기서 풀지 않고 그대로 실어 보낸다 --
-    제목 해석은 scenarios 를 아는 api.py 의 몫이다.
+    클라이언트로 내보내면 그 빈칸이 화면마다 다르게 메워지므로, 제목을 정하는
+    건 scenarios 카탈로그를 아는 api.py의 몫이다. scenario_id는 여기서 풀지
+    않고 그대로 실어 보낸다.
     """
     with connect() as conn:
         rows = conn.execute(
@@ -629,7 +634,7 @@ def recent_sessions(language, limit=3) -> list[dict]:
             "         WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok = 0)"
             "       AS fixed"
             " FROM sessions s"
-            " WHERE s.language = ? AND s.ended_at IS NOT NULL"
+            " WHERE s.language = ? AND s.ended_at IS NOT NULL AND s.report IS NOT NULL"
             " ORDER BY s.ended_at DESC, s.id DESC LIMIT ?",
             (language, limit),
         ).fetchall()

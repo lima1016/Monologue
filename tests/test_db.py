@@ -675,6 +675,23 @@ def test_recent_sessions_counts_this_sessions_fixes(store):
     assert by_id[other]["fixed"] == 1
 
 
+def test_recent_sessions_excludes_sessions_the_sweep_closed_without_a_report(store):
+    """abandon_stale_sessions() stamps ended_at on sessions nobody came back
+    to, but never writes a report -- some of those hold only the bot's
+    opening line. Those must not show up as finished practice."""
+    finished = store.create_session(language="en", mode="free", scenario_id="clinic", topic=None)
+    store.end_session(finished, "{}", "beginner")
+
+    abandoned = store.create_session(language="en", mode="free", scenario_id="cafe", topic=None)
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET ended_at = ? WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(timespec="seconds"), abandoned),
+        )
+
+    assert [r["id"] for r in store.recent_sessions("en")] == [finished]
+
+
 FREE_SCENARIO = {
     "id": "user-interview-1", "language": "en", "type": "free",
     "title": "구직 면접", "goal": "경력을 설명하고 질문에 답한다",
