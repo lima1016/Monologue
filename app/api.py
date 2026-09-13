@@ -190,6 +190,9 @@ _QUOTED = re.compile(
     r'"[^"]*"|“[^”]*”|(?<![A-Za-z])\'[^\']*\'|‘[^’]*’|「[^」]*」|『[^』]*』')
 
 
+_MAX_QUOTED_EXPRESSION = 12
+
+
 def _quote_dropper(source: str):
     """인용을 지우되, 한자가 든 인용은 원문 줄에 실제로 있을 때만 지운다.
 
@@ -202,7 +205,10 @@ def _quote_dropper(source: str):
         if not _CJK_IDEOGRAPH.search(span):
             return ""
         inner = span[1:-1].strip()
-        return "" if inner and inner in source else span
+        # 표현 하나 크기만 인용으로 친다. 원문 줄을 통째로(또는 거의 다) 따옴표에
+        # 넣고 "는 뜻이에요"만 붙인 것은 번역하지 않은 되풀이다.
+        expression_sized = len(inner) <= _MAX_QUOTED_EXPRESSION and len(inner) * 2 < len(source)
+        return "" if inner and expression_sized and inner in source else span
     return drop
 
 

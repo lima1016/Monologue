@@ -309,3 +309,12 @@ def test_translate_passes_the_original_line_to_the_korean_check(client, monkeypa
     monkeypatch.setattr(llm, "chat", lambda messages, **kw: '"大丈夫"는 괜찮다는 뜻이에요.')
     res = client.post("/api/translate", json={"language": "ja", "text": "「大丈夫」を使ってみましょう。"})
     assert res.status_code == 200
+
+
+def test_quoting_the_whole_line_back_is_an_echo_not_a_quote():
+    """인용 예외는 표현 하나 크기일 때만이다. 원문 줄을 통째로 따옴표에 넣고
+    '는 뜻이에요'만 붙이면 번역하지 않은 줄을 뜻으로 내보내게 된다."""
+    from app import api
+    line = "「大丈夫」を使ってみましょう。"
+    assert not api._is_korean_meaning(f'"{line}"는 뜻이에요', source=line)
+    assert not api._is_korean_meaning('"大丈夫を使ってみましょう"라는 뜻입니다', source="大丈夫を使ってみましょう")
