@@ -334,3 +334,105 @@ test('cancelling a listen returns to idle, hides the cancel button, and sends no
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(requests, [], '취소한 발화가 서버로 가면 안 된다');
 });
+
+/* Whisper 최종 받아쓰기. 브라우저 인식은 미리보기이고, 턴은 받아쓴 문장으로 간다.
+   실패하면 브라우저 문장으로 -- 연습이 막히면 안 된다. */
+async function openFree(extraRoutes = {}) {
+  resetDom();
+  router.register('session', 'session');
+  state.language = 'en';
+  const chats = [];
+  const transcribes = [];
+  stubFetch(async (url, options) => {
+    if (url === '/api/sessions') {
+      // The fields startSession actually reads for a free session.
+      return jsonResponse({ session_id: 5, mode: 'free', opening: 'Hi.', opening_audio: null, goal: null });
+    }
+    if (url === '/api/transcribe') {
+      transcribes.push(options.body);
+      return extraRoutes.transcribe ? extraRoutes.transcribe() : jsonResponse({ text: 'I went there yesterday.' });
+    }
+    if (url === '/api/chat') {
+      chats.push(JSON.parse(options.body).text);
+      return jsonResponse({ bot_reply: 'Nice.', audio_key: null, ok: true, fixed: '', tag: '없음', correction: '', suggestion: '' });
+    }
+    return jsonResponse({});
+  });
+  await startSession({ language: 'en', mode: 'free', scenarioId: 'x' });
+  return { chats, transcribes };
+}
+const clip = () => Promise.resolve(new Blob(['audio']));
+
+test('a turn is sent as Whisper heard it, not as the browser did', async () => {
+  const { chats, transcribes } = await openFree();
+  session.setTurnState('MIC');
+  await session.handleHeard('I go there yesterday', clip());
+  assert.equal(transcribes.length, 1);
+  assert.deepEqual(chats, ['I went there yesterday.']);
+});
+
+test('when Whisper is unavailable the browser transcript is sent', async () => {
+  const { chats } = await openFree({ transcribe: () => jsonResponse({ detail: 'loading' }, { ok: false, status: 503 }) });
+  session.setTurnState('MIC');
+  await session.handleHeard('I go there yesterday', clip());
+  assert.deepEqual(chats, ['I go there yesterday']);
+});
+
+test('silence from Whisper falls back to what the browser heard', async () => {
+  const { chats } = await openFree({ transcribe: () => jsonResponse({ text: '' }) });
+  session.setTurnState('MIC');
+  await session.handleHeard('I go there', clip());
+  assert.deepEqual(chats, ['I go there']);
+});
+
+test('nothing from either returns to idle without sending', async () => {
+  const { chats } = await openFree({ transcribe: () => jsonResponse({ text: '' }) });
+  session.setTurnState('MIC');
+  await session.handleHeard(null, clip());
+  assert.deepEqual(chats, []);
+  assert.equal(session.canDo('send'), true);
+});
+
+test('with no recording Whisper is not asked', async () => {
+  const { chats, transcribes } = await openFree();
+  session.setTurnState('MIC');
+  await session.handleHeard('I go there', Promise.resolve(null));
+  assert.equal(transcribes.length, 0);
+  assert.deepEqual(chats, ['I go there']);
+});
+
+test('cancelling while Whisper works drops the late result', async () => {
+  let release;
+  const { chats } = await openFree({
+    transcribe: () => new Promise((resolve) => { release = () => resolve(jsonResponse({ text: 'late' })); }),
+  });
+  session.setTurnState('MIC');
+  const pending = session.handleHeard('browser', clip());
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal($('btn-cancel').hidden, false, '받아쓰는 중에도 취소할 수 있어야 한다');
+  session.cancelTurn();
+  release();
+  await pending;
+  assert.deepEqual(chats, [], '취소한 뒤 도착한 받아쓰기로 턴이 생기면 안 된다');
+  assert.equal(session.canDo('send'), true);
+});
+
+test('a script line is read back as Whisper heard it', async () => {
+  resetDom();
+  router.register('session', 'session');
+  state.language = 'en';
+  const turns = [];
+  stubFetch(async (url, options) => {
+    if (url === '/api/sessions') {
+      return jsonResponse({ session_id: 8, mode: 'script', lines: [{ speaker: 'user', text: 'Hello there.' }] });
+    }
+    if (url === '/api/transcribe') return jsonResponse({ text: 'Hello there.' });
+    if (url === '/api/script-turn') { turns.push(JSON.parse(options.body).text); return jsonResponse({ turn: 1 }); }
+    return jsonResponse({});
+  });
+  await startSession({ language: 'en', mode: 'script', scenarioId: 'x' });
+  session.setTurnState('MIC');
+  await session.handleHeard('hello dare', clip());
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(turns, ['Hello there.']);
+});
