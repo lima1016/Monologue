@@ -8,6 +8,7 @@ import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
+import { openMypage, onReviewClick, onHistoryClick, loadHistory } from './mypage.js';
 import * as router from './router.js';
 
 /* ---------- screens ---------- */
@@ -16,12 +17,14 @@ router.register('home', 'home');
 router.register('pick', 'pick');
 router.register('session', 'session');
 router.register('report', 'report');
+router.register('mypage', 'mypage');
 router.show('home');
 
 /* ---------- wiring ---------- */
 
-/* Home and pick each carry a language segment; both are the one state.language,
-   so they share this handler and are kept in step by syncLanguageButtons. */
+/* Home, pick and my page each carry a language segment; all are the one
+   state.language, so they share this handler and are kept in step by
+   syncLanguageButtons. */
 function switchLanguage(e) {
   const btn = e.target.closest('button[data-language]');
   if (!btn) return;
@@ -32,10 +35,27 @@ function switchLanguage(e) {
   // without a reload the previous language's stay on screen under the new
   // selection. Only the visible screen reloads -- ← 홈 calls loadHome anyway.
   if (router.current() === 'pick') loadThemes();
+  else if (router.current() === 'mypage') openMypage();
   else loadHome();
 }
 $('language-seg').addEventListener('click', switchLanguage);
 $('pick-language-seg').addEventListener('click', switchLanguage);
+$('mypage-language-seg').addEventListener('click', switchLanguage);
+
+/* ---------- my page ---------- */
+
+$('btn-mypage').addEventListener('click', openMypage);
+$('btn-mypage-home').addEventListener('click', () => {
+  router.show('home');
+  loadHome();
+});
+$('review-list').addEventListener('click', onReviewClick);
+$('history-list').addEventListener('click', onHistoryClick);
+$('btn-history-more').addEventListener('click', () => loadHistory({ append: true }));
+$('btn-report-back').addEventListener('click', () => {
+  router.show('mypage');
+  $('btn-report-back').hidden = true;
+});
 
 $('modes').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-mode]');
