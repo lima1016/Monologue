@@ -265,3 +265,19 @@ def test_route_response_does_not_leak_cache_mutation(client, monkeypatch):
     client.post(f"/api/sessions/{sid}/suggest")
     cached = api._cached_suggestions(sid, db.get_messages(sid)[-1]["id"])
     assert all("audio_key" not in r for r in cached)
+
+
+def test_route_says_unavailable_when_the_bot_line_vanishes_mid_request(client, monkeypatch):
+    sid = _free(client)
+    Model(monkeypatch, GOOD)
+    real_get_messages = db.get_messages
+    calls = []
+
+    def flaky(session_id):
+        calls.append(session_id)
+        return real_get_messages(session_id) if len(calls) == 1 else []
+
+    monkeypatch.setattr(db, "get_messages", flaky)
+    r = client.post(f"/api/sessions/{sid}/suggest")
+    assert r.status_code == 503
+    assert r.json()["detail"] == api.SUGGEST_UNAVAILABLE

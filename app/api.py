@@ -770,10 +770,20 @@ def _cached_suggestions(session_id: int, bot_message_id: int) -> tuple[dict, ...
 
     The dicts are the cache's own objects; the route copies them before adding
     audio_key. Keyed by message id, so undo (which removes the learner turn
-    and the bot reply after it) never leaves a stale entry reachable."""
+    and the bot reply after it) never leaves a stale entry reachable.
+
+    Two presses on the same still-fresh line can both miss the cache and both
+    call the model -- lru_cache does not coalesce in-flight calls. The 💡
+    button disables itself while a request is out, so this needs no lock."""
     session = db.get_session(session_id)
     messages = db.get_messages(session_id)
-    index = next(i for i, m in enumerate(messages) if m["id"] == bot_message_id)
+    # Undo can remove the bot line between the route's own lookup and this
+    # read (sync routes run in a threadpool, so the two reads are not
+    # atomic); treat a vanished line the same as a model failure rather than
+    # letting StopIteration escape.
+    index = next((i for i, m in enumerate(messages) if m["id"] == bot_message_id), None)
+    if index is None:
+        raise _NoSuggestions
     before = messages[max(0, index - _SUGGEST_RECENT):index]
     language = session["language"]
     scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
