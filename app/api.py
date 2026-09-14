@@ -128,6 +128,16 @@ def pick_from_library(payload: LibraryPick):
     return {"id": item["id"], "title": item["title"], "situation": item.get("situation")}
 
 
+# library.check_script's reason codes, as the pick screen shows them after
+# "대본을 만들지 못했어요: ".
+SCRIPT_REJECTED = {
+    "line-count": "줄 수가 맞지 않아요",
+    "structure": "대사 순서가 맞지 않아요",
+    "language": "다른 언어가 섞였어요",
+    "too-long": "너무 긴 줄이 있어요",
+}
+
+
 class ScenarioWish(BaseModel):
     language: Language
     mode: Mode
@@ -169,7 +179,7 @@ def generate_scenario(payload: ScenarioWish):
         if reason is None:
             break
     else:
-        raise HTTPException(422, f"만들어진 대본이 올바르지 않습니다: {reason}")
+        raise HTTPException(422, SCRIPT_REJECTED.get(reason, "대본 모양이 맞지 않아요"))
 
     item = {
         "id": f"user-{uuid.uuid4().hex[:12]}",

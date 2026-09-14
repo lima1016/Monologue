@@ -136,6 +136,25 @@ def test_generate_gives_up_after_the_second_bad_script(client, monkeypatch):
     monkeypatch.setattr("app.api.llm.chat_json", lambda m, s, **kw: {"title": "t", "lines": bad})
     r = client.post("/api/scenarios/generate", json={"language": "en", "mode": "script", "wish": "cafe"})
     assert r.status_code == 422
+    assert r.json()["detail"] == "줄 수가 맞지 않아요"
+
+
+def _sixteen(**changes):
+    lines = [{"speaker": "bot" if i % 2 == 0 else "user", "text": f"Line {i} okay."} for i in range(16)]
+    for i, line in changes.items():
+        lines[int(i[1:])] = line
+    return lines
+
+
+@pytest.mark.parametrize("lines,detail", [
+    (_sixteen(l0={"speaker": "user", "text": "Hi."}), "대사 순서가 맞지 않아요"),
+    (_sixteen(l3={"speaker": "user", "text": "좋아요."}), "다른 언어가 섞였어요"),
+    (_sixteen(l3={"speaker": "user", "text": " ".join(["word"] * 21)}), "너무 긴 줄이 있어요"),
+])
+def test_generate_says_in_korean_what_was_wrong_with_the_script(client, monkeypatch, lines, detail):
+    monkeypatch.setattr("app.api.llm.chat_json", lambda m, s, **kw: {"title": "t", "lines": lines})
+    r = client.post("/api/scenarios/generate", json={"language": "en", "mode": "script", "wish": "cafe"})
+    assert r.status_code == 422 and r.json()["detail"] == detail
 
 
 def test_generate_rejects_a_non_object_script_result_instead_of_crashing(client, monkeypatch):
@@ -145,6 +164,7 @@ def test_generate_rejects_a_non_object_script_result_instead_of_crashing(client,
     monkeypatch.setattr("app.api.llm.chat_json", lambda m, s, **kw: ["not", "an", "object"])
     r = client.post("/api/scenarios/generate", json={"language": "en", "mode": "script", "wish": "cafe"})
     assert r.status_code == 422
+    assert r.json()["detail"] == "줄 수가 맞지 않아요"
 
 
 def test_home_stats_route_returns_the_computed_counters(client):
