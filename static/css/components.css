@@ -67,6 +67,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .msg, .chip-row, .suggest-card { animation: none; }
 }
+/* A resumed conversation is replayed in one go (home.js resumeSession): those
+   bubbles appear at once instead of all fading in together. */
+.msg.replayed { animation: none; }
 
 .play-mine {
   display: block; margin-top: var(--space-2);

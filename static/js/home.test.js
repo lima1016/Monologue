@@ -109,6 +109,30 @@ test('resumeSession carries each message\'s cached audio key into its bubble', a
     'a message with no cached clip must not get a dataset.audioKey the click handler would try to play');
 });
 
+/* A resumed conversation is painted all at once; every bubble easing in
+   together reads as the screen flashing. The replayed bubbles are marked so
+   CSS skips their enter animation -- on the bubbles themselves, not a class on
+   #conversation that is taken off afterwards: removing it would set their
+   animation back from none and start every one of them at that moment. */
+test('replayed bubbles skip the enter animation; a live one after them does not', async () => {
+  router.register('session', 'session');
+  state.language = 'en';
+  state.sessionId = null;
+  await armResumeCard();
+  stubFetch(async () => jsonResponse({
+    session: { id: 42, language: 'ko' },
+    messages: [{ speaker: 'bot', text: 'Hi.' }, { speaker: 'user', text: 'Hello.' }],
+  }));
+  await home.resumeSession();
+  const replayed = $('conversation').children;
+  assert.equal(replayed.length, 2);
+  assert.ok(replayed.every((b) => b.classList.contains('replayed')), 'a replayed bubble will animate');
+  const { addMessage } = await import('./session.js');
+  const live = addMessage('bot', 'Next?');
+  assert.equal(live.classList.contains('replayed'), false);
+  state.language = 'en';
+});
+
 /* 이어서 하기 is a network round trip with nothing else on screen changing, so
    the card says what it is doing while it waits -- and stops saying it on
    both the success and the failure path. */

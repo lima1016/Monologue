@@ -510,7 +510,13 @@ export async function resumeSession() {
     // replayed bot bubble plays the real clip when it is still on disk,
     // rather than main.js's play() reporting a synthesis failure that never
     // happened.
-    for (const m of messages) addMessage(m.speaker, m.text, m.audio_key);
+    //
+    // Painted all at once, so the replayed bubbles skip their enter animation
+    // (.msg.replayed): a whole conversation easing in together reads as the
+    // screen flashing. Marked per bubble rather than with a class on
+    // #conversation removed afterwards -- removing that would switch their
+    // animation from none back on and start every one of them right then.
+    for (const m of messages) addMessage(m.speaker, m.text, m.audio_key).classList.add('replayed');
     // Same rule as startSession: the side panel holds only 목표 or 대본, so a
     // resumed session with no goal (lesson mode, or free mode with none set)
     // hides the panel rather than showing the "목표" heading over nothing.

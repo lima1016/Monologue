@@ -211,3 +211,9 @@ def test_resume_status_line_is_held_in_the_markup():
     html = (CSS.parent / "index.html").read_text(encoding="utf-8")
     tag = re.search(r'<p id="resume-status"[^>]*>', html).group(0)
     assert "is-invisible" in tag and " hidden" not in tag, tag
+
+
+def test_replayed_bubbles_do_not_animate():
+    """resumeSession marks the bubbles it replays; they appear at once."""
+    body = _rule_body(_all_css(), ".msg.replayed {")
+    assert "animation: none" in body
