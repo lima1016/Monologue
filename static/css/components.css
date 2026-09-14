@@ -401,9 +401,14 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    문구. The same width #home collapses to, so moving between the two does not
    make the column jump. */
 #pick { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
-.pick-head { display: flex; align-items: center; gap: var(--space-3); }
+.pick-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 #pick-mode { flex: 1; margin: 0; font-size: var(--text-2xl); font-weight: 750; color: var(--text); }
 #pick-themes { display: flex; flex-direction: column; gap: var(--space-3); }
+/* A phone: the mode name at 27px pushed the language segment onto a line of
+   its own with a word or two beside it. */
+@media (max-width: 480px) {
+  #pick-mode { font-size: var(--text-xl); }
+}
 
 /* The tabs are the language segment's shape, only wrapping: five labels do not
    always fit one line on a phone. */
@@ -425,6 +430,8 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .theme-card:hover:not(:disabled):not(.on) { background: var(--accent-soft); }
 .theme-card.on { background: var(--surface); box-shadow: var(--shadow); }
 .theme-card:disabled { opacity: .45; }
+.theme-loading { grid-column: 1 / -1; margin: 0; padding: var(--space-3) 0;
+                 color: var(--text-dim); font-size: var(--text-sm); }
 
 .start-status { display: flex; align-items: center; gap: var(--space-2);
                 color: var(--text-dim); font-size: var(--text-sm); }
