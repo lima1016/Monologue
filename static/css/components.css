@@ -163,7 +163,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
    an id. The dim side waits 200ms, so a fast local reload never visibly dims.
    pointer-events is the belt to home.js's `inert` braces: a dimmed card may
    be showing the previous language. */
-:where(#today-card, #today-alt, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
+:where(#today-card, #today-alt, #review-home, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
   transition: opacity var(--dur-fast) ease;
 }
 .is-refreshing { opacity: .55; transition-delay: 200ms; pointer-events: none; }
@@ -183,7 +183,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .screen-enter, .toast, .skeleton { animation: none; }
   .fade { transition: none; }
   .toast { transition: none; }
-  .is-refreshing, :where(#today-card, #today-alt, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
+  .is-refreshing, :where(#today-card, #today-alt, #review-home, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
     transition: none; transition-delay: 0s;
   }
 }
@@ -705,6 +705,35 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .today-alt button { font-size: var(--text-sm); padding: var(--space-1) var(--space-2); border: 0; }
 .today-alt button:hover { color: var(--accent-ink); }
 
+/* 오늘 복습: exists only when there is a due count, so a language switch or a
+   reload opens and shuts it -- exactly #resume-card's problem (see its own
+   comment above), same fix. #review-home is the one-row grid that goes
+   1fr -> 0fr (.is-collapsed), .review-home-clip cuts the content as the row
+   shrinks, and the visible card (border, padding) is .review-home-box inside
+   the clip, because padding on the grid itself cannot shrink to zero. */
+#review-home { display: grid; grid-template-rows: 1fr; }
+:where(#review-home) {
+  transition: grid-template-rows var(--dur-fast) ease, opacity var(--dur-fast) ease,
+              margin-bottom var(--dur-fast) ease;
+}
+#review-home.is-collapsed { grid-template-rows: 0fr; opacity: 0; margin-bottom: calc(-1 * var(--space-4)); }
+/* The first paint's reveal (home.js renderReviewHome's `instant`): no slide on page load. */
+#review-home.no-motion { transition: none; }
+.review-home-clip { overflow: hidden; min-height: 0; }
+@media (prefers-reduced-motion: reduce) {
+  #review-home { transition: none; }
+}
+.review-home-box { display: flex; flex-direction: column; gap: var(--space-2); }
+.review-home-box .label { margin: 0; }
+.review-home-first { margin: 0; font-size: var(--text-lg); font-weight: 650; color: var(--text); }
+.review-home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.review-home-actions button { font-size: var(--text-sm); padding: var(--space-1) var(--space-3); }
+/* ▶ 듣기 <-> 음성 준비 중... keeps one width (spec R7), same size as the review
+   card's own 듣기 button on my page (mypage.js/.review-card .btn-stable). */
+.review-home-actions .btn-stable { min-width: calc(7.5em + var(--space-3) * 2 + 2px); }
+#review-home-go { color: var(--accent); font-weight: 650; border-color: transparent; }
+#review-home-go:hover { background: var(--accent-soft); }
+
 /* 이번 주: seven day cells, a streak line, progress, and the goal stepper. */
 #week-card { display: flex; flex-direction: column; gap: var(--space-2); }
 #week-card .label, #week-progress { margin: 0; }
@@ -726,10 +755,17 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 #week-progress.skeleton { width: 60%; }
 #week-streak.skeleton { width: 30%; }
 #week-card.is-skeleton .goal { visibility: hidden; }
+#week-card.is-skeleton #week-more { visibility: hidden; }
 .goal { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
         font-size: var(--text-sm); color: var(--text-dim); }
 .goal b { color: var(--text); }
 .goal button { padding: var(--space-1) var(--space-3); }
+
+/* 기록 더 보기: a plain word link out of the card, not another filled button --
+   같은 무게의 accent 글자, 3px 막대 대신 밑줄만 (#btn-resume가 쓰는 색). */
+.ghost.link { border: 0; padding: var(--space-1) 0; align-self: flex-start;
+              color: var(--accent); font-weight: 650; background: transparent; }
+.ghost.link:hover { text-decoration: underline; }
 
 /* 최근 테마: the same tile as a theme card on #pick, so one press here reads as
    the same thing as picking it there. */
@@ -746,8 +782,8 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    `hidden` once the library is complete, when the row is never coming back. */
 #library-progress { min-height: calc(var(--text-sm) * 1.55); }
 
-/* One column in the spec's order -- 추천, 이어서 하기, 이번 주, 약점 줄, 모드,
-   최근 테마, 준비 상태 줄. Same breakpoint #home itself collapses to one
+/* One column in the spec's order -- 추천, 오늘 복습, 이어서 하기, 이번 주, 약점 줄,
+   모드, 최근 테마, 준비 상태 줄. Same breakpoint #home itself collapses to one
    column at (880px, just below): a separate, narrower breakpoint for the
    order fix-up left 721-880px showing the still-two-column DOM order
    (resume/week below recent themes) with nothing to reorder it. The two
@@ -765,12 +801,13 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
   #home .home-head { order: 2; }
   #today-card { order: 3; }
   #today-alt { order: 4; }
-  #resume-card { order: 5; }
-  #week-card { order: 6; }
-  #recommend { order: 7; }
-  #modes { order: 8; }
-  #recent-themes-wrap { order: 9; }
-  #library-progress { order: 10; }
+  #review-home { order: 5; }
+  #resume-card { order: 6; }
+  #week-card { order: 7; }
+  #recommend { order: 8; }
+  #modes { order: 9; }
+  #recent-themes-wrap { order: 10; }
+  #library-progress { order: 11; }
 }
 
 /* 읽기 보조. 루비는 브라우저 기본 기능이라 라이브러리가 필요 없다.

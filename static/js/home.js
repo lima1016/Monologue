@@ -14,6 +14,7 @@
    between them. home.js must not import pick.js either (that would close a
    cycle), which is why the start buttons are wired in main.js. */
 import { $, getJSON, postJSON, state, notify, setShown, syncLanguageButtons } from './api.js';
+import { play } from './audio.js';
 import * as router from './router.js';
 import { addMessage } from './session.js';
 import { setSuggestVisible } from './suggest.js';
@@ -24,10 +25,15 @@ import { setSuggestVisible } from './suggest.js';
 // the other half hasn't declared yet.
 let resumeTarget = null;
 
+// The home review card's due sentence, set by renderReviewHome and read by
+// playReviewHome -- same shape and same reason as resumeTarget above.
+let reviewFirst = null;
+
 const GOAL_MIN = 1;
 const GOAL_MAX = 14;
 const START_LABELS = { script: '스크립트로 시작', free: '자유 대화로 시작' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극' };
+const REVIEW_PLAY_LABEL = '▶ 듣기';
 // A placeholder line needs a character to be a line at all: an empty or
 // space-only <p> is zero tall.
 const NBSP = String.fromCharCode(0xa0);   // a no-break space
@@ -100,6 +106,8 @@ export async function loadHome() {
       $('resume-sub').textContent = `대화 ${session.turns}턴에서 멈췄습니다`;
     }
 
+    renderReviewHome(stats.review, { instant: firstPaint });
+
     $('home-greeting').textContent = stats.has_history
       ? '오늘은 뭘 연습할까요?' : '첫 연습을 시작해 보세요';
 
@@ -154,6 +162,7 @@ export async function loadHome() {
 
 function hideHistory() {
   setResumeShown(false);
+  setReviewHomeShown(false);
   $('today-alt').hidden = true;
   $('recommend').hidden = true;
   clearWeekSkeleton();
@@ -167,7 +176,7 @@ function hideHistory() {
    are `display: contents` (so the phone order can interleave their children),
    and opacity on a box-less element does nothing. The mode cards are not
    here -- they never depend on the request. */
-const REFRESHED = ['today-card', 'today-alt', 'recommend', 'resume-card',
+const REFRESHED = ['today-card', 'today-alt', 'review-home', 'recommend', 'resume-card',
   'week-card', 'recent-themes-wrap', 'library-progress'];
 
 /* Dimmed also means asleep. After a language switch the cards still show the
@@ -175,12 +184,14 @@ const REFRESHED = ['today-card', 'today-alt', 'recommend', 'resume-card',
    recommendation) would act on a language the buttons no longer show. `inert`
    takes them out of clicks, focus and the accessibility tree until the answer
    is painted; .is-refreshing's pointer-events: none is the belt for a browser
-   without inert. */
+   without inert. A card that is also shut by its own collapse class (see
+   setCollapsedShown below -- #resume-card, #review-home) stays inert even
+   once the dim itself lifts. */
 function setRefreshing(on) {
   for (const id of REFRESHED) {
     const card = $(id);
     card.classList.toggle('is-refreshing', on);
-    card.inert = on || resumeCollapsed(card);
+    card.inert = on || card.classList.contains('is-collapsed');
   }
 }
 
@@ -193,14 +204,19 @@ function resumeCollapsed(card = $('resume-card')) {
   return card.id === 'resume-card' && card.classList.contains('is-collapsed');
 }
 
-/* `instant`: the first paint's reveal. The card starts collapsed in the
-   markup, so without it every fresh page load with a session would slide the
-   card open after the round trip -- new motion on first load. .no-motion
+/* Shared by #resume-card and #review-home: both exist only some of the time
+   (a session to resume; a nonzero review count) and both used to pop in and
+   out, jumping whatever sat below them by the card's own height. Both slide
+   instead, by class, never `hidden` -- see their matching CSS in
+   components.css.
+
+   `instant`: the first paint's reveal. The card starts collapsed in the
+   markup, so without it every fresh page load that finds content would slide
+   the card open after the round trip -- new motion on first load. .no-motion
    turns the transition off, the offsetHeight read makes the browser apply the
    open state under it, and taking the class off afterwards leaves later
    language switches sliding as before. */
-function setResumeShown(on, { instant = false } = {}) {
-  const card = $('resume-card');
+function setCollapsedShown(card, on, { instant = false } = {}) {
   card.hidden = false;
   if (instant) card.classList.add('no-motion');
   card.classList.toggle('is-collapsed', !on);
@@ -210,6 +226,14 @@ function setResumeShown(on, { instant = false } = {}) {
   }
   card.setAttribute('aria-hidden', String(!on));
   card.inert = !on || card.classList.contains('is-refreshing');
+}
+
+function setResumeShown(on, opts) {
+  setCollapsedShown($('resume-card'), on, opts);
+}
+
+function setReviewHomeShown(on, opts) {
+  setCollapsedShown($('review-home'), on, opts);
 }
 
 /* Shaped like paintToday's card -- title line (the wait's own words sit
@@ -461,6 +485,52 @@ export function renderLibraryProgress(library) {
     line.removeAttribute('aria-hidden');
   } else {
     setShown(line, incomplete);      // unknown or incomplete: keep the row (R5)
+  }
+}
+
+/* ---------- 오늘 복습 ---------- */
+
+/* Painted from /stats/home's `review: {due, first}`, next to (and following
+   the same rules as) the week card and the resume card. `first` is only ever
+   used to fill the card and to know what 듣기 plays -- reviewFirst holds it
+   for playReviewHome the same way resumeTarget holds a session for
+   resumeSession. `instant` is passed straight through to setCollapsedShown;
+   loadHome supplies its own firstPaint flag, and no other caller needs it. */
+export function renderReviewHome(review, { instant = false } = {}) {
+  const due = (review && review.due) || 0;
+  const first = (review && review.first) || null;
+  const show = due > 0 && Boolean(first);
+  reviewFirst = show ? first : null;
+  if (show) {
+    $('review-home-count').textContent = `오늘 복습할 문장 ${due}개`;
+    $('review-home-first').textContent = first.fixed;
+  }
+  setReviewHomeShown(show, { instant });
+}
+
+/* ▶ 듣기 -> 음성 준비 중... -> ▶ 듣기, the same shape as mypage.js's playReview
+   for a review card there: POST synthesises (or reuses) the clip, and a
+   failed synthesis falls back to the browser's own voice rather than leaving
+   the learner with a dead button. Guarded by #review-home's own `inert`, the
+   same way resumeSession reads #resume-card's -- a dimmed card is one
+   loadHome is about to repaint, possibly for another language. */
+export async function playReviewHome() {
+  const btn = $('review-home-play');
+  if (!reviewFirst || btn.disabled || $('review-home').inert) return;
+  const item = reviewFirst;
+  btn.disabled = true;
+  btn.textContent = '음성 준비 중...';
+  try {
+    let key = null;
+    try {
+      ({ audio_key: key } = await postJSON(`/review/${item.id}/audio`, {}));
+    } catch {
+      key = null;   // play(null, …) is the browser's voice
+    }
+    play(key || null, item.fixed);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = REVIEW_PLAY_LABEL;
   }
 }
 

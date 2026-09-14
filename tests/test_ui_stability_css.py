@@ -150,7 +150,7 @@ def test_report_wait_fades_in_with_opacity_only():
     assert "opacity" in frames and "transform" not in frames
 
 
-REFRESHED_CARDS = ("#today-card", "#today-alt", "#recommend", "#resume-card",
+REFRESHED_CARDS = ("#today-card", "#today-alt", "#review-home", "#recommend", "#resume-card",
                    "#week-card", "#recent-themes-wrap", "#library-progress")
 
 
@@ -244,3 +244,50 @@ def test_replayed_bubbles_do_not_animate():
 def test_resume_card_first_reveal_can_skip_the_slide():
     """home.js puts .no-motion on for the first paint's reveal only."""
     assert "transition: none" in _rule_body(_all_css(), "#resume-card.no-motion {")
+
+
+def test_review_home_collapses_by_grid_rows_with_opacity_like_the_resume_card():
+    """Task 4 addendum: #review-home must not pop -- it mirrors #resume-card's
+    own collapse pattern (grid-rows 1fr <-> 0fr, clip, opacity), not `hidden`."""
+    css = _all_css()
+    card = _rule_body(css, "#review-home {")
+    assert "display: grid" in card and "grid-template-rows: 1fr" in card
+    moving = _rule_body(css, ":where(#review-home) {")
+    for prop in ("grid-template-rows var(--dur-fast)", "opacity var(--dur-fast)", "margin-bottom var(--dur-fast)"):
+        assert prop in moving, prop
+    collapsed = _rule_body(css, "#review-home.is-collapsed {")
+    assert "grid-template-rows: 0fr" in collapsed and "opacity: 0" in collapsed
+    assert "margin-bottom: calc(-1 * var(--space-4))" in collapsed, "the column's gap must collapse too"
+    clip = _rule_body(css, ".review-home-clip {")
+    assert "overflow: hidden" in clip and "min-height: 0" in clip
+    block = "\n".join(_reduced_motion_blocks(css))
+    assert re.search(r"#review-home\s*\{[^}]*transition: none", block)
+
+
+def test_review_home_first_reveal_can_skip_the_slide():
+    """home.js's renderReviewHome passes `instant` through to setCollapsedShown,
+    which puts .no-motion on for the first paint's reveal only."""
+    assert "transition: none" in _rule_body(_all_css(), "#review-home.no-motion {")
+
+
+def test_review_home_play_button_keeps_a_stable_width():
+    """R7: ▶ 듣기 -> 음성 준비 중... on the home review card, same as the review
+    card's own 듣기 button on my page."""
+    body = _rule_body(_all_css(), ".review-home-actions .btn-stable {")
+    assert "min-width: calc(" in body
+
+
+def test_review_home_sits_right_after_today_alt_in_the_phone_order():
+    """Task 4 addendum: on the <=880px phone layout #review-home slots in
+    right after #today-alt, ahead of #resume-card and everything below it.
+    (Two `@media (max-width: 880px)` blocks exist -- #report's own and
+    #home's order fix-up -- so this searches the whole file for each
+    selector's own `order:` declaration rather than picking one block.)"""
+    css = _all_css()
+    order = {}
+    for selector in ("#today-alt", "#review-home", "#resume-card", "#week-card", "#recommend"):
+        m = re.search(re.escape(selector) + r"\s*\{\s*order:\s*(\d+);", css)
+        assert m, f"{selector} has no order in the phone breakpoint"
+        order[selector] = int(m.group(1))
+    assert order["#today-alt"] < order["#review-home"] < order["#resume-card"] \
+        < order["#week-card"] < order["#recommend"]
