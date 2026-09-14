@@ -265,6 +265,66 @@ test('reloading home keeps the painted cards in place and dims them while it wai
 /* A failed reload for the language already on screen keeps it (it is still
    true); one for a different language hides it -- the old language's week and
    themes must never sit under the new language's button. */
+/* After a language switch the previous language's cards stay on screen,
+   dimmed, until the new answer lands. Dimmed must mean asleep: 계속 on the old
+   language's resume card would set state.language back to that language
+   behind the new language button. */
+test('the dimmed cards cannot be used while home reloads after a language switch', async () => {
+  router.register('session', 'session');
+  state.language = 'en';
+  state.sessionId = null;
+  await armResumeCard();
+  assert.equal($('resume-card').hidden, false);
+
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const opened = [];
+  stubFetch(async (url) => {
+    if (url.startsWith('/api/sessions/resumable')) { await held; return jsonResponse({ session: null }); }
+    if (url.startsWith('/api/stats/home')) { await held; return jsonResponse(PAYLOAD()); }
+    if (url.startsWith('/api/sessions/')) opened.push(url);
+    return jsonResponse({ session: { id: 42, language: 'en' }, messages: [] });
+  });
+  state.language = 'ja';
+  const reloading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+
+  for (const id of ['today-card', 'resume-card', 'week-card', 'recent-themes-wrap']) {
+    assert.equal($(id).inert, true, `#${id} is dimmed but still usable`);
+  }
+  await home.resumeSession();
+  assert.deepEqual(opened, [], 'a dimmed resume card resumed a session');
+  assert.equal(state.language, 'ja', 'a dimmed resume card changed the language');
+  assert.equal(state.sessionId, null);
+
+  release();
+  await reloading;
+  for (const id of ['today-card', 'resume-card', 'week-card', 'recent-themes-wrap']) {
+    assert.equal($(id).inert, false, `#${id} stayed inert after the reload finished`);
+  }
+  state.language = 'en';
+});
+
+/* resumeSession makes the resumed session's language the app's; the language
+   segments must say so too, or the next home load paints that language under
+   the other button. */
+test('resumeSession moves the language buttons to the resumed language', async () => {
+  router.register('session', 'session');
+  state.language = 'en';
+  state.sessionId = null;
+  const make = (lang) => { const b = document.createElement('button'); b.dataset.language = lang; return b; };
+  const segs = [$('language-seg'), $('pick-language-seg')];
+  for (const seg of segs) seg.replaceChildren(make('en'), make('ja'));
+  await armResumeCard();
+  stubFetch(async () => jsonResponse({ session: { id: 42, language: 'ja' }, messages: [] }));
+  await home.resumeSession();
+  assert.equal(state.language, 'ja');
+  for (const seg of segs) {
+    assert.deepEqual(seg.children.map((b) => b.classList.contains('on')), [false, true]);
+  }
+  state.language = 'en';
+});
+
 test('a failed reload keeps the same language painted but hides another language', async () => {
   state.language = 'en';
   homeRoutes(PAYLOAD());

@@ -25,6 +25,16 @@ export const state = {
   chunks: [],
 };
 
+/* Home and pick each carry a language segment, and both show the one
+   state.language. Lives here rather than in pick.js because home.js's
+   resumeSession changes the language too, and home.js must not import pick.js
+   (that closes an import cycle -- see home.js's header). */
+export function syncLanguageButtons() {
+  for (const seg of [$('language-seg'), $('pick-language-seg')]) {
+    for (const b of seg.children) b.classList.toggle('on', b.dataset.language === state.language);
+  }
+}
+
 export function notify(message) {
   const box = $('notice');
   const text = $('notice-text');

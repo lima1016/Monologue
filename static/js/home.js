@@ -13,7 +13,7 @@
    the moment it does, they are one module again with an import statement
    between them. home.js must not import pick.js either (that would close a
    cycle), which is why the start buttons are wired in main.js. */
-import { $, getJSON, postJSON, state, notify, setShown } from './api.js';
+import { $, getJSON, postJSON, state, notify, setShown, syncLanguageButtons } from './api.js';
 import * as router from './router.js';
 import { addMessage } from './session.js';
 import { setSuggestVisible } from './suggest.js';
@@ -92,8 +92,8 @@ export async function loadHome() {
     if (state.language !== lang) return; // a newer switch already won
 
     $('resume-card').hidden = !session;
+    resumeTarget = session || null;
     if (session) {
-      resumeTarget = session;
       $('resume-title').textContent = `이어서 하기 — ${session.title}`;
       $('resume-sub').textContent = `대화 ${session.turns}턴에서 멈췄습니다`;
     }
@@ -168,8 +168,18 @@ function hideHistory() {
 const REFRESHED = ['today-card', 'today-alt', 'recommend', 'resume-card',
   'week-card', 'recent-themes-wrap', 'library-progress'];
 
+/* Dimmed also means asleep. After a language switch the cards still show the
+   previous language; 계속 on that resume card (or a start button on that
+   recommendation) would act on a language the buttons no longer show. `inert`
+   takes them out of clicks, focus and the accessibility tree until the answer
+   is painted; .is-refreshing's pointer-events: none is the belt for a browser
+   without inert. */
 function setRefreshing(on) {
-  for (const id of REFRESHED) $(id).classList.toggle('is-refreshing', on);
+  for (const id of REFRESHED) {
+    const card = $(id);
+    card.classList.toggle('is-refreshing', on);
+    card.inert = on;
+  }
 }
 
 /* Shaped like paintToday's card -- title line (the wait's own words sit
@@ -457,7 +467,9 @@ export function setBusy(value) { busy = Boolean(value); }
    GET /sessions/resumable itself); resumeSession does not need its own
    guard for it because resumeTarget can never hold a script session. */
 export async function resumeSession() {
-  if (!resumeTarget || busy) return;
+  // A dimmed card is one loadHome is about to repaint -- possibly for another
+  // language. inert already stops the click; this stops every other caller.
+  if (!resumeTarget || busy || $('resume-card').inert) return;
   busy = true;
   try {
     // A network round trip with nothing else on screen changing -- the card
@@ -477,6 +489,7 @@ export async function resumeSession() {
     // without this line a stray write to it between loadHome and this click
     // (or a future loosening of that scoping) would silently mis-render.
     state.language = session.language;
+    syncLanguageButtons();
     router.show('session');
     $('conversation').replaceChildren();
     // GET /sessions/{id} hands back a cache-only audio_key per bot message

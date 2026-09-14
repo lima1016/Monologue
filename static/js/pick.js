@@ -8,7 +8,7 @@
 
    Imports run one way: this module uses startSession from session.js and the
    start/resume guard from home.js. Neither of those imports this one. */
-import { $, getJSON, postJSON, state, notify, setShown } from './api.js';
+import { $, getJSON, postJSON, state, notify, setShown, syncLanguageButtons } from './api.js';
 import * as router from './router.js';
 import { startSession } from './session.js';
 import { isBusy, setBusy } from './home.js';
@@ -57,11 +57,9 @@ export function setStatus(text) {
 }
 
 /* Both language segments (home's and this screen's) show the one state.language. */
-export function syncLanguageButtons() {
-  for (const seg of [$('language-seg'), $('pick-language-seg')]) {
-    for (const b of seg.children) b.classList.toggle('on', b.dataset.language === state.language);
-  }
-}
+// Moved to api.js so home.js's resumeSession can use it without a cycle;
+// re-exported here for the callers that already import it from pick.js.
+export { syncLanguageButtons };
 
 export async function openPick(mode) {
   // A start is in flight: ← 홈 and back (or any mode card) returns to that
