@@ -39,22 +39,36 @@ let liveHeard = '';
    Hangul, full-width forms) is about two Latin letters wide at the hint's
    size, so a character cap that fits two lines of English ran a Japanese
    transcript to three lines on a phone -- and then line-clamp cut its end
-   after all. 64 units is about two lines of mixed text at phone width. */
-const HINT_MAX_UNITS = 64;
+   after all.
+
+   The budget follows the hint's own width (hintUnits): a Latin letter averages
+   about 0.55em, so two lines hold 2 * width / (0.55 * font size) units, less
+   15% for word wrap leaving ragged line ends. A fixed 64 fitted a phone and
+   cut a desktop dock at a third of a line. 64 stays as the fallback when there
+   is no layout to measure (a hidden screen, or dom-shim). */
+const HINT_FALLBACK_UNITS = 64;
 // Hangul Jamo, CJK radicals through Yi (kana, CJK symbols, ideographs),
 // Hangul syllables, compatibility ideographs and forms, full-width forms,
 // and the supplementary ideograph planes.
 const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u{20000}-\u{3fffd}]/u;
 const glyphUnits = (ch) => (WIDE.test(ch) ? 2 : 1);
 
-export function clampHint(text) {
+export function hintUnits(hint) {
+  const width = hint.clientWidth || 0;
+  const fontPx = typeof getComputedStyle === 'function'
+    ? parseFloat(getComputedStyle(hint).fontSize) : 0;
+  if (!(width > 0) || !(fontPx > 0)) return HINT_FALLBACK_UNITS;
+  return Math.floor(2 * width / (fontPx * 0.55) * 0.85);
+}
+
+export function clampHint(text, budget = HINT_FALLBACK_UNITS) {
   const glyphs = [...text];
   let units = 0;
   for (const ch of glyphs) units += glyphUnits(ch);
-  if (units <= HINT_MAX_UNITS) return text;
+  if (units <= budget) return text;
   let start = glyphs.length;
   let kept = 0;
-  while (start > 0 && kept + glyphUnits(glyphs[start - 1]) <= HINT_MAX_UNITS) {
+  while (start > 0 && kept + glyphUnits(glyphs[start - 1]) <= budget) {
     start -= 1;
     kept += glyphUnits(glyphs[start]);
   }
@@ -135,8 +149,9 @@ function syncControls() {
   // learner actually notice a cut-off before it's sent, instead of only
   // finding out after. The non-listening text matches index.html's initial
   // markup so returning to idle doesn't visibly change the wording.
-  $('mic-hint').textContent = listening
-    ? (transcribingRespeak ? '받아쓰는 중...' : (clampHint(liveHeard) || '듣고 있습니다...'))
+  const hint = $('mic-hint');
+  hint.textContent = listening
+    ? (transcribingRespeak ? '받아쓰는 중...' : (clampHint(liveHeard, hintUnits(hint)) || '듣고 있습니다...'))
     : turnState === 'transcribing'
       ? '받아쓰는 중...'
       : '누르고 말한 뒤, 다 말하면 다시 눌러서 전송하세요';

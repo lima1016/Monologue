@@ -422,6 +422,45 @@ test('a long English transcript is clamped to 64 units plus the ellipsis, keepin
   assert.equal(session.clampHint('I went there.'), 'I went there.');
 });
 
+/* The budget is the hint's own width: a desktop dock holds far more than 64
+   units on two lines, and cutting there showed a third of a line. */
+test('clampHint takes a unit budget; a wider budget keeps more and still ends on the last word', () => {
+  const numbered = Array.from({ length: 60 }, (_, i) => `w${i}`).join(' ');
+  const narrow = session.clampHint(numbered);
+  const wide = session.clampHint(numbered, 200);
+  assert.ok(wide.startsWith('…') && wide.endsWith('w59'), wide);
+  assert.ok(wide.length - 1 <= 200 && wide.length > narrow.length, wide);
+  assert.equal(session.clampHint(numbered, 64), narrow, 'the default budget is 64 units');
+});
+
+test('the hint budget comes from #mic-hint width and font size, 64 when either is unknown', () => {
+  resetDom();
+  assert.equal(session.hintUnits($('mic-hint')), 64, 'dom-shim has no layout: fall back');
+  const hint = $('mic-hint');
+  hint.clientWidth = 400;
+  const saved = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = () => ({ fontSize: '13px' });
+  try {
+    // floor(2 * 400 / (13 * 0.55) * 0.85) = 95
+    assert.equal(session.hintUnits(hint), 95);
+    globalThis.getComputedStyle = () => ({ fontSize: '' });
+    assert.equal(session.hintUnits(hint), 64, 'no font size: fall back');
+    globalThis.getComputedStyle = () => ({ fontSize: '13px' });
+    hint.clientWidth = 0;
+    assert.equal(session.hintUnits(hint), 64, 'a hidden hint has no width: fall back');
+
+    hint.clientWidth = 400;
+    session.setTurnState('CANCEL');
+    session.setTurnState('MIC');
+    const long = `${'old '.repeat(40)}newest words`;
+    audioInterim(long);
+    assert.equal(hint.textContent, session.clampHint(long, 95), 'the live hint must use the width budget');
+    session.setTurnState('CANCEL');
+  } finally {
+    globalThis.getComputedStyle = saved;
+  }
+});
+
 /* One interim result through the fake recognition's own onresult, the way
    Chrome streams the live transcript to audio.js and on to #mic-hint. */
 function audioInterim(text) {
