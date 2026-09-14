@@ -23,8 +23,8 @@ select, input[type=text] {
   background: var(--surface); color: inherit;
 }
 /* One focus ring for everything focusable rather than a selector list that has
-   to be kept in step with the markup -- the home screen's language segment,
-   chips and mode cards are all buttons, but a future link or [tabindex] would
+   to be kept in step with the markup -- the language segments, mode cards,
+   category tabs and theme cards are all buttons, but a future link or [tabindex] would
    have been missed. :focus-visible only fires for keyboard/assistive focus, so
    clicking a button never paints it. Controls that sit on an --accent fill
    override outline-color to --on-accent below; an accent ring on an accent
@@ -360,7 +360,7 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
              border-radius: var(--radius); padding: var(--space-3) var(--space-4);
              font-size: var(--text-sm); margin: 0; }
 
-/* Question one. Tight internal spacing so the field, its hint and the chips
+/* The wish field on #pick. Tight internal spacing so the field and its hint
    read as one block against the --space-4 rhythm of the screen. */
 .home-ask { display: flex; flex-direction: column; gap: var(--space-2);
             margin-top: var(--space-2); }
@@ -376,20 +376,7 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 #wish:hover { border-color: var(--text-faint); }
 #wish:focus { border-color: var(--accent); }
 
-#home .hint { font-size: var(--text-sm); margin: 0; }
-
-/* loadChips() empties #chips in lesson mode and while the fetch is in flight.
-   An empty flex item still takes a gap slot, so collapse it -- this is what
-   stops the first-run screen showing a stray hole between the hint and the
-   modes. Safe against the `hidden` contract: #chips is never toggled by JS,
-   and [hidden] carries !important anyway. */
-.chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-1) 0 0; }
-.chips:empty { display: none; }
-/* 칩: 테두리 상자에서 조용한 텍스트로. 상자가 하나 줄어든다. */
-.chips button { font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
-                border-radius: var(--radius-pill); color: var(--text-dim);
-                background: transparent; border-color: transparent; }
-.chips button:hover { background: var(--accent-soft); color: var(--accent-ink); }
+#home .hint, #pick .hint { font-size: var(--text-sm); margin: 0; }
 
 /* 모드 3개는 상자 셋이 아니라 세그먼트 하나다. 상자 셋일 때는 시작 버튼과
    무게를 다퉜다. */
@@ -402,12 +389,46 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
         padding: var(--space-3) var(--space-2); border-radius: var(--radius-sm); }
 .mode .n { font-size: var(--text-base); font-weight: 650; }
 .mode .d { font-size: var(--text-xs); color: var(--text-faint); line-height: 1.4; }
-/* border 0 makes the old border-color hover a no-op -- a background tint
-   takes its place, and only for the two cards that aren't already filled by
-   .mode.on. */
-.mode:not(.on):hover { background: var(--accent-soft); }
-.mode.on { background: var(--surface); box-shadow: var(--shadow); }
-.mode.on .d { color: var(--text-dim); }
+/* The cards on #home go straight to #pick, so none of them is ever "the
+   selected one" -- a hover tint is the whole of their state. border 0 makes a
+   border-color hover a no-op, hence the background. */
+#home .modes .mode:hover { background: var(--accent-soft); }
+#home .modes .mode:hover .d { color: var(--text-dim); }
+
+/* --- pick ---
+
+   One column: 모드 이름, 분류 탭, 테마 카드, 직접 만들기, 시작, 그 아래 단계
+   문구. The same width #home collapses to, so moving between the two does not
+   make the column jump. */
+#pick { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+.pick-head { display: flex; align-items: center; gap: var(--space-3); }
+#pick-mode { flex: 1; margin: 0; font-size: var(--text-2xl); font-weight: 750; color: var(--text); }
+#pick-themes { display: flex; flex-direction: column; gap: var(--space-3); }
+
+/* The tabs are the language segment's shape, only wrapping: five labels do not
+   always fit one line on a phone. */
+.tabs { display: inline-flex; flex-wrap: wrap; align-self: flex-start; gap: 2px;
+        background: var(--surface-sunken); border-radius: var(--radius-sm); padding: 2px; }
+.tabs button { font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+               border: 0; background: transparent; color: var(--text-dim); border-radius: var(--radius-sm); }
+.tabs button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.tabs button:focus-visible { outline-offset: -2px; }
+
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2); }
+/* A theme card is a mode card laid out as a tile: the same sunken-to-raised
+   step marks the chosen one (.on), the same tint marks hover. */
+.theme-card { display: flex; flex-direction: column; gap: var(--space-1); text-align: left;
+              border: 0; background: var(--surface-sunken); border-radius: var(--radius-sm);
+              padding: var(--space-3); }
+.theme-card .t { font-size: var(--text-base); font-weight: 650; }
+.theme-card .s { font-size: var(--text-xs); color: var(--text-dim); line-height: 1.4; }
+.theme-card:hover:not(:disabled):not(.on) { background: var(--accent-soft); }
+.theme-card.on { background: var(--surface); box-shadow: var(--shadow); }
+.theme-card:disabled { opacity: .45; }
+
+.start-status { display: flex; align-items: center; gap: var(--space-2);
+                color: var(--text-dim); font-size: var(--text-sm); }
+.start-status .thinking { padding: 0; }
 
 /* The destination. Full width because that is the plainest way to say "this is
    the thing you press" without adding a colour or a border the screen doesn't

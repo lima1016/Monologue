@@ -199,6 +199,10 @@ test('a language switch while themes load does not paint the old language', asyn
   await Promise.all([opening, reopened]);
   pick.selectCategory('travel');
   assert.deepEqual(cards().map((c) => c.dataset.theme), ['hotel']);
+  // The travel check alone cannot fail: the en list has hotel under travel
+  // too, so a stale en paint looks the same there. Only daily tells them apart.
+  pick.selectCategory('daily');
+  assert.deepEqual(cards().map((c) => c.dataset.theme), [], 'the en daily themes were painted over ja');
 });
 
 /* ---------- moved from home.test.js (were startFromHome) ----------
