@@ -278,6 +278,25 @@ def test_recommend_avoids_the_category_just_practised_when_it_can(store, monkeyp
         assert first["category"] == "travel", seed_day
 
 
+def test_recommend_prefers_never_played_even_in_the_last_practised_category(store, monkeypatch):
+    """Spec step 3 (pool: never-played, else oldest half) runs before step 4
+    (prefer another category within that pool) -- not the other way around.
+    Here the only never-played themes are business, and business is also the
+    category just practised: a category-first filter would strand them as
+    the alternative forever and hand the big card to an old daily/travel/
+    smalltalk theme instead."""
+    for theme in ("cafe-restaurant", "hotel", "first-meeting", "standup", "meetings", "phone-email"):
+        _ready(store, theme)
+    _played(store, monkeypatch, "lib-cafe-restaurant-en-01", "2026-09-01T03:00:00+00:00")
+    _played(store, monkeypatch, "lib-hotel-en-01", "2026-09-02T03:00:00+00:00")
+    _played(store, monkeypatch, "lib-first-meeting-en-01", "2026-09-03T03:00:00+00:00")
+    _played(store, monkeypatch, "lib-standup-en-01", "2026-09-04T03:00:00+00:00")  # most recent, business
+    for seed_day in range(1, 20):
+        first = library.recommend("en", date(2026, 9, seed_day))[0]
+        assert first["theme_id"] in {"meetings", "phone-email"}, seed_day
+        assert first["reason"] == "아직 안 해본 테마예요", seed_day
+
+
 def test_recommend_is_stable_within_a_day(store):
     for theme in ("hotel", "shopping", "meetings", "interview", "hobbies", "first-meeting"):
         _ready(store, theme)

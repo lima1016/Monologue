@@ -147,7 +147,13 @@ def _local_day(iso):
 def recommend(language, today) -> list:
     """오늘의 추천: 준비된 테마 중 안 해본 것, 없으면 오래된 앞쪽 절반. 방금 한
     분류는 다른 후보가 있으면 피한다. 같은 날에는 같은 결과 -- 새로고침마다
-    바뀌면 '아까 그거'를 다시 찾을 수 없다."""
+    바뀌면 '아까 그거'를 다시 찾을 수 없다.
+
+    "같은 날에는 같은 결과"는 시드(오늘 날짜)가 고정이라는 뜻이지, 입력이
+    고정이라는 뜻은 아니다. 같은 날 안에서도 새 대본이 만들어져 준비 상태가
+    바뀌거나(`library_readiness`) 그 사이에 연습을 해서 이력이 바뀌면
+    (`library_sessions`), 다음 호출은 다른 후보 풀에서 고르므로 결과가
+    달라질 수 있다."""
     readiness = db.library_readiness(language)
     ready = [(theme, readiness[theme["id"]]) for theme in load_themes() if theme["id"] in readiness]
     if not ready:
@@ -178,9 +184,9 @@ def recommend(language, today) -> list:
         return ordered[:max(1, len(ordered) // 2)]
 
     def pick(items, avoid):
-        preferred = [x for x in items if x[0]["category"] != avoid]
-        choices = pool(preferred) if preferred else pool(items)
-        return rng.choice(sorted(choices, key=lambda x: x[0]["id"]))
+        base = pool(items)
+        preferred = [x for x in base if x[0]["category"] != avoid]
+        return rng.choice(sorted(preferred or base, key=lambda x: x[0]["id"]))
 
     first = pick(ready, recent_category)
     rest = [x for x in ready if x[0]["id"] != first[0]["id"]]
