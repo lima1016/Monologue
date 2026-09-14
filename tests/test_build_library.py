@@ -173,3 +173,62 @@ def test_progress_lines_carry_the_theme_position_and_a_running_total(store):
     ok = [s for s in said if s.endswith("ok") or " ok " in s]
     assert any("theme 1/2" in s and "done 2/4" in s for s in ok), said
     assert any("theme 2/2" in s and "done 4/4" in s for s in ok), said
+
+
+# ---------- Ollama down: stop, do not spin for hours ----------
+
+def test_five_model_errors_in_a_row_stop_the_run_cleanly(store):
+    from app.llm import LLMError
+    model = FakeModel([LLMError("connection refused")] * 5 + [("never", _lines("Never mu1"))])
+    said = []
+    report = build_library.build([THEME], ["en"], 3, chat_json=model, log=said.append)
+    assert report["stopped"] == "model-errors"
+    assert report["added"] == 0 and report["reasons"]["model-error"] == 5
+    assert len(model.scripts) == 1, "the run kept calling a model that was down"
+    assert any("connection refused" in s for s in said), "the model's own message was not logged"
+    assert any("LLMError" in s for s in said)
+    assert any("다시 실행하면 이어서" in s for s in said), said[-1]
+
+
+def test_a_model_answer_resets_the_error_count(store):
+    from app.llm import LLMError
+    e = LLMError("busy")
+    model = FakeModel([e, e, e, e, ("ok", _lines("Between nu2")), e, e, e, e])
+    report = build_library.build([THEME], ["en"], 3, chat_json=model, log=lambda *a: None)
+    assert report["stopped"] is None
+    assert report["added"] == 1 and report["gave_up"] == 2 and report["reasons"]["model-error"] == 8
+
+
+def test_a_stop_also_counts_failures_of_the_free_setup(store):
+    from app.llm import LLMError
+
+    calls = []
+
+    def down(messages, schema, **kw):
+        calls.append(1)
+        raise LLMError("down")
+    # per_theme 0: only free setups are asked for, so the fifth error lands inside one.
+    themes = [{**THEME, "id": f"t{i}"} for i in range(8)]
+    report = build_library.build(themes, ["en"], 0, chat_json=down, log=lambda *a: None)
+    assert report["stopped"] == "model-errors" and len(calls) == 5
+
+
+def test_main_refuses_to_start_when_ollama_is_not_answering(store, monkeypatch, capsys):
+    from app import llm
+    monkeypatch.setattr(llm, "is_healthy", lambda: False)
+    called = []
+    monkeypatch.setattr(build_library, "build", lambda *a, **k: called.append(1))
+    with pytest.raises(SystemExit) as exc:
+        build_library.main(["--language", "en", "--theme", "hotel", "--per-theme", "1"])
+    assert exc.value.code != 0 and called == []
+    assert "Ollama" in capsys.readouterr().out
+
+
+def test_main_prints_the_partial_report_of_a_stopped_run(store, monkeypatch, capsys):
+    from app import llm
+    monkeypatch.setattr(llm, "is_healthy", lambda: True)
+    monkeypatch.setattr(build_library, "build",
+                        lambda *a, **k: {"added": 2, "retries": 5, "gave_up": 0, "reasons": {}, "stopped": "model-errors"})
+    build_library.main(["--language", "en", "--theme", "hotel", "--per-theme", "1"])
+    out = capsys.readouterr().out
+    assert "'stopped': 'model-errors'" in out and "'added': 2" in out
