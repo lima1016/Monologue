@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal
 
@@ -53,6 +54,57 @@ def list_scenarios(language: Language, mode: Mode | None = Query(default=None)):
             for s in items
         ]
     }
+
+
+THEME_NOT_READY = "이 테마는 아직 준비되지 않았어요"
+
+# 한 줄씩 순서대로. VOICEVOX를 동시에 두드려도 빨라지지 않고, 세션 시작의
+# _speak와 겹칠 뿐이다. 캐시 키가 같으므로 겹쳐도 결과는 같다.
+_audio_executor = ThreadPoolExecutor(max_workers=1)
+
+
+@router.get("/themes")
+def list_themes(language: Language):
+    out = []
+    for theme in library.load_themes():
+        out.append({**theme, "ready": {
+            "free": library.free_setup(language, theme["id"]) is not None,
+            "script": len(db.library_scenarios(language, theme["id"], "script")),
+        }})
+    return {"themes": out}
+
+
+class LibraryPick(BaseModel):
+    language: Language
+    mode: Mode
+    theme_id: str
+
+
+def _prepare_audio(lines, language):
+    """Warm the TTS cache for a script the learner is about to open. Best effort:
+    start_session's own _speak synthesises anything this did not get to."""
+    for line in lines:
+        try:
+            _speak(line["text"], language)
+        except Exception:
+            pass
+
+
+@router.post("/library/pick")
+def pick_from_library(payload: LibraryPick):
+    if library.get_theme(payload.theme_id) is None:
+        raise HTTPException(404, "no such theme")
+    if payload.mode == "lesson":
+        raise HTTPException(400, "lesson mode has no themes")
+    if payload.mode == "free":
+        item = library.free_setup(payload.language, payload.theme_id)
+    else:
+        item = library.pick_script(payload.language, payload.theme_id)
+    if item is None:
+        raise HTTPException(409, THEME_NOT_READY)
+    if payload.mode == "script":
+        _audio_executor.submit(_prepare_audio, item["lines"], payload.language)
+    return {"id": item["id"], "title": item["title"], "situation": item.get("situation")}
 
 
 class ScenarioWish(BaseModel):
