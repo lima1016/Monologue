@@ -639,3 +639,15 @@ test('once Whisper is transcribing the re-speak, the big mic goes dead again', a
   // Let the pending transcript resolve before the next test reuses `rec`.
   await new Promise((r) => setTimeout(r, 0));
 });
+
+test('a session that could not be created says so in the same voice as the pick screen', async () => {
+  resetDom();
+  router.register('home', 'home');
+  router.register('session', 'session');
+  stubFetch(async (url) => {
+    if (url === '/api/sessions') return jsonResponse({ detail: 'boom' }, { ok: false, status: 500 });
+    return jsonResponse({});
+  });
+  await startSession({ language: 'en', mode: 'free', scenarioId: 'x' });
+  assert.match($('notice').textContent, /^세션을 시작하지 못했어요: /);
+});

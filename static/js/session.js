@@ -330,7 +330,7 @@ export async function startSession({ language, mode, scenarioId, topic } = {}) {
       play(data.opening_audio, data.opening);
     }
   } catch (err) {
-    notify(`세션을 시작하지 못했습니다: ${err.message}`);
+    notify(`세션을 시작하지 못했어요: ${err.message}`);
   } finally {
     $('btn-start').disabled = false;
   }
