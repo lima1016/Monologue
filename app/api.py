@@ -6,11 +6,12 @@ import re
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from app import config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, tts
@@ -1232,11 +1233,73 @@ def resumable(language: Language):
     }}
 
 
+_WEEKDAY_LABELS = "월화수목금토일"
+_WEEKLY_GOAL_KEY = "weekly_goal"
+_WEEKLY_GOAL_DEFAULT = 5
+_RECENT_THEMES = 4
+
+
+def _today() -> date:
+    # Local, like db.home_stats -- the learner's week starts at their Monday midnight.
+    return datetime.now().date()
+
+
+def _weekly_goal() -> int:
+    try:
+        goal = int(db.get_setting(_WEEKLY_GOAL_KEY, _WEEKLY_GOAL_DEFAULT))
+    except (TypeError, ValueError):
+        return _WEEKLY_GOAL_DEFAULT
+    return goal if 1 <= goal <= 14 else _WEEKLY_GOAL_DEFAULT
+
+
+def _week(language, today):
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    practiced = db.practice_days(language, monday, sunday)
+    days = []
+    for i in range(7):
+        d = monday + timedelta(days=i)
+        days.append({"date": d.isoformat(), "label": _WEEKDAY_LABELS[i], "practiced": d.isoformat() in practiced,
+                     "today": d == today, "future": d > today})
+    return {"days": days, "sessions": db.sessions_completed_since(language, monday), "goal": _weekly_goal()}
+
+
+def _recent_themes(language):
+    out, seen = [], set()
+    for row in db.library_sessions(language):
+        theme_id = library.theme_of(row["scenario_id"])
+        theme = library.get_theme(theme_id) if theme_id else None
+        if theme is None or theme_id in seen:
+            continue
+        seen.add(theme_id)
+        out.append({"theme_id": theme_id, "title": theme["title"], "mode": row["mode"]})
+        if len(out) == _RECENT_THEMES:
+            break
+    return out
+
+
 @router.get("/stats/home")
 def home_stats(language: Language):
     stats = db.home_stats(language)
     stats["recent"] = [_recent_row(r) for r in db.recent_sessions(language)]
+    today = _today()
+    stats["has_history"] = db.has_sessions(language)
+    stats["week"] = _week(language, today)
+    stats["recommend"] = library.recommend(language, today)
+    stats["recent_themes"] = _recent_themes(language)
+    stats["library"] = {"scripts": db.library_script_count(language),
+                        "target": len(library.load_themes()) * config.LIBRARY_PER_THEME}
     return stats
+
+
+class WeeklyGoal(BaseModel):
+    goal: int = Field(ge=1, le=14)
+
+
+@router.post("/settings/weekly-goal")
+def set_weekly_goal(payload: WeeklyGoal):
+    db.set_setting(_WEEKLY_GOAL_KEY, str(payload.goal))
+    return {"goal": payload.goal}
 
 
 def _recent_row(row: dict) -> dict:
