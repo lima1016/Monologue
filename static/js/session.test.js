@@ -348,13 +348,148 @@ test('cancelling a listen returns to idle, hides the cancel button, and sends no
   stubFetch(async (url) => { requests.push(url); return jsonResponse({}); });
 
   session.setTurnState('MIC');
-  assert.equal($('btn-cancel').hidden, false, '듣는 동안 취소 버튼이 보여야 한다');
+  assert.equal($('btn-cancel').classList.contains('is-invisible'), false, '듣는 동안 취소 버튼이 보여야 한다');
 
   session.handleCancelled();
-  assert.equal($('btn-cancel').hidden, true);
+  assert.ok($('btn-cancel').classList.contains('is-invisible'));
   assert.equal(session.canDo('send'), true, '취소 뒤에는 바로 다시 말하거나 입력할 수 있어야 한다');
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(requests, [], '취소한 발화가 서버로 가면 안 된다');
+});
+
+/* 세션 화면이 출렁이지 않게 (spec R5, R6, R8): 취소 버튼과 생각 중 점은 자리를
+   지키고, 긴 실시간 문구는 두 줄 안에 들어가고, 칩 상세는 hidden 대신 클래스로
+   접힌다. */
+test('the mic dock keeps its layout: cancel keeps its place while idle', () => {
+  resetDom();
+  session.setTurnState('CANCEL');   // back to idle from anywhere the existing tests use
+  assert.equal($('btn-cancel').hidden, false);
+  assert.ok($('btn-cancel').classList.contains('is-invisible'));
+  session.setTurnState('MIC');
+  assert.equal($('btn-cancel').classList.contains('is-invisible'), false);
+  session.setTurnState('CANCEL');
+});
+
+test('the thinking dots keep their place when the bot is not thinking', () => {
+  resetDom();
+  session.setTurnState('CANCEL');
+  assert.equal($('thinking').hidden, false);
+  assert.ok($('thinking').classList.contains('is-invisible'));
+  session.setTurnState('SEND');
+  assert.equal($('thinking').classList.contains('is-invisible'), false, '보내는 동안에는 보여야 한다');
+  session.setTurnState('SEND_FAILED');
+  assert.ok($('thinking').classList.contains('is-invisible'));
+});
+
+test('a long live transcript is clamped from the front so the newest words stay visible', () => {
+  const long = 'word '.repeat(40).trim();
+  const out = session.clampHint(long);
+  assert.ok(out.length <= 65);
+  assert.ok(out.startsWith('…'));
+  assert.ok(out.endsWith('word'));
+  assert.equal(session.clampHint('short'), 'short');
+  // Words that differ, so a cut from the back (which would also end on
+  // "word" above) cannot pass: the last word said must survive.
+  const numbered = Array.from({ length: 40 }, (_, i) => `w${i}`).join(' ');
+  const clipped = session.clampHint(numbered);
+  assert.ok(clipped.startsWith('…') && clipped.endsWith('w39'), clipped);
+  assert.ok(!clipped.includes('w0 '), clipped);
+});
+
+/* Full-width glyphs are about twice as wide as Latin letters at the hint's
+   size, so a Japanese transcript under the old 80-character cap still ran to
+   three lines on a phone and line-clamp cut its END. The cap is in width
+   units: CJK, kana and Hangul count 2, everything else 1, 64 units in all. */
+test('a long Japanese transcript is clamped by width, keeping its last glyph', () => {
+  const kana = 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほ';   // 30
+  const long = `${kana}${kana.slice(0, 29)}ん`;                              // 60 glyphs, ends ん
+  assert.equal([...long].length, 60);
+  const out = session.clampHint(long);
+  assert.ok(out.startsWith('…'), out);
+  assert.ok([...out.slice(1)].length <= 32, out);
+  assert.ok(out.endsWith('ん'), out);
+  assert.equal(session.clampHint('こんにちは'), 'こんにちは');
+});
+
+test('a long English transcript is clamped to 64 units plus the ellipsis, keeping its last word', () => {
+  const words = Array.from({ length: 20 }, (_, i) => `ab${String(i).padStart(2, '0')}`).join(' ');
+  const long = `${words}`.padStart(100, 'x');
+  assert.equal(long.length, 100);
+  const out = session.clampHint(long);
+  assert.ok(out.startsWith('…'), out);
+  assert.ok(out.length - 1 <= 64, out);
+  assert.ok(out.endsWith('ab19'), out);
+  assert.equal(session.clampHint('I went there.'), 'I went there.');
+});
+
+/* The budget is the hint's own width: a desktop dock holds far more than 64
+   units on two lines, and cutting there showed a third of a line. */
+test('clampHint takes a unit budget; a wider budget keeps more and still ends on the last word', () => {
+  const numbered = Array.from({ length: 60 }, (_, i) => `w${i}`).join(' ');
+  const narrow = session.clampHint(numbered);
+  const wide = session.clampHint(numbered, 200);
+  assert.ok(wide.startsWith('…') && wide.endsWith('w59'), wide);
+  assert.ok(wide.length - 1 <= 200 && wide.length > narrow.length, wide);
+  assert.equal(session.clampHint(numbered, 64), narrow, 'the default budget is 64 units');
+});
+
+test('the hint budget comes from #mic-hint width and font size, 64 when either is unknown', () => {
+  resetDom();
+  assert.equal(session.hintUnits($('mic-hint')), 64, 'dom-shim has no layout: fall back');
+  const hint = $('mic-hint');
+  hint.clientWidth = 400;
+  const saved = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = () => ({ fontSize: '13px' });
+  try {
+    // floor(2 * 400 / (13 * 0.55) * 0.85) = 95
+    assert.equal(session.hintUnits(hint), 95);
+    globalThis.getComputedStyle = () => ({ fontSize: '' });
+    assert.equal(session.hintUnits(hint), 64, 'no font size: fall back');
+    globalThis.getComputedStyle = () => ({ fontSize: '13px' });
+    hint.clientWidth = 0;
+    assert.equal(session.hintUnits(hint), 64, 'a hidden hint has no width: fall back');
+
+    hint.clientWidth = 400;
+    session.setTurnState('CANCEL');
+    session.setTurnState('MIC');
+    const long = `${'old '.repeat(40)}newest words`;
+    audioInterim(long);
+    assert.equal(hint.textContent, session.clampHint(long, 95), 'the live hint must use the width budget');
+    session.setTurnState('CANCEL');
+  } finally {
+    globalThis.getComputedStyle = saved;
+  }
+});
+
+/* One interim result through the fake recognition's own onresult, the way
+   Chrome streams the live transcript to audio.js and on to #mic-hint. */
+function audioInterim(text) {
+  const result = Object.assign([{ transcript: text }], { isFinal: false });
+  rec.onresult({ resultIndex: 0, results: [result] });
+}
+
+test('the live transcript in the mic hint is the clamped one', () => {
+  resetDom();
+  session.setTurnState('CANCEL');
+  session.setTurnState('MIC');
+  const long = `${'old '.repeat(30)}newest words`;
+  audioInterim(long);
+  assert.equal($('mic-hint').textContent, session.clampHint(long));
+  assert.ok($('mic-hint').textContent.endsWith('newest words'));
+  session.setTurnState('CANCEL');
+});
+
+test('a correction chip expands by class, not by hiding', () => {
+  resetDom();
+  state.language = 'en';
+  const bubble = session.addMessage('user', 'I go there');
+  const wrap = session.addChip(bubble, { ok: false, fixed: 'I went there.', tag: '시제', correction: 'c', suggestion: null });
+  const [summary, detail] = wrap.children;
+  assert.equal(detail.hidden, false);
+  assert.ok(detail.classList.contains('is-collapsed'));
+  summary.listeners.click[0]();
+  assert.equal(detail.classList.contains('is-collapsed'), false);
+  assert.equal(summary.getAttribute('aria-expanded'), 'true');
 });
 
 /* Whisper 최종 받아쓰기. 브라우저 인식은 미리보기이고, 턴은 받아쓴 문장으로 간다.
@@ -431,7 +566,7 @@ test('cancelling while Whisper works drops the late result', async () => {
   session.setTurnState('MIC');
   const pending = session.handleHeard('browser', clip());
   await new Promise((r) => setTimeout(r, 0));
-  assert.equal($('btn-cancel').hidden, false, '받아쓰는 중에도 취소할 수 있어야 한다');
+  assert.equal($('btn-cancel').classList.contains('is-invisible'), false, '받아쓰는 중에도 취소할 수 있어야 한다');
   session.cancelTurn();
   assert.equal(session.canDo('send'), true);
 
@@ -567,7 +702,7 @@ test('a failed report takes the waiting card down and says so', async () => {
   await ending;
   assert.equal($('report-wait').hidden, true, '실패하면 표시를 내리고 다시 누를 수 있어야 한다');
   assert.equal($('btn-end').textContent, '세션 끝내기');
-  assert.match($('notice').textContent, /리포트 생성 실패/);
+  assert.match($('notice-text').textContent, /리포트 생성 실패/);
 });
 
 /* The pulsing-mic-does-nothing bug: syncControls disabled #btn-mic through
@@ -649,5 +784,5 @@ test('a session that could not be created says so in the same voice as the pick 
     return jsonResponse({});
   });
   await startSession({ language: 'en', mode: 'free', scenarioId: 'x' });
-  assert.match($('notice').textContent, /^세션을 시작하지 못했어요: /);
+  assert.match($('notice-text').textContent, /^세션을 시작하지 못했어요: /);
 });

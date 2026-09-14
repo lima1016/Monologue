@@ -1,4 +1,4 @@
-import { $, postJSON, state, notify } from './api.js';
+import { $, postJSON, state, notify, reducedMotion, LEAVE_MS } from './api.js';
 import { annotate, attachMeaning } from './reading.js';
 
 export const SUGGEST_TITLE = '이렇게 말해볼 수 있어요';
@@ -51,7 +51,15 @@ export async function suggestForLatest() {
     title.textContent = SUGGEST_TITLE;
     renderReplies(card, replies, language);
   } catch {
-    card.remove();
+    // Fades out before it goes, rather than the loading card vanishing in one
+    // frame; under reduced motion it goes at once. The WeakMap entry goes now
+    // -- the request is over either way.
+    if (reducedMotion()) {
+      card.remove();
+    } else {
+      card.classList.add('fade', 'is-invisible');
+      setTimeout(() => card.remove(), LEAVE_MS);
+    }
     cards.delete(bubble);
     // 응답이 오는 사이 학습자가 다른 세션으로 넘어갔다면, 지금 와서 실패를
     // 알리는 것은 지금 세션과 무관한 소음이다 -- 카드와 WeakMap 항목은

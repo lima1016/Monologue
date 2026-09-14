@@ -109,6 +109,30 @@ test('resumeSession carries each message\'s cached audio key into its bubble', a
     'a message with no cached clip must not get a dataset.audioKey the click handler would try to play');
 });
 
+/* A resumed conversation is painted all at once; every bubble easing in
+   together reads as the screen flashing. The replayed bubbles are marked so
+   CSS skips their enter animation -- on the bubbles themselves, not a class on
+   #conversation that is taken off afterwards: removing it would set their
+   animation back from none and start every one of them at that moment. */
+test('replayed bubbles skip the enter animation; a live one after them does not', async () => {
+  router.register('session', 'session');
+  state.language = 'en';
+  state.sessionId = null;
+  await armResumeCard();
+  stubFetch(async () => jsonResponse({
+    session: { id: 42, language: 'ko' },
+    messages: [{ speaker: 'bot', text: 'Hi.' }, { speaker: 'user', text: 'Hello.' }],
+  }));
+  await home.resumeSession();
+  const replayed = $('conversation').children;
+  assert.equal(replayed.length, 2);
+  assert.ok(replayed.every((b) => b.classList.contains('replayed')), 'a replayed bubble will animate');
+  const { addMessage } = await import('./session.js');
+  const live = addMessage('bot', 'Next?');
+  assert.equal(live.classList.contains('replayed'), false);
+  state.language = 'en';
+});
+
 /* 이어서 하기 is a network round trip with nothing else on screen changing, so
    the card says what it is doing while it waits -- and stops saying it on
    both the success and the failure path. */
@@ -130,17 +154,93 @@ test('the resume card says 대화 불러오는 중... while the conversation loa
     return jsonResponse({});
   });
 
+  // The loading line takes the subtitle's place (both sit stacked in one
+  // line, see index.html), so the card never grows a line: exactly one of
+  // the two is visible at a time, and neither leaves the layout.
+  const status = $('resume-status');
+  const sub = $('resume-sub');
+  const shown = (el) => !el.hidden && !el.classList.contains('is-invisible');
+  const kept = (el) => !el.hidden && el.classList.contains('is-invisible');
   const resuming = home.resumeSession();
-  assert.equal($('resume-status').hidden, false, 'nothing said the resume was loading');
+  assert.ok(shown(status), 'nothing said the resume was loading');
+  assert.ok(kept(sub), 'the subtitle stayed visible under the loading line');
   release();
   await resuming;
-  assert.equal($('resume-status').hidden, true);
+  assert.ok(kept(status), 'the loading line collapsed its row or stayed up');
+  assert.ok(shown(sub), 'the subtitle did not come back');
 
   failNext = true;
   const failing = home.resumeSession();
-  assert.equal($('resume-status').hidden, false);
+  assert.ok(shown(status) && kept(sub));
   await failing;
-  assert.equal($('resume-status').hidden, true, 'a failed resume left the loading line up');
+  assert.ok(kept(status) && shown(sub), 'a failed resume left the loading line up');
+});
+
+/* 이어서 하기 exists for one language and not the other, so a language switch
+   used to pop it in and out and jump the week card 105px. It slides instead:
+   a class (grid rows 1fr -> 0fr in CSS), never `hidden`. */
+test('the resume card collapses by class when there is no session, and expands when there is', async () => {
+  const card = $('resume-card');
+  await armResumeCard();
+  assert.equal(card.hidden, false);
+  assert.equal(card.classList.contains('is-collapsed'), false);
+  assert.notEqual(card.getAttribute('aria-hidden'), 'true');
+  assert.equal(card.inert, false);
+
+  homeRoutes(PAYLOAD());                  // no session under this language
+  await home.loadHome();
+  assert.equal(card.hidden, false, 'the card popped out with hidden instead of sliding');
+  assert.ok(card.classList.contains('is-collapsed'));
+  assert.equal(card.getAttribute('aria-hidden'), 'true');
+  assert.equal(card.inert, true, 'a collapsed card must not take focus or clicks');
+
+  await armResumeCard();
+  assert.equal(card.classList.contains('is-collapsed'), false);
+  assert.equal(card.inert, false);
+});
+
+/* A fresh page load that finds a session must not slide the card open -- it
+   would be new motion on first paint. The first reveal goes through
+   .no-motion with a style flush while that class is on; later reloads (a
+   language switch) slide as before. The flush is spied through offsetHeight,
+   which is what makes the browser apply the class before it comes off. */
+test('the resume card appears without motion on first load and slides only on later reloads', async () => {
+  const card = $('resume-card');
+  const flushes = [];
+  Object.defineProperty(card, 'offsetHeight', { get() {
+    flushes.push({ noMotion: card.classList.contains('no-motion'), open: !card.classList.contains('is-collapsed') });
+    return 0;
+  } });
+  await armResumeCard();
+  assert.deepEqual(flushes, [{ noMotion: true, open: true }],
+    'the first reveal was not flushed with .no-motion on, after opening');
+  assert.equal(card.classList.contains('no-motion'), false, '.no-motion stayed on, so switches would not slide');
+
+  flushes.length = 0;
+  homeRoutes(PAYLOAD());                  // a reload: the card shuts
+  await home.loadHome();
+  await armResumeCard();                  // and opens again
+  assert.deepEqual(flushes, [], 'a later reload skipped the slide');
+  assert.equal(card.classList.contains('no-motion'), false);
+});
+
+test('a failed reload for another language shuts the resume card and puts it to sleep', async () => {
+  state.language = 'en';
+  await armResumeCard();
+  stubFetch(async () => { throw new Error('down'); });
+  state.language = 'ja';
+  await home.loadHome();
+  assert.ok($('resume-card').classList.contains('is-collapsed'));
+  assert.equal($('resume-card').inert, true, 'the shut card still takes focus and clicks');
+  state.language = 'en';
+});
+
+test('the aside still folds when the week card is hidden and the resume card collapsed', async () => {
+  homeRoutes(PAYLOAD({ has_history: false }));
+  await home.loadHome();
+  assert.ok($('resume-card').classList.contains('is-collapsed'));
+  assert.equal($('week-card').hidden, true);
+  assert.ok($('home').classList.contains('no-aside'));
 });
 
 /* The right-hand column (이어서 하기 / 이번 주) collapses when there is nothing
@@ -234,6 +334,178 @@ test('while home loads the recommendation slot says so', async () => {
   assert.match(text($('today-body')), /호텔/);
 });
 
+/* True if `node` or anything under it carries `cls`. dom-shim does not parse
+   index.html's children, so this only sees what the JS itself appended. */
+const hasClass = (node, cls) => node.classList.contains(cls)
+  || node.children.some((c) => hasClass(c, cls));
+
+/* Reloading (a language switch, or ← 홈) must not hide what is already on
+   screen: hiding the cards before the request and showing them after moved
+   the week card 85px on every switch. The cards stay and dim instead (R2). */
+test('reloading home keeps the painted cards in place and dims them while it waits', async () => {
+  let release;
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD()); } });
+  const reloading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal($('week-card').hidden, false, 'the week card must not collapse during a reload');
+  assert.equal($('today-card').hidden, false);
+  assert.equal($('recent-themes-wrap').hidden, false);
+  assert.match(text($('today-body')), /호텔/, 'the painted recommendation must stay while it reloads');
+  assert.ok($('today-card').classList.contains('is-refreshing'));
+  assert.ok($('week-card').classList.contains('is-refreshing'));
+  release();
+  await reloading;
+  assert.equal($('today-card').classList.contains('is-refreshing'), false);
+  assert.equal($('week-card').classList.contains('is-refreshing'), false);
+});
+
+/* A failed reload for the language already on screen keeps it (it is still
+   true); one for a different language hides it -- the old language's week and
+   themes must never sit under the new language's button. */
+/* After a language switch the previous language's cards stay on screen,
+   dimmed, until the new answer lands. Dimmed must mean asleep: 계속 on the old
+   language's resume card would set state.language back to that language
+   behind the new language button. */
+test('the dimmed cards cannot be used while home reloads after a language switch', async () => {
+  router.register('session', 'session');
+  state.language = 'en';
+  state.sessionId = null;
+  await armResumeCard();
+  assert.equal($('resume-card').classList.contains('is-collapsed'), false);
+
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const opened = [];
+  stubFetch(async (url) => {
+    if (url.startsWith('/api/sessions/resumable')) { await held; return jsonResponse({ session: null }); }
+    if (url.startsWith('/api/stats/home')) { await held; return jsonResponse(PAYLOAD()); }
+    if (url.startsWith('/api/sessions/')) opened.push(url);
+    return jsonResponse({ session: { id: 42, language: 'en' }, messages: [] });
+  });
+  state.language = 'ja';
+  const reloading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+
+  for (const id of ['today-card', 'resume-card', 'week-card', 'recent-themes-wrap']) {
+    assert.equal($(id).inert, true, `#${id} is dimmed but still usable`);
+  }
+  await home.resumeSession();
+  assert.deepEqual(opened, [], 'a dimmed resume card resumed a session');
+  assert.equal(state.language, 'ja', 'a dimmed resume card changed the language');
+  assert.equal(state.sessionId, null);
+
+  release();
+  await reloading;
+  for (const id of ['today-card', 'week-card', 'recent-themes-wrap']) {
+    assert.equal($(id).inert, false, `#${id} stayed inert after the reload finished`);
+  }
+  // No session under ja: the resume card is shut now, and stays asleep for that reason.
+  assert.ok($('resume-card').classList.contains('is-collapsed'));
+  assert.equal($('resume-card').inert, true, 'a collapsed resume card woke up with the others');
+  state.language = 'en';
+});
+
+/* resumeSession makes the resumed session's language the app's; the language
+   segments must say so too, or the next home load paints that language under
+   the other button. */
+test('resumeSession moves the language buttons to the resumed language', async () => {
+  router.register('session', 'session');
+  state.language = 'en';
+  state.sessionId = null;
+  const make = (lang) => { const b = document.createElement('button'); b.dataset.language = lang; return b; };
+  const segs = [$('language-seg'), $('pick-language-seg')];
+  for (const seg of segs) seg.replaceChildren(make('en'), make('ja'));
+  await armResumeCard();
+  stubFetch(async () => jsonResponse({ session: { id: 42, language: 'ja' }, messages: [] }));
+  await home.resumeSession();
+  assert.equal(state.language, 'ja');
+  for (const seg of segs) {
+    assert.deepEqual(seg.children.map((b) => b.classList.contains('on')), [false, true]);
+  }
+  state.language = 'en';
+});
+
+test('a failed reload keeps the same language painted but hides another language', async () => {
+  state.language = 'en';
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  stubFetch(async () => { throw new Error('down'); });
+  await home.loadHome();
+  assert.equal($('today-card').hidden, false);
+  assert.equal($('week-card').hidden, false);
+  assert.equal($('today-card').classList.contains('is-refreshing'), false);
+
+  state.language = 'ja';
+  await home.loadHome();
+  assert.equal($('today-card').hidden, true);
+  assert.equal($('week-card').hidden, true);
+  assert.equal($('today-card').classList.contains('is-refreshing'), false);
+  state.language = 'en';
+});
+
+test('a newer switch that lands first clears the dimming even though the stale one lands later', async () => {
+  state.language = 'en';
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async (url) => {
+    if (url.includes('language=en')) { await held; return jsonResponse(PAYLOAD()); }
+    return jsonResponse(PAYLOAD());
+  } });
+  const stale = home.loadHome();
+  state.language = 'ja';
+  await home.loadHome();
+  assert.equal($('today-card').classList.contains('is-refreshing'), false);
+  release();
+  await stale;
+  assert.equal($('today-card').classList.contains('is-refreshing'), false);
+  state.language = 'en';
+});
+
+test('the first load shows skeletons where the cards will be', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD()); } });
+  const loading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(hasClass($('today-body'), 'skeleton'));
+  assert.equal($('week-card').hidden, false, 'the week card holds its place on the first load');
+  assert.ok($('week-card').classList.contains('is-skeleton'));
+  assert.equal($('week-days').children.filter((c) => c.classList.contains('skeleton')).length, 7);
+  // The streak line's row is held too, so a streak arriving does not grow the card.
+  assert.equal($('week-streak').hidden, false, 'the streak row is not held on the first load');
+  assert.ok($('week-streak').classList.contains('skeleton'));
+  assert.equal($('week-streak').textContent, String.fromCharCode(0xa0));
+  release();
+  await loading;
+  assert.equal($('week-streak').classList.contains('skeleton'), false);
+  assert.equal($('week-streak').classList.contains('is-invisible'), false);
+  assert.equal($('week-streak').textContent, '연속 2일');
+  assert.equal(hasClass($('today-body'), 'skeleton'), false);
+  assert.equal($('week-card').classList.contains('is-skeleton'), false);
+  assert.equal(hasClass($('week-days'), 'skeleton'), false);
+  assert.equal($('week-progress').classList.contains('skeleton'), false);
+});
+
+test('the alternative line keeps its place when there is no alternative', async () => {
+  homeRoutes(PAYLOAD({ recommend: [PAYLOAD().recommend[0]] }));
+  await home.loadHome();
+  assert.equal($('today-alt').hidden, false);
+  assert.ok($('today-alt').classList.contains('is-invisible'));
+});
+
+test('the start buttons on the recommendation keep one width whichever card is up', async () => {
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  const buttons = $('today-body').children.flatMap((c) => c.children || []).filter((b) => b.dataset.mode);
+  assert.equal(buttons.length, 2);
+  assert.ok(buttons.every((b) => b.classList.contains('btn-stable')));
+});
+
 test("today's card shows the reason, disables a mode that is not ready, and swaps with the alternative", async () => {
   homeRoutes(PAYLOAD());
   await home.loadHome();
@@ -265,7 +537,8 @@ test('an empty library says scripts are being prepared', async () => {
   homeRoutes(PAYLOAD({ recommend: [] }));
   await home.loadHome();
   assert.match(text($('today-body')), /새 대본을 준비하고 있어요/);
-  assert.equal($('today-alt').hidden, true);
+  assert.equal($('today-alt').hidden, false);
+  assert.ok($('today-alt').classList.contains('is-invisible'));
 });
 
 test('a first-time learner gets the welcome and no week or recent themes', async () => {
@@ -298,14 +571,16 @@ test('the week card: seven days, streak, progress and bar', async () => {
   assert.equal($('week-bar').style.width, '60%');
 });
 
-test('reaching the goal says so, and a zero streak hides its line', async () => {
+test('reaching the goal says so, and a zero streak keeps its line in place, invisible', async () => {
   const p = PAYLOAD({ streak: 0 });
   p.week.sessions = 6;
   homeRoutes(p);
   await home.loadHome();
   assert.equal($('week-progress').textContent, '이번 주 6/5 세션 · 목표 달성!');
   assert.equal($('week-bar').style.width, '100%');
-  assert.equal($('week-streak').hidden, true);
+  assert.equal($('week-streak').hidden, false, 'a zero streak collapsed its row and moved the progress line');
+  assert.ok($('week-streak').classList.contains('is-invisible'));
+  assert.equal($('week-streak').getAttribute('aria-hidden'), 'true');
 });
 
 test('the goal changes at once, is saved, stops at the bounds, and rolls back on failure', async () => {
@@ -323,7 +598,7 @@ test('the goal changes at once, is saved, stops at the bounds, and rolls back on
   await home.loadHome();
   await home.changeGoal(-1);
   assert.equal($('goal-value').textContent, '5');
-  assert.match($('notice').textContent, /목표를 저장하지 못했어요/);
+  assert.match($('notice-text').textContent, /목표를 저장하지 못했어요/);
 });
 
 test('while the goal saves both buttons are off, and the new value is already on screen', async () => {
@@ -373,6 +648,11 @@ test('recent themes render up to four and library progress shows only while inco
   assert.deepEqual([card.dataset.theme, card.dataset.mode], ['cafe-restaurant', 'script']);
   assert.equal(text(card), '카페·음식점 주문스크립트');
   assert.equal($('library-progress').textContent, '새 대본 준비 중 · 312/600편');
+  assert.equal($('library-progress').classList.contains('is-invisible'), false);
+  homeRoutes(PAYLOAD({ library: null }));
+  await home.loadHome();
+  assert.equal($('library-progress').hidden, false, 'an unknown library keeps the line\'s place');
+  assert.ok($('library-progress').classList.contains('is-invisible'));
   homeRoutes(PAYLOAD({ library: { scripts: 600, target: 600 } }));
   await home.loadHome();
   assert.equal($('library-progress').hidden, true);

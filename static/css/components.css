@@ -56,6 +56,21 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .msg.user.undoable { cursor: pointer; }
 .msg.user.undoable:hover { outline: 1px solid var(--accent); outline-offset: 2px; }
 
+/* A new bubble, chip or suggestion card eases in rather than appearing in one
+   frame (spec R8). A small drop is fine here, unlike on a screen: none of these
+   has a fixed or sticky descendant for a transform to break. */
+.msg, .chip-row, .suggest-card { animation: fade-down var(--dur-fast) ease-out; }
+@keyframes fade-down {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg, .chip-row, .suggest-card { animation: none; }
+}
+/* A resumed conversation is replayed in one go (home.js resumeSession): those
+   bubbles appear at once instead of all fading in together. */
+.msg.replayed { animation: none; }
+
 .play-mine {
   display: block; margin-top: var(--space-2);
   /* 2px였다. WCAG 2.2 Target Size (Minimum)의 24×24 아래로 떨어져서 --space-1 로
@@ -74,6 +89,105 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   font-size: var(--text-sm);
 }
 
+/* --- floating notice, screen-enter, and layout-preserving utilities ---
+
+   spec R1 (screens ease in), R4 (the notice floats, doesn't push the page),
+   R5 (state lines keep their place instead of collapsing the layout), R9
+   (the scrollbar's width is reserved, see base.css). */
+
+/* #notice is `position: fixed`, so it never pushes the page below it --
+   `.notice` above still carries its background/colour/shape.
+
+   Anchored just under the header, not at the viewport's top edge, where it
+   covered 설정 and the status dots. The header's height is its vertical
+   padding (--space-4 twice), its tallest child -- the 설정 button: --space-2
+   padding twice, one --text-base line at the body's 1.55, a 1px border each
+   side -- and its 1px bottom rule; one --space-2 of air below that. Top rather
+   than bottom-centre: the session screen's mic dock is sticky at the bottom
+   and changes height, so a bottom toast would cover the mic or have to track
+   the dock; the header is one fixed-height row on every screen. */
+.toast {
+  position: fixed;
+  top: calc(var(--space-4) * 2 + var(--space-2) * 2 + var(--text-base) * 1.55 + 2px + 1px + var(--space-2));
+  left: 50%; transform: translateX(-50%);
+  z-index: 30; display: flex; align-items: center; gap: var(--space-2);
+  max-width: min(560px, calc(100vw - 2 * var(--space-4)));
+  box-shadow: var(--shadow-lift);
+  animation-name: toast-in; animation-duration: var(--dur-fast); animation-timing-function: ease-out;
+  transition: opacity var(--dur-fast) ease;
+}
+/* notify('') fades the toast out before hiding it (api.js). */
+.toast.is-leaving { opacity: 0; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* The × is drawn with CSS, not typed into the button, so `#notice-close`
+   never adds a text node inside `#notice` -- `#notice`'s own textContent
+   stays exactly `#notice-text`'s message (`aria-label` still names the
+   button for assistive tech). */
+#notice-close { padding: 0 var(--space-2); line-height: 1;
+                min-width: 24px; min-height: 24px; }   /* WCAG 2.2 target size */
+#notice-close::before { content: '×'; }
+
+/* A screen entering through router.show() (spec R1). The screen being left
+   is hidden outright in the same pass, so the two never overlap mid-fade.
+   Opacity only, deliberately no transform: a non-none `transform` on the
+   screen element itself would make it the containing block for any
+   `position: fixed` descendant (#report-wait, inside #session) and break
+   `position: sticky` on any descendant too (#mic-dock, also inside
+   #session) for every frame the animation runs. `.toast` has none of those
+   descendants, so its own keyframes (above) may still translate. Its own
+   keyframes, not fade-down/toast-in shared with anything else, so this
+   constraint can't be reintroduced by a future edit to a shared name. */
+.screen-enter { animation: screen-fade var(--dur-fast) ease-out; }
+@keyframes screen-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Keeps an element in the layout while hiding it, instead of `hidden`
+   collapsing its space and shifting everything below it (spec R5): a status
+   line, a secondary button, or anything else that comes and goes while the
+   rest of the screen holds still. */
+.is-invisible { visibility: hidden; opacity: 0; }
+.fade { transition: opacity var(--dur-fast) ease, visibility var(--dur-fast); }
+
+/* Content already on screen dims instead of disappearing while a refresh is
+   in flight (spec R2) -- the old data stays legible and nothing collapses.
+   The easing lives on the cards home.js dims (its REFRESHED list), not on
+   .is-refreshing: on the class alone, removing it dropped the transition in
+   the same frame and the cards snapped back to full strength. `:where` keeps
+   that base rule at zero specificity so the delay below is not overruled by
+   an id. The dim side waits 200ms, so a fast local reload never visibly dims.
+   pointer-events is the belt to home.js's `inert` braces: a dimmed card may
+   be showing the previous language. */
+:where(#today-card, #today-alt, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
+  transition: opacity var(--dur-fast) ease;
+}
+.is-refreshing { opacity: .55; transition-delay: 200ms; pointer-events: none; }
+
+/* A placeholder sized like the real content it stands in for (spec R3), so
+   nothing resizes once the content it was standing in for arrives. */
+.skeleton {
+  background: var(--surface-sunken); border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.2s ease-in-out infinite;
+}
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: .6; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen-enter, .toast, .skeleton { animation: none; }
+  .fade { transition: none; }
+  .toast { transition: none; }
+  .is-refreshing, :where(#today-card, #today-alt, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
+    transition: none; transition-delay: 0s;
+  }
+}
+
 .chip-row { max-width: 78%; margin: calc(var(--space-1) * -1) 0 var(--space-3) auto; }
 
 .chip {
@@ -84,7 +198,23 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .chip.ok  { background: var(--suggest-bg); color: var(--suggest-ink); }
 .chip.fix { background: var(--correct-bg); color: var(--correct-ink); }
 
-.chip-detail { margin-top: var(--space-2); }
+.chip-detail {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows var(--dur-fast) ease;
+}
+/* Collapsed by class, not [hidden] (spec R8), so the row can ease open. The
+   inner wrapper's overflow: hidden is what lets a 0fr row really shrink to
+   nothing; the gap under the chip lives inside it for the same reason (a
+   margin on .chip-detail would stay behind when collapsed). visibility keeps
+   the collapsed re-speak button out of the tab order, as [hidden] did. */
+.chip-detail.is-collapsed { grid-template-rows: 0fr; }
+.chip-detail-inner { overflow: hidden; min-height: 0; opacity: 1;
+                     transition: opacity var(--dur-fast) ease, visibility var(--dur-fast); }
+.chip-detail-inner > :first-child { margin-top: var(--space-2); }
+.chip-detail.is-collapsed .chip-detail-inner { visibility: hidden; opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .chip-detail, .chip-detail-inner { transition: none; }
+}
 .chip-block {
   font-size: var(--text-sm); line-height: 1.5;
   border-left: 2px solid; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
@@ -123,6 +253,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .suggest-line[data-has-meaning] .meaning-body { display: none; }
 
 #panel-body li { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
+#panel-body li { transition: background-color var(--dur-fast) ease; }
 #panel-body li.current { background: var(--accent-soft); font-weight: 600; }
 #panel-body li.done { opacity: .5; }
 
@@ -198,6 +329,13 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
   /* Dim only. backdrop-filter blur rendered the page behind as a tiled mirror
      in Chrome's capture of this fixed layer -- not worth the risk for a wait card. */
   background: rgba(20, 21, 28, .45);
+  /* Fades in (150ms) instead of dropping over the session in one frame. Its
+     own opacity-only keyframes, not fade-down: it is itself fixed. */
+  animation: report-wait-in var(--dur-fast) ease-out;
+}
+@keyframes report-wait-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .report-wait-card {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
@@ -246,12 +384,16 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 }
 .thinking i:nth-child(2) { animation-delay: .15s; }
 .thinking i:nth-child(3) { animation-delay: .3s; }
+/* Held in place but unseen (#thinking between turns): no reason to keep
+   pulsing dots nobody can see. */
+.thinking.is-invisible i { animation-play-state: paused; }
 @keyframes thinking-pulse {
   0%, 60%, 100% { opacity: .25; }
   30%           { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .thinking i, .mic.listening { animation: none; opacity: .5; }
+  .report-wait, #panel-body li { animation: none; transition: none; }
 }
 
 #mic-dock {
@@ -292,13 +434,26 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 }
 .mic:disabled:not(.listening) { opacity: .4; }
 
-#mic-hint { font-size: var(--text-xs); color: var(--text-faint); margin: var(--space-2) 0 0; }
-/* Shown only while listening or re-speaking, under the live transcript it
-   would throw away. */
+/* Two lines tall whatever it says (spec R6) -- the idle sentence, the short
+   status words and a long live transcript all leave #mic-dock one height.
+   session.js clampHint() already cut a long transcript from the front so the
+   newest words are the ones inside these two lines. */
+#mic-hint { font-size: var(--text-xs); color: var(--text-faint); margin: var(--space-2) 0 0;
+            line-height: 1.55; min-height: calc(2 * 1.55em);
+            display: -webkit-box; -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+/* Seen only while listening, re-speaking or transcribing, under the live
+   transcript it would throw away; otherwise .is-invisible holds its place
+   (spec R5) so the dock does not grow a row when a listen starts. */
 #btn-cancel { display: block; margin: var(--space-2) auto 0; font-size: var(--text-xs);
               padding: var(--space-1) var(--space-3); }
 
 #controls { justify-content: center; margin-top: var(--space-3); }
+/* 세션 끝내기 <-> 리포트 만드는 중… keeps one width (spec R7). It carries
+   .btn-stable, whose 8.5em is sized for 자유 대화로 시작; this label is nine
+   glyphs (seven syllables, two spaces, an ellipsis), so it overrides the
+   width the way .btn-stable's own comment asks a longer label to. */
+#btn-end.btn-stable { min-width: calc(9em + var(--space-4) * 2 + 2px); }
 #controls input { max-width: 420px; flex: 0 1 420px; }
 
 @media (max-width: 720px) {
@@ -419,7 +574,7 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .tabs button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 .tabs button:focus-visible { outline-offset: -2px; }
 
-.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2); }
+.theme-grid { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2); }
 /* A theme card is a mode card laid out as a tile: the same sunken-to-raised
    step marks the chosen one (.on), the same tint marks hover. */
 .theme-card { display: flex; flex-direction: column; gap: var(--space-1); text-align: left;
@@ -430,12 +585,27 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .theme-card:hover:not(:disabled):not(.on) { background: var(--accent-soft); }
 .theme-card.on { background: var(--surface); box-shadow: var(--shadow); }
 .theme-card:disabled { opacity: .45; }
-.theme-loading { grid-column: 1 / -1; margin: 0; padding: var(--space-3) 0;
+/* The wait's words sit over the first placeholder row rather than taking a
+   row of their own, so the grid is the same height loading and loaded. */
+.theme-loading { grid-column: 1 / -1; margin: 0; padding: var(--space-3);
+                 position: absolute; top: 0; left: 0; right: 0; z-index: 1;
+                 pointer-events: none;
                  color: var(--text-dim); font-size: var(--text-sm); }
+/* A placeholder card: the real card's padding and its two lines (.t, .s) as
+   blank text, so it is the loaded card's height. */
+.theme-card.skeleton { pointer-events: none; }   /* no hover tint, no pointer */
 
+/* One line tall even while empty: the row is held by .is-invisible (R5). */
 .start-status { display: flex; align-items: center; gap: var(--space-2);
+                min-height: calc(var(--text-sm) * 1.55);
                 color: var(--text-dim); font-size: var(--text-sm); }
 .start-status .thinking { padding: 0; }
+
+/* Buttons whose label or neighbours change keep one width (spec R7): the
+   longest label they carry, 자유 대화로 시작 -- eight syllables and a space at
+   ~1em each, plus the button's own padding and border (border-box). Screens
+   with a longer label override this with their own selector. */
+.btn-stable { min-width: calc(8.5em + var(--space-4) * 2 + 2px); }
 
 /* The destination. Full width because that is the plainest way to say "this is
    the thing you press" without adding a colour or a border the screen doesn't
@@ -449,14 +619,41 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 
 /* 이어하기: 통짜 액센트 판이 아니라 왼쪽 3px 막대. 통짜였을 때는 시작 버튼보다
    먼저 눈에 들어와서, "오늘 뭘 누르지"가 한 번에 읽히지 않았다. */
-#resume-card {
+/* 이어서 하기 exists under one language and not the other, so a language
+   switch opens or shuts it -- and it used to pop, jumping the week card below
+   it by the card's whole height. It slides instead: #resume-card is a
+   one-row grid whose row goes 1fr -> 0fr (.is-collapsed), .resume-clip cuts
+   the content as the row shrinks, and the card fades with it. The negative
+   margin takes the aside's flex gap away with it, so nothing is left behind.
+   The visual card (border, padding) is .resume-box, inside the clip, because
+   padding and borders on the grid itself could not shrink to zero. */
+#resume-card { display: grid; grid-template-rows: 1fr; }
+/* Zero specificity and after the shared :where rule above, so it replaces that
+   rule's opacity-only transition here and .is-refreshing's delay still
+   applies over it. */
+:where(#resume-card) {
+  transition: grid-template-rows var(--dur-fast) ease, opacity var(--dur-fast) ease,
+              margin-bottom var(--dur-fast) ease;
+}
+#resume-card.is-collapsed { grid-template-rows: 0fr; opacity: 0; margin-bottom: calc(-1 * var(--space-4)); }
+/* The first paint's reveal (home.js setResumeShown instant): no slide on page load. */
+#resume-card.no-motion { transition: none; }
+.resume-clip { overflow: hidden; min-height: 0; }
+@media (prefers-reduced-motion: reduce) {
+  #resume-card { transition: none; }
+}
+.resume-box {
   display: flex; align-items: center; gap: var(--space-3);
   background: var(--surface); color: var(--text);
   border: 1px solid var(--line); border-left: 3px solid var(--accent);
   border-radius: var(--radius); padding: var(--space-3) var(--space-4);
   box-shadow: none;
 }
-#resume-card > div { flex: 1; min-width: 0; }
+.resume-text { flex: 1; min-width: 0; }
+/* The loading line takes the subtitle's place: both sit in one grid cell, and
+   home.js shows exactly one of them, so the card never grows a line. */
+.resume-line { display: grid; }
+.resume-line > p { grid-area: 1 / 1; margin: 0; }
 #resume-title { margin: 0; font-weight: 650; }
 #resume-sub { color: var(--text-dim); opacity: 1; }
 #btn-resume { background: transparent; border-color: transparent;
@@ -490,10 +687,21 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
                  margin-top: var(--space-3); }
 .today-note { font-size: var(--text-xs); color: var(--text-faint); }
 .today-empty { font-size: var(--text-sm); color: var(--text-dim); }
+/* On the first load the wait's words stand where the title will be, and
+   are the title line's height; the placeholders below use the real lines'
+   own classes. */
 .today-loading { display: flex; align-items: center; gap: var(--space-2);
+                 min-height: calc(var(--text-xl) * 1.3);
                  color: var(--text-dim); font-size: var(--text-sm); }
+.today-situations.skeleton { width: 70%; }
+.today-reason.skeleton { width: 45%; }
+.today-skel-btn { display: inline-block; width: calc(8.5em + var(--space-4) * 2 + 2px);
+                  height: calc(1.55em + var(--space-2) * 2 + 2px); }
 .today-loading .thinking { padding: 0; }
-.today-alt { margin: calc(var(--space-2) * -1) 0 0; }
+/* Held one button tall even with no alternative (R5), so the lines below do
+   not move between a one-card and a two-card answer. */
+.today-alt { margin: calc(var(--space-2) * -1) 0 0;
+             min-height: calc(var(--text-sm) * 1.55 + var(--space-1) * 2); }
 .today-alt button { font-size: var(--text-sm); padding: var(--space-1) var(--space-2); border: 0; }
 .today-alt button:hover { color: var(--accent-ink); }
 
@@ -511,6 +719,13 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .week-days .day.future { opacity: .45; }
 .week-bar { height: 6px; background: var(--line); border-radius: var(--radius-pill); overflow: hidden; }
 #week-bar { height: 100%; width: 0; background: var(--accent); border-radius: var(--radius-pill); }
+/* The first load's placeholder (home.js weekSkeleton): real day cells with a
+   blank label, a one-line progress bar, and the stepper's space held but not
+   shown -- there is no goal to step yet. */
+.week-days .day.skeleton .dot { visibility: hidden; }
+#week-progress.skeleton { width: 60%; }
+#week-streak.skeleton { width: 30%; }
+#week-card.is-skeleton .goal { visibility: hidden; }
 .goal { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
         font-size: var(--text-sm); color: var(--text-dim); }
 .goal b { color: var(--text); }
@@ -526,6 +741,10 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .recent-theme .t { font-size: var(--text-base); font-weight: 650; }
 .recent-theme .m { font-size: var(--text-xs); color: var(--text-dim); }
 .recent-theme:hover:not(:disabled) { background: var(--accent-soft); }
+
+/* 준비 상태 줄: one line held while unknown or incomplete (R5); home.js sets
+   `hidden` once the library is complete, when the row is never coming back. */
+#library-progress { min-height: calc(var(--text-sm) * 1.55); }
 
 /* One column in the spec's order -- 추천, 이어서 하기, 이번 주, 약점 줄, 모드,
    최근 테마, 준비 상태 줄. Same breakpoint #home itself collapses to one

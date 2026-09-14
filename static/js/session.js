@@ -1,4 +1,4 @@
-import { $, api, getJSON, postJSON, state, notify } from './api.js';
+import { $, api, getJSON, postJSON, state, notify, setShown } from './api.js';
 import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening, beginListening, discardRecording, startRecording } from './audio.js';
 import { matches } from './match.js';
 import * as router from './router.js';
@@ -29,6 +29,51 @@ const micUnsupported = !recognition;
    stale value from the PREVIOUS utterance would flash in #mic-hint for the
    instant between pressing the mic and the first onresult of the new one. */
 let liveHeard = '';
+
+/* #mic-hint is two lines tall and never grows (spec R6). A long live
+   transcript is cut from the FRONT -- the words just said are the ones the
+   learner is checking, so they are the ones kept. CSS line-clamp alone would
+   cut from the end and hide exactly those.
+
+   The cap is in width units, not characters: a full-width glyph (CJK, kana,
+   Hangul, full-width forms) is about two Latin letters wide at the hint's
+   size, so a character cap that fits two lines of English ran a Japanese
+   transcript to three lines on a phone -- and then line-clamp cut its end
+   after all.
+
+   The budget follows the hint's own width (hintUnits): a Latin letter averages
+   about 0.55em, so two lines hold 2 * width / (0.55 * font size) units, less
+   15% for word wrap leaving ragged line ends. A fixed 64 fitted a phone and
+   cut a desktop dock at a third of a line. 64 stays as the fallback when there
+   is no layout to measure (a hidden screen, or dom-shim). */
+const HINT_FALLBACK_UNITS = 64;
+// Hangul Jamo, CJK radicals through Yi (kana, CJK symbols, ideographs),
+// Hangul syllables, compatibility ideographs and forms, full-width forms,
+// and the supplementary ideograph planes.
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u{20000}-\u{3fffd}]/u;
+const glyphUnits = (ch) => (WIDE.test(ch) ? 2 : 1);
+
+export function hintUnits(hint) {
+  const width = hint.clientWidth || 0;
+  const fontPx = typeof getComputedStyle === 'function'
+    ? parseFloat(getComputedStyle(hint).fontSize) : 0;
+  if (!(width > 0) || !(fontPx > 0)) return HINT_FALLBACK_UNITS;
+  return Math.floor(2 * width / (fontPx * 0.55) * 0.85);
+}
+
+export function clampHint(text, budget = HINT_FALLBACK_UNITS) {
+  const glyphs = [...text];
+  let units = 0;
+  for (const ch of glyphs) units += glyphUnits(ch);
+  if (units <= budget) return text;
+  let start = glyphs.length;
+  let kept = 0;
+  while (start > 0 && kept + glyphUnits(glyphs[start - 1]) <= budget) {
+    start -= 1;
+    kept += glyphUnits(glyphs[start]);
+  }
+  return `…${glyphs.slice(start).join('').trimStart()}`;
+}
 
 /* The re-speak chip currently listening, if any -- `{ btn, resultEl }` or
    null. There can be several re-speak buttons on screen at once (one per
@@ -104,13 +149,16 @@ function syncControls() {
   // learner actually notice a cut-off before it's sent, instead of only
   // finding out after. The non-listening text matches index.html's initial
   // markup so returning to idle doesn't visibly change the wording.
-  $('mic-hint').textContent = listening
-    ? (transcribingRespeak ? '받아쓰는 중...' : (liveHeard || '듣고 있습니다...'))
+  const hint = $('mic-hint');
+  hint.textContent = listening
+    ? (transcribingRespeak ? '받아쓰는 중...' : (clampHint(liveHeard, hintUnits(hint)) || '듣고 있습니다...'))
     : turnState === 'transcribing'
       ? '받아쓰는 중...'
       : '누르고 말한 뒤, 다 말하면 다시 눌러서 전송하세요';
-  $('thinking').hidden = turnState !== 'sending';
-  $('btn-cancel').hidden = !canDo('cancel');
+  // Both keep their place while hidden (spec R5), so neither the
+  // conversation column nor the dock changes height as a turn runs.
+  setShown($('thinking'), turnState === 'sending');
+  setShown($('btn-cancel'), canDo('cancel'));
 }
 
 export function setTurnState(event) {
@@ -372,12 +420,17 @@ export function addChip(bubble, fb) {
   summary.className = `chip ${fb.ok ? 'ok' : 'fix'}`;
   summary.textContent = fb.ok ? '✓ 문장 정확' : `고칠 곳 · ${fb.tag || '문법'}`;
 
+  // Collapsed by class, not `hidden` (spec R8): the grid row eases from 0fr
+  // to 1fr, and the inner wrapper's overflow: hidden is what lets the row
+  // actually shrink to nothing.
   const detail = document.createElement('div');
-  detail.className = 'chip-detail';
-  detail.hidden = true;
+  detail.className = 'chip-detail is-collapsed';
+  const inner = document.createElement('div');
+  inner.className = 'chip-detail-inner';
+  detail.appendChild(inner);
   summary.setAttribute('aria-expanded', 'false');
-  if (fb.correction) detail.appendChild(block('교정', fb.correction, 'corr'));
-  if (fb.suggestion) detail.appendChild(block('이렇게도', fb.suggestion, 'sug'));
+  if (fb.correction) inner.appendChild(block('교정', fb.correction, 'corr'));
+  if (fb.suggestion) inner.appendChild(block('이렇게도', fb.suggestion, 'sug'));
 
   if (!fb.ok && fb.fixed) {
     const row = document.createElement('div');
@@ -393,12 +446,12 @@ export function addChip(bubble, fb) {
     result.hidden = true;
     btn.addEventListener('click', () => startRespeak(fb.fixed, result, btn));
     row.append(target, btn, result);
-    detail.appendChild(row);
+    inner.appendChild(row);
   }
 
   summary.addEventListener('click', () => {
-    detail.hidden = !detail.hidden;
-    summary.setAttribute('aria-expanded', String(!detail.hidden));
+    const expanded = detail.classList.toggle('is-collapsed') === false;
+    summary.setAttribute('aria-expanded', String(expanded));
   });
 
   wrap.append(summary, detail);
