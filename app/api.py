@@ -143,7 +143,8 @@ def generate_scenario(payload: ScenarioWish):
             raise HTTPException(503, "상황을 만들지 못했습니다. 잠시 뒤에 다시 시도해 주세요.")
         if payload.mode != "script":
             break
-        reason = library.check_script(result.get("lines"), payload.language, check_duplicates=False)
+        lines = result.get("lines") if isinstance(result, dict) else None
+        reason = library.check_script(lines, payload.language, check_duplicates=False)
         if reason is None:
             break
     else:
@@ -270,7 +271,7 @@ async def transcribe_turn(language: Language = Form(...), file: UploadFile = Fil
 def translate_line(payload: TranslateRequest):
     """한 줄의 한국어 뜻. 학습자가 펼칠 때만 불린다.
 
-    미리 번역하지 않는 이유는 두 가지다: 대본 8줄을 선번역하면 시작이 그만큼
+    미리 번역하지 않는 이유는 두 가지다: 대본 16줄을 선번역하면 시작이 그만큼
     느려지고, 펼쳐보지도 않을 줄까지 번역하게 된다. 먼저 짐작하고 확인하는
     편이 학습에 남는다는 것도 같은 방향이다.
     """
@@ -733,7 +734,7 @@ def start_session(payload: SessionStart):
         for line in scenario["lines"]:
             # 화자를 가리지 않는다. 학습자가 자기 차례 줄을 미리 듣고 따라 읽는 것이
             # 대본 모드의 핵심 동작이고, 그러려면 내 줄에도 음성이 있어야 한다. 대본은
-            # 8줄 남짓이고 tts는 캐시되므로 전부 선합성해도 비용은 무시할 만하다.
+            # 16줄 남짓이고 tts는 캐시되므로 전부 선합성해도 비용은 무시할 만하다.
             key = _speak(line["text"], payload.language)
             lines.append({"speaker": line["speaker"], "text": line["text"], "audio_key": key})
         return {"session_id": session_id, "mode": "script", "lines": lines}

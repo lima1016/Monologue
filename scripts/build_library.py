@@ -59,6 +59,15 @@ def build(themes, languages, per_theme, *, chat_json=llm.chat_json, log=print):
                     except llm.LLMError:
                         stats["reasons"]["model-error"] += 1
                         continue
+                    except Exception as exc:
+                        # A 4-hour unattended run must survive a shape the model
+                        # can send that llm.chat_json does not itself guard --
+                        # e.g. Ollama returning a null content, which surfaces as
+                        # TypeError out of json.loads(None), not LLMError.
+                        stats["reasons"]["model-error"] += 1
+                        log(f"[{language}] {theme['id']} {n:02d}/{per_theme}"
+                           f" unexpected {type(exc).__name__} from the model: {exc}")
+                        continue
                     lines = result.get("lines") if isinstance(result, dict) else None
                     reason = library.check_script(lines, language, [s["lines"] for s in existing])
                     if reason:
@@ -67,7 +76,17 @@ def build(themes, languages, per_theme, *, chat_json=llm.chat_json, log=print):
                     item = {"id": sid, "theme_id": theme["id"], "situation": situation, "language": language,
                             "type": "script", "title": (result.get("title") or situation).strip(),
                             "lines": lines}
-                    db.add_library_scenario(item)
+                    try:
+                        db.add_library_scenario(item)
+                    except Exception as exc:
+                        # The app server can hold the database at the same time
+                        # this runs (a shared SQLite file, WAL mode) -- a lock
+                        # timeout here is transient, not a reason to lose the
+                        # rest of the run. Retried like any other bad attempt.
+                        stats["reasons"]["db-error"] += 1
+                        log(f"[{language}] {theme['id']} {n:02d}/{per_theme}"
+                           f" unexpected {type(exc).__name__} saving: {exc}")
+                        continue
                     existing.append(db.get_library_scenario(sid))
                     stats["added"] += 1
                     log(f"[{language}] {theme['id']} {n:02d}/{per_theme} ok")

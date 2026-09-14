@@ -128,6 +128,15 @@ def test_generate_gives_up_after_the_second_bad_script(client, monkeypatch):
     assert r.status_code == 422
 
 
+def test_generate_rejects_a_non_object_script_result_instead_of_crashing(client, monkeypatch):
+    """chat_json's contract is 'parsed as JSON', not 'parsed as an object' -- a
+    model can hand back a bare list. That must fail the check (and retry, then
+    422) like any other bad generation, not crash with a 500 on .get()."""
+    monkeypatch.setattr("app.api.llm.chat_json", lambda m, s, **kw: ["not", "an", "object"])
+    r = client.post("/api/scenarios/generate", json={"language": "en", "mode": "script", "wish": "cafe"})
+    assert r.status_code == 422
+
+
 def test_home_stats_route_returns_the_computed_counters(client):
     sid = db.create_session("en", "free")
     db.add_message(sid, "user", "hello")

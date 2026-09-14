@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from app import config, db
@@ -90,3 +92,36 @@ def test_previous_titles_and_openings_reach_the_prompt(store):
     build_library.build([THEME], ["en"], 2, chat_json=model, log=lambda *a: None)
     last_user = [c for c in model.calls if "persona_prompt" not in str(c)][-1][-1]["content"]
     assert "first title" in last_user and "Opening theta1 line 0 for practice." in last_user
+
+
+def test_a_non_llm_error_from_the_model_still_counts_as_a_retry(store):
+    """chat_json can raise something other than llm.LLMError -- e.g. a bare
+    TypeError out of json.loads(None) when Ollama returns a null content. A
+    4-hour unattended run must survive that, not die on it."""
+    model = FakeModel([TypeError("content was null"), ("ok", _lines("Recovered zeta9"))])
+    report = build_library.build([THEME], ["en"], 1, chat_json=model, log=lambda *a: None)
+    assert report["added"] == 1 and report["reasons"]["model-error"] == 1
+
+
+def test_a_database_error_while_saving_is_retried(store, monkeypatch):
+    """The app server can hold the same SQLite file open at the same time this
+    runs -- a lock timeout on the insert must be retried, not crash the run."""
+    db.add_library_scenario({
+        "id": "lib-hotel-en-free", "theme_id": "hotel", "situation": None, "language": "en",
+        "type": "free", "title": "호텔", "goal": "체크인 한다",
+        "persona_prompt": "You are a hotel clerk.", "max_turns": config.DEFAULT_MAX_TURNS,
+    })
+    real_add = db.add_library_scenario
+    calls = {"n": 0}
+
+    def flaky(item):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return real_add(item)
+
+    monkeypatch.setattr(db, "add_library_scenario", flaky)
+    model = FakeModel([("first", _lines("Locked eta3")), ("second", _lines("Locked eta4"))])
+    report = build_library.build([THEME], ["en"], 1, chat_json=model, log=lambda *a: None)
+    assert report["reasons"]["db-error"] == 1
+    assert [s["id"] for s in db.library_scenarios("en", "hotel", "script")] == ["lib-hotel-en-01"]
