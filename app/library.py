@@ -80,7 +80,10 @@ def check_script(lines, language, existing=(), *, expected_lines=config.LIBRARY_
         for other in existing:
             if other and normalize(other[0]["text"]) == opening:
                 return "same-opening"
-            if difflib.SequenceMatcher(None, joined, _joined(other)).ratio() >= _SIMILAR:
+            # autojunk=False: on a 200+ character string difflib otherwise
+            # drops every character seen in over 1% of it (all common letters)
+            # and a copy with 4 of 16 lines reworded measured 0.28, not 0.91.
+            if difflib.SequenceMatcher(None, joined, _joined(other), autojunk=False).ratio() >= _SIMILAR:
                 return "too-similar"
     return None
 
