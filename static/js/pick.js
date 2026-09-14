@@ -41,6 +41,7 @@ let selected = null;      // { kind: 'theme' | 'scenario', id } | null
    than sending a second one. */
 let pending = null;       // { themeId, language, mode, promise, done } | null
 let locked = false;       // a start is in flight: tabs, cards and the field are off
+let loading = false;      // /themes is out: the grid says so and 시작 is off
 
 const isReady = (theme, mode) => (mode === 'script' ? theme.ready.script > 0 : Boolean(theme.ready.free));
 
@@ -94,8 +95,9 @@ export async function loadThemes() {
   category = THEME_CATEGORIES[0];
   selected = null;
   pending = null;
+  loading = mode !== 'lesson';     // lesson takes a topic, not a theme
   render();
-  if (mode === 'lesson') return;   // lesson takes a topic, not a theme
+  if (!loading) return;
   try {
     const [themeList, own] = await Promise.all([
       getJSON(`/themes?language=${language}`),
@@ -104,14 +106,23 @@ export async function loadThemes() {
     if (state.language !== language || state.mode !== mode) return; // a newer switch already won
     themes = themeList.themes || [];
     mine = (own.scenarios || []).filter((s) => String(s.id).startsWith('user-'));
+    loading = false;
     render();
   } catch (err) {
     if (state.language !== language || state.mode !== mode) return;
+    loading = false;
+    render();
     notify(`테마를 불러오지 못했어요: ${err.message}`);
   }
 }
 
+/* A choice on another tab is not a choice: 시작 would start a card the learner
+   can no longer see. Pressing the tab already on screen keeps it. */
 export function selectCategory(key) {
+  if (key !== category) {
+    selected = null;
+    pending = null;
+  }
   category = key;
   render();
 }
@@ -139,7 +150,8 @@ export async function selectTheme(themeId) {
     pending = null;
     selected = null;
     render();
-    notify(err.message);
+    // A start waiting on this very pick reports the failure itself.
+    if (!isBusy()) notify(err.message);
   }
 }
 
@@ -159,9 +171,8 @@ function sendPick(themeId, language, mode) {
 
 function lock(on) {
   locked = on;
-  $('btn-start').disabled = on;
   $('wish').disabled = on;
-  render();
+  render();                        // sets #btn-start from locked and loading
 }
 
 /* 시작. In order: lesson takes the field as its topic; otherwise text in the
@@ -169,6 +180,10 @@ function lock(on) {
    the chosen theme, or a ready one from the current tab when nothing is. */
 export async function startFromPick() {
   if (isBusy()) return;
+  // The themes are still coming: "nothing to choose" would be false. Only a
+  // typed wish (or a lesson topic) needs no list. 시작 itself is disabled; this
+  // is Enter in the field.
+  if (loading && !$('wish').value.trim()) return;
   // Captured once, here, and used for every request below -- never re-read
   // from `state` after an await. /scenarios/generate is a local model call
   // that takes seconds, and the language segments stay live throughout it: a
@@ -240,6 +255,7 @@ function drawFromTab(mode) {
 }
 
 function render() {
+  $('btn-start').disabled = locked || loading;
   const tabs = $('category-tabs');
   tabs.replaceChildren();
   const keys = mine.length ? [...THEME_CATEGORIES, 'mine'] : THEME_CATEGORIES;
@@ -257,6 +273,13 @@ function render() {
 
   const grid = $('theme-grid');
   grid.replaceChildren();
+  if (loading) {
+    const note = document.createElement('p');
+    note.className = 'theme-loading';
+    note.textContent = '테마 불러오는 중...';
+    grid.append(note);
+    return;
+  }
   if (category === 'mine') {
     for (const s of mine) {
       const card = document.createElement('button');

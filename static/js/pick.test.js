@@ -455,3 +455,91 @@ test('a mode card pressed while a resume is in flight does nothing', async () =>
   assert.equal(router.current(), 'home');
   assert.equal(state.mode, 'script');
 });
+
+/* ---------- the tab you are looking at is what 시작 starts ---------- */
+
+test('switching tabs drops the theme chosen on the old tab, so 시작 draws from the tab on screen', async () => {
+  const seen = routes();
+  await pick.openPick('script');
+  await pick.selectTheme('cafe-restaurant');
+  pick.selectCategory('travel');
+  assert.equal(cards().some((c) => c.classList.contains('on')), false);
+  await pick.startFromPick();
+  assert.deepEqual(seen.picks.map((p) => p.theme_id), ['cafe-restaurant', 'hotel']);
+});
+
+test('pressing the tab already on screen keeps the choice', async () => {
+  const seen = routes();
+  await pick.openPick('script');
+  await pick.selectTheme('cafe-restaurant');
+  pick.selectCategory('daily');
+  await pick.startFromPick();
+  assert.deepEqual(seen.picks.map((p) => p.theme_id), ['cafe-restaurant']);
+});
+
+/* ---------- one failure, one notice ---------- */
+
+test('a held pick that fails during a waiting start is reported once, by the start', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  routes({ pick: async () => { await held; return jsonResponse({ detail: '이 테마는 아직 준비되지 않았어요' }, { ok: false, status: 409 }); } });
+  await pick.openPick('script');
+  const notices = [];
+  const el = $('notice');
+  let text = el.textContent;
+  Object.defineProperty(el, 'textContent', { get: () => text, set: (v) => { text = v; if (v) notices.push(v); } });
+  const choosing = pick.selectTheme('cafe-restaurant');
+  const started = pick.startFromPick();
+  await new Promise((r) => setTimeout(r, 0));
+  release();
+  await Promise.all([choosing, started]);
+  assert.deepEqual(notices, ['시작하지 못했어요: 이 테마는 아직 준비되지 않았어요']);
+});
+
+test('a pick that fails with no start waiting still says why', async () => {
+  routes({ pick: async () => jsonResponse({ detail: '이 테마는 아직 준비되지 않았어요' }, { ok: false, status: 409 }) });
+  await pick.openPick('script');
+  await pick.selectTheme('cafe-restaurant');
+  assert.equal($('notice').textContent, '이 테마는 아직 준비되지 않았어요');
+});
+
+/* ---------- while the themes load ---------- */
+
+function holdThemes() {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const seen = { picks: [], sessions: 0 };
+  stubFetch(async (url) => {
+    if (url.startsWith('/api/themes')) { await held; return jsonResponse({ themes: THEMES }); }
+    if (url.startsWith('/api/scenarios?')) return jsonResponse({ scenarios: [] });
+    if (url === '/api/library/pick') { seen.picks.push(url); return jsonResponse({ id: 'lib-x', title: 't', situation: 's' }); }
+    if (url === '/api/sessions') { seen.sessions += 1; return jsonResponse({ session_id: 1, mode: 'script', lines: [{ speaker: 'bot', text: 'Hi.' }] }); }
+    return jsonResponse({});
+  });
+  return { seen, release: () => release() };
+}
+
+test('while the themes load the grid says so and 시작 is off', async () => {
+  const { release } = holdThemes();
+  const opening = pick.openPick('script');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(cards().map((c) => c.textContent), ['테마 불러오는 중...']);
+  assert.equal($('btn-start').disabled, true);
+  release();
+  await opening;
+  assert.equal($('btn-start').disabled, false);
+  assert.deepEqual(cards().map((c) => c.dataset.theme), ['cafe-restaurant', 'shopping']);
+});
+
+test('시작 (or Enter) while the themes load does not claim there is no theme', async () => {
+  const { seen, release } = holdThemes();
+  const opening = pick.openPick('script');
+  await new Promise((r) => setTimeout(r, 0));
+  await pick.startFromPick();
+  assert.equal($('notice').textContent, '', 'said there was nothing to choose while the list was still coming');
+  release();
+  await opening;
+  await pick.startFromPick();
+  assert.equal(seen.picks.length, 1);
+  assert.equal(seen.sessions, 1);
+});
