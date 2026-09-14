@@ -190,12 +190,17 @@ def main(argv=None):
     parser.add_argument("--theme", nargs="*")
     parser.add_argument("--per-theme", type=int, default=config.LIBRARY_PER_THEME)
     args = parser.parse_args(argv)
+    themes = library.load_themes()
+    if args.theme:
+        unknown = [t for t in args.theme if library.get_theme(t) is None]
+        if unknown:
+            # A typo would otherwise run the other themes and quietly skip it.
+            parser.error(f"unknown theme id: {', '.join(unknown)} "
+                         f"(known: {', '.join(t['id'] for t in themes)})")
+        themes = [t for t in themes if t["id"] in args.theme]
     prepare_console(sys.stdout)
     log = console_log(sys.stdout)
     db.init_db()
-    themes = library.load_themes()
-    if args.theme:
-        themes = [t for t in themes if t["id"] in args.theme]
     languages = args.language or list(config.LANGUAGES)
     for line in plan_lines(themes, languages, args.per_theme):
         log(line)

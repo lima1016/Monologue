@@ -278,3 +278,15 @@ def test_a_free_setup_that_never_works_is_given_up_after_four_tries(store):
     assert report["gave_up"] == 1 and report["reasons"]["free-setup"] == 4
     assert db.library_scenarios("en", "hotel", "free") == []
     assert any("free setup" in s and "gave up" in s for s in said), said
+
+
+def test_an_unknown_theme_id_stops_before_anything_runs(store, monkeypatch, capsys):
+    from app import llm
+    monkeypatch.setattr(llm, "is_healthy", lambda: True)
+    called = []
+    monkeypatch.setattr(build_library, "build", lambda *a, **k: called.append(1))
+    with pytest.raises(SystemExit) as exc:
+        build_library.main(["--theme", "hotel", "hotell", "cafe", "--per-theme", "1"])
+    assert exc.value.code != 0 and called == []
+    err = capsys.readouterr().err
+    assert "unknown theme id: hotell, cafe (" in err
