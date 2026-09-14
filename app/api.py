@@ -1404,7 +1404,8 @@ def session_history_page(language: Language, offset: int = Query(default=0, ge=0
         # want its "title"); reusing it for the wrong count is harmless stand-in data.
         titled = _recent_row({**row, "fixed": row["wrong"]})
         items.append({"id": row["id"], "ended_at": row["ended_at"], "title": titled["title"],
-                      "mode": row["mode"], "turns": row["turns"], "wrong": row["wrong"]})
+                      "mode": row["mode"], "turns": row["turns"], "wrong": row["wrong"],
+                      "graded": row["graded"]})
     return {"items": items, "more": len(rows) > _HISTORY_PAGE}
 
 
@@ -1413,17 +1414,21 @@ def session_report(session_id: int):
     session = db.get_session(session_id)
     if session is None or not session["report"]:
         raise HTTPException(404, "no report for this session")
+    # A prose report predates graded turns: its sessions were never graded, so
+    # graded: false tells the report screen not to count them as ungraded.
+    graded = True
     try:
         report = json.loads(session["report"])
         if not isinstance(report, dict):
             raise ValueError
     except ValueError:
         report = {"summary": session["report"]}
+        graded = False
     stats = db.session_stats(session_id)
     stats["minutes"] = db.active_minutes(session_id)
     return {"summary": report.get("summary") or "", "weak_points": report.get("weak_points") or [],
             "expressions": report.get("expressions") or [], "next_focus": report.get("next_focus") or "",
-            "level": session["level"], "stats": stats, "mode": session["mode"]}
+            "level": session["level"], "stats": stats, "mode": session["mode"], "graded": graded}
 
 
 @router.get("/sessions/{session_id}")

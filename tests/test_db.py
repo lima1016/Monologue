@@ -925,7 +925,7 @@ def test_enqueue_is_idempotent_and_due_reviews_filter(store):
     due = store.due_reviews("en", date(2026, 9, 14))
     assert [d["message_id"] for d in due] == [a]
     assert due[0]["text"] == "I go there" and due[0]["fixed"] == "I went there." and due[0]["tag"] == "시제"
-    assert store.review_counts("en", date(2026, 9, 14)) == {"due": 1, "mastered": 0}
+    assert store.review_counts("en", date(2026, 9, 14)) == {"due": 1, "mastered": 0, "total": 2}
 
 
 def test_due_reviews_oldest_first_and_capped(store):
@@ -936,9 +936,13 @@ def test_due_reviews_oldest_first_and_capped(store):
         ids.append(m)
     due = store.due_reviews("en", date(2026, 9, 14))
     assert len(due) == 20
-    assert [d["created_at"] <= e["created_at"] or d["id"] < e["id"] for d, e in zip(due, due[1:])]
+    with store.connect() as conn:
+        every = conn.execute("SELECT id, due_date FROM review_queue WHERE language = 'en'").fetchall()
+    expected = [r["id"] for r in sorted(every, key=lambda r: (r["due_date"], r["id"]))][:20]
+    assert [d["id"] for d in due] == expected
+    # Five rows share each due date, so the tie-break is really exercised.
     dates = [store.get_review(d["id"])["due_date"] for d in due]
-    assert dates == sorted(dates)
+    assert len(set(dates)) < len(dates)
 
 
 def test_record_review_follows_the_interval_table(store):
@@ -956,8 +960,10 @@ def test_record_review_follows_the_interval_table(store):
     r = store.record_review(rid, "pass", today)               # 2 -> interval 7
     assert (r["passes"], r["interval_d"]) == (2, 7)
     r = store.record_review(rid, "pass", today)               # 3 -> mastered
-    assert r["mastered"] is True and r["passes"] == 3
-    assert store.review_counts("en", date(2026, 9, 30)) == {"due": 0, "mastered": 1}
+    # Spec table: the mastering pass keeps interval_d as it was.
+    assert r["mastered"] is True and r["passes"] == 3 and r["interval_d"] == 7
+    assert store.get_review(rid)["interval_d"] == 7
+    assert store.review_counts("en", date(2026, 9, 30)) == {"due": 0, "mastered": 1, "total": 1}
     with pytest.raises(ValueError):
         store.record_review(rid, "pass", today)
     with pytest.raises(KeyError):
@@ -990,3 +996,13 @@ def test_undo_removes_the_review_of_the_undone_turn(store):
     # table itself is actually empty, not just invisible through the join.
     with store.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM review_queue").fetchone()[0] == 0
+
+
+def test_review_counts_due_skips_a_row_whose_message_is_gone(store):
+    """due_reviews INNER JOINs messages, so the count must too: an orphaned row
+    would make the heading promise a card the list can never show."""
+    m = _wrong_turn(store)
+    store.enqueue_review(m, "en", date(2026, 9, 14))
+    store.enqueue_review(987654, "en", date(2026, 9, 14))      # no such message
+    assert len(store.due_reviews("en", date(2026, 9, 14))) == 1
+    assert store.review_counts("en", date(2026, 9, 14))["due"] == 1

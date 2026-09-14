@@ -917,19 +917,26 @@ def due_reviews(language, today, limit=20) -> list[dict]:
 
 
 def review_counts(language, today) -> dict:
+    """`due` counts exactly what due_reviews could list (same JOIN, no limit),
+    so a row orphaned from its message is never promised. `total` is every row
+    for the language, mastered or not: 0 means nothing was ever queued."""
     with connect() as conn:
         due = conn.execute(
-            "SELECT COUNT(*) FROM review_queue WHERE language = ? AND mastered_at IS NULL AND due_date <= ?",
+            "SELECT COUNT(*) FROM review_queue r JOIN messages m ON m.id = r.message_id"
+            " WHERE r.language = ? AND r.mastered_at IS NULL AND r.due_date <= ?",
             (language, today.isoformat())).fetchone()[0]
         mastered = conn.execute(
             "SELECT COUNT(*) FROM review_queue WHERE language = ? AND mastered_at IS NOT NULL",
             (language,)).fetchone()[0]
-    return {"due": due, "mastered": mastered}
+        total = conn.execute("SELECT COUNT(*) FROM review_queue WHERE language = ?",
+                             (language,)).fetchone()[0]
+    return {"due": due, "mastered": mastered, "total": total}
 
 
 def record_review(review_id, result, today) -> dict:
     """Spaced repetition, one sentence at a time (spec table). pass climbs the
-    interval ladder and masters on the third pass; fail starts over; skip only
+    interval ladder and masters on the third pass (which keeps its interval);
+    fail starts over; skip only
     moves the card to tomorrow."""
     if result not in ("pass", "fail", "skip"):
         raise ValueError(result)
@@ -942,10 +949,12 @@ def record_review(review_id, result, today) -> dict:
         passes, interval, mastered_at = row["passes"], row["interval_d"], None
         if result == "pass":
             passes += 1
-            steps = [i for i in REVIEW_INTERVALS if i > interval]
-            interval = steps[0] if steps else REVIEW_INTERVALS[-1]
             if passes >= REVIEW_PASSES_TO_MASTER:
+                # Spec table: the mastering pass leaves interval_d as it was.
                 mastered_at = _now()
+            else:
+                steps = [i for i in REVIEW_INTERVALS if i > interval]
+                interval = steps[0] if steps else REVIEW_INTERVALS[-1]
             due = today + timedelta(days=interval)
         elif result == "fail":
             passes, interval = 0, REVIEW_INTERVALS[0]
@@ -1006,11 +1015,19 @@ def wrong_tag_counts(language) -> list[dict]:
 
 
 def history(language, offset, limit) -> list[dict]:
+    """Finished sessions, newest first. A script session reads fixed lines, so
+    none of its turns is wrong or graded; `graded` lets a row that was never
+    graded (an old session, or every grading call failed) skip 고친 곳 0."""
     with connect() as conn:
         rows = conn.execute(
             "SELECT s.id, s.scenario_id, s.topic, s.mode, s.ended_at,"
             "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user') turns,"
-            "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok = 0) wrong"
+            "  CASE WHEN s.mode = 'script' THEN 0 ELSE"
+            "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok = 0)"
+            "  END wrong,"
+            "  CASE WHEN s.mode = 'script' THEN 0 ELSE"
+            "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok IS NOT NULL)"
+            "  END graded"
             " FROM sessions s WHERE s.language = ? AND s.report IS NOT NULL"
             " ORDER BY s.ended_at DESC, s.id DESC LIMIT ? OFFSET ?", (language, limit, offset)).fetchall()
     return [dict(r) for r in rows]
