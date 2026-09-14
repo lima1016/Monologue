@@ -348,13 +348,79 @@ test('cancelling a listen returns to idle, hides the cancel button, and sends no
   stubFetch(async (url) => { requests.push(url); return jsonResponse({}); });
 
   session.setTurnState('MIC');
-  assert.equal($('btn-cancel').hidden, false, '듣는 동안 취소 버튼이 보여야 한다');
+  assert.equal($('btn-cancel').classList.contains('is-invisible'), false, '듣는 동안 취소 버튼이 보여야 한다');
 
   session.handleCancelled();
-  assert.equal($('btn-cancel').hidden, true);
+  assert.ok($('btn-cancel').classList.contains('is-invisible'));
   assert.equal(session.canDo('send'), true, '취소 뒤에는 바로 다시 말하거나 입력할 수 있어야 한다');
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(requests, [], '취소한 발화가 서버로 가면 안 된다');
+});
+
+/* 세션 화면이 출렁이지 않게 (spec R5, R6, R8): 취소 버튼과 생각 중 점은 자리를
+   지키고, 긴 실시간 문구는 두 줄 안에 들어가고, 칩 상세는 hidden 대신 클래스로
+   접힌다. */
+test('the mic dock keeps its layout: cancel keeps its place while idle', () => {
+  resetDom();
+  session.setTurnState('CANCEL');   // back to idle from anywhere the existing tests use
+  assert.equal($('btn-cancel').hidden, false);
+  assert.ok($('btn-cancel').classList.contains('is-invisible'));
+  session.setTurnState('MIC');
+  assert.equal($('btn-cancel').classList.contains('is-invisible'), false);
+  session.setTurnState('CANCEL');
+});
+
+test('the thinking dots keep their place when the bot is not thinking', () => {
+  resetDom();
+  session.setTurnState('CANCEL');
+  assert.equal($('thinking').hidden, false);
+  assert.ok($('thinking').classList.contains('is-invisible'));
+});
+
+test('a long live transcript is clamped from the front so the newest words stay visible', () => {
+  const long = 'word '.repeat(40).trim();
+  const out = session.clampHint(long);
+  assert.ok(out.length <= 81);
+  assert.ok(out.startsWith('…'));
+  assert.ok(out.endsWith('word'));
+  assert.equal(session.clampHint('short'), 'short');
+  // Words that differ, so a cut from the back (which would also end on
+  // "word" above) cannot pass: the last word said must survive.
+  const numbered = Array.from({ length: 40 }, (_, i) => `w${i}`).join(' ');
+  const clipped = session.clampHint(numbered);
+  assert.ok(clipped.startsWith('…') && clipped.endsWith('w39'), clipped);
+  assert.ok(!clipped.includes('w0 '), clipped);
+});
+
+/* One interim result through the fake recognition's own onresult, the way
+   Chrome streams the live transcript to audio.js and on to #mic-hint. */
+function audioInterim(text) {
+  const result = Object.assign([{ transcript: text }], { isFinal: false });
+  rec.onresult({ resultIndex: 0, results: [result] });
+}
+
+test('the live transcript in the mic hint is the clamped one', () => {
+  resetDom();
+  session.setTurnState('CANCEL');
+  session.setTurnState('MIC');
+  const long = `${'old '.repeat(30)}newest words`;
+  audioInterim(long);
+  assert.equal($('mic-hint').textContent, session.clampHint(long));
+  assert.ok($('mic-hint').textContent.endsWith('newest words'));
+  session.setTurnState('CANCEL');
+});
+
+test('a correction chip expands by class, not by hiding', () => {
+  resetDom();
+  state.language = 'en';
+  const bubble = session.addMessage('user', 'I go there');
+  const wrap = session.addChip(bubble, { ok: false, fixed: 'I went there.', tag: '시제', correction: 'c', suggestion: null });
+  const [summary, detail] = wrap.children;
+  assert.equal(detail.hidden, false);
+  assert.ok(detail.classList.contains('is-collapsed'));
+  summary.listeners.click[0]();
+  assert.equal(detail.classList.contains('is-collapsed'), false);
+  assert.equal(summary.getAttribute('aria-expanded'), 'true');
 });
 
 /* Whisper 최종 받아쓰기. 브라우저 인식은 미리보기이고, 턴은 받아쓴 문장으로 간다.
@@ -431,7 +497,7 @@ test('cancelling while Whisper works drops the late result', async () => {
   session.setTurnState('MIC');
   const pending = session.handleHeard('browser', clip());
   await new Promise((r) => setTimeout(r, 0));
-  assert.equal($('btn-cancel').hidden, false, '받아쓰는 중에도 취소할 수 있어야 한다');
+  assert.equal($('btn-cancel').classList.contains('is-invisible'), false, '받아쓰는 중에도 취소할 수 있어야 한다');
   session.cancelTurn();
   assert.equal(session.canDo('send'), true);
 

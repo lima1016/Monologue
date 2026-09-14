@@ -1,4 +1,4 @@
-import { $, api, getJSON, postJSON, state, notify } from './api.js';
+import { $, api, getJSON, postJSON, state, notify, setShown } from './api.js';
 import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening, beginListening, discardRecording, startRecording } from './audio.js';
 import { matches } from './match.js';
 import * as router from './router.js';
@@ -29,6 +29,16 @@ const micUnsupported = !recognition;
    stale value from the PREVIOUS utterance would flash in #mic-hint for the
    instant between pressing the mic and the first onresult of the new one. */
 let liveHeard = '';
+
+/* #mic-hint is two lines tall and never grows (spec R6). A long live
+   transcript is cut from the FRONT -- the words just said are the ones the
+   learner is checking, so they are the ones kept. CSS line-clamp alone would
+   cut from the end and hide exactly those. */
+const HINT_MAX = 80;
+export function clampHint(text) {
+  if (text.length <= HINT_MAX) return text;
+  return `…${text.slice(-HINT_MAX).trimStart()}`;
+}
 
 /* The re-speak chip currently listening, if any -- `{ btn, resultEl }` or
    null. There can be several re-speak buttons on screen at once (one per
@@ -105,12 +115,14 @@ function syncControls() {
   // finding out after. The non-listening text matches index.html's initial
   // markup so returning to idle doesn't visibly change the wording.
   $('mic-hint').textContent = listening
-    ? (transcribingRespeak ? '받아쓰는 중...' : (liveHeard || '듣고 있습니다...'))
+    ? (transcribingRespeak ? '받아쓰는 중...' : (clampHint(liveHeard) || '듣고 있습니다...'))
     : turnState === 'transcribing'
       ? '받아쓰는 중...'
       : '누르고 말한 뒤, 다 말하면 다시 눌러서 전송하세요';
-  $('thinking').hidden = turnState !== 'sending';
-  $('btn-cancel').hidden = !canDo('cancel');
+  // Both keep their place while hidden (spec R5), so neither the
+  // conversation column nor the dock changes height as a turn runs.
+  setShown($('thinking'), turnState === 'sending');
+  setShown($('btn-cancel'), canDo('cancel'));
 }
 
 export function setTurnState(event) {
@@ -372,12 +384,17 @@ export function addChip(bubble, fb) {
   summary.className = `chip ${fb.ok ? 'ok' : 'fix'}`;
   summary.textContent = fb.ok ? '✓ 문장 정확' : `고칠 곳 · ${fb.tag || '문법'}`;
 
+  // Collapsed by class, not `hidden` (spec R8): the grid row eases from 0fr
+  // to 1fr, and the inner wrapper's overflow: hidden is what lets the row
+  // actually shrink to nothing.
   const detail = document.createElement('div');
-  detail.className = 'chip-detail';
-  detail.hidden = true;
+  detail.className = 'chip-detail is-collapsed';
+  const inner = document.createElement('div');
+  inner.className = 'chip-detail-inner';
+  detail.appendChild(inner);
   summary.setAttribute('aria-expanded', 'false');
-  if (fb.correction) detail.appendChild(block('교정', fb.correction, 'corr'));
-  if (fb.suggestion) detail.appendChild(block('이렇게도', fb.suggestion, 'sug'));
+  if (fb.correction) inner.appendChild(block('교정', fb.correction, 'corr'));
+  if (fb.suggestion) inner.appendChild(block('이렇게도', fb.suggestion, 'sug'));
 
   if (!fb.ok && fb.fixed) {
     const row = document.createElement('div');
@@ -393,12 +410,12 @@ export function addChip(bubble, fb) {
     result.hidden = true;
     btn.addEventListener('click', () => startRespeak(fb.fixed, result, btn));
     row.append(target, btn, result);
-    detail.appendChild(row);
+    inner.appendChild(row);
   }
 
   summary.addEventListener('click', () => {
-    detail.hidden = !detail.hidden;
-    summary.setAttribute('aria-expanded', String(!detail.hidden));
+    const expanded = detail.classList.toggle('is-collapsed') === false;
+    summary.setAttribute('aria-expanded', String(expanded));
   });
 
   wrap.append(summary, detail);

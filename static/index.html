@@ -134,7 +134,7 @@
     <div class="session-grid">
       <div class="conversation-col">
         <div id="conversation"></div>
-        <div id="thinking" class="thinking" hidden><i></i><i></i><i></i></div>
+        <div id="thinking" class="thinking fade is-invisible" aria-hidden="true"><i></i><i></i><i></i></div>
       </div>
 
       <aside class="side-panel" id="side-panel">
@@ -146,7 +146,7 @@
     <div id="mic-dock">
       <button id="btn-mic" class="mic" aria-label="말하기"></button>
       <p id="mic-hint" class="hint">누르고 말한 뒤, 다 말하면 다시 눌러서 전송하세요</p>
-      <button id="btn-cancel" class="ghost" type="button" hidden>취소 (Esc)</button>
+      <button id="btn-cancel" class="ghost fade is-invisible" type="button" aria-hidden="true">취소 (Esc)</button>
       <div id="controls">
         <input id="text-input" type="text" placeholder="직접 입력해도 됩니다">
         <button id="btn-send">보내기</button>

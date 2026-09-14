@@ -54,6 +54,18 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   border-bottom-right-radius: var(--space-1);
 }
 .msg.user.undoable { cursor: pointer; }
+
+/* A new bubble, chip or suggestion card eases in rather than appearing in one
+   frame (spec R8). A small drop is fine here, unlike on a screen: none of these
+   has a fixed or sticky descendant for a transform to break. */
+.msg, .chip-row, .suggest-card { animation: fade-down var(--dur-fast) ease-out; }
+@keyframes fade-down {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg, .chip-row, .suggest-card { animation: none; }
+}
 .msg.user.undoable:hover { outline: 1px solid var(--accent); outline-offset: 2px; }
 
 .play-mine {
@@ -154,7 +166,22 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .chip.ok  { background: var(--suggest-bg); color: var(--suggest-ink); }
 .chip.fix { background: var(--correct-bg); color: var(--correct-ink); }
 
-.chip-detail { margin-top: var(--space-2); }
+.chip-detail {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows var(--dur-fast) ease;
+}
+/* Collapsed by class, not [hidden] (spec R8), so the row can ease open. The
+   inner wrapper's overflow: hidden is what lets a 0fr row really shrink to
+   nothing; the gap under the chip lives inside it for the same reason (a
+   margin on .chip-detail would stay behind when collapsed). visibility keeps
+   the collapsed re-speak button out of the tab order, as [hidden] did. */
+.chip-detail.is-collapsed { grid-template-rows: 0fr; }
+.chip-detail-inner { overflow: hidden; min-height: 0; transition: visibility var(--dur-fast); }
+.chip-detail-inner > :first-child { margin-top: var(--space-2); }
+.chip-detail.is-collapsed .chip-detail-inner { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .chip-detail, .chip-detail-inner { transition: none; }
+}
 .chip-block {
   font-size: var(--text-sm); line-height: 1.5;
   border-left: 2px solid; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
@@ -193,6 +220,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .suggest-line[data-has-meaning] .meaning-body { display: none; }
 
 #panel-body li { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
+#panel-body li { transition: background-color var(--dur-fast) ease; }
 #panel-body li.current { background: var(--accent-soft); font-weight: 600; }
 #panel-body li.done { opacity: .5; }
 
@@ -268,6 +296,13 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
   /* Dim only. backdrop-filter blur rendered the page behind as a tiled mirror
      in Chrome's capture of this fixed layer -- not worth the risk for a wait card. */
   background: rgba(20, 21, 28, .45);
+  /* Fades in (150ms) instead of dropping over the session in one frame. Its
+     own opacity-only keyframes, not fade-down: it is itself fixed. */
+  animation: report-wait-in var(--dur-fast) ease-out;
+}
+@keyframes report-wait-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .report-wait-card {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
@@ -322,6 +357,7 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 }
 @media (prefers-reduced-motion: reduce) {
   .thinking i, .mic.listening { animation: none; opacity: .5; }
+  .report-wait, #panel-body li { animation: none; transition: none; }
 }
 
 #mic-dock {
@@ -362,13 +398,24 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 }
 .mic:disabled:not(.listening) { opacity: .4; }
 
-#mic-hint { font-size: var(--text-xs); color: var(--text-faint); margin: var(--space-2) 0 0; }
-/* Shown only while listening or re-speaking, under the live transcript it
-   would throw away. */
+/* Two lines tall whatever it says (spec R6) -- the idle sentence, the short
+   status words and a long live transcript all leave #mic-dock one height.
+   session.js clampHint() already cut a long transcript from the front so the
+   newest words are the ones inside these two lines. */
+#mic-hint { font-size: var(--text-xs); color: var(--text-faint); margin: var(--space-2) 0 0;
+            line-height: 1.55; min-height: calc(2 * 1.55em);
+            display: -webkit-box; -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+/* Seen only while listening, re-speaking or transcribing, under the live
+   transcript it would throw away; otherwise .is-invisible holds its place
+   (spec R5) so the dock does not grow a row when a listen starts. */
 #btn-cancel { display: block; margin: var(--space-2) auto 0; font-size: var(--text-xs);
               padding: var(--space-1) var(--space-3); }
 
 #controls { justify-content: center; margin-top: var(--space-3); }
+/* 세션 끝내기 <-> 리포트 만드는 중… keeps one width (spec R7): the longer
+   label, nine glyphs at ~1em, plus padding and border. */
+#btn-end { min-width: calc(9em + var(--space-4) * 2 + 2px); }
 #controls input { max-width: 420px; flex: 0 1 420px; }
 
 @media (max-width: 720px) {
