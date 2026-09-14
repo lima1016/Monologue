@@ -898,3 +898,53 @@ test("a review refused mid-turn says another practice is running; the chip's wor
     session.setTurnState('SEND_FAILED');
   }
 });
+
+test('startRespeak says whether it started, and a cancel tells the caller through onCancel', async () => {
+  resetDom();
+  state.language = 'en';
+  stubFetch(async () => jsonResponse({}));
+  const btn = document.createElement('button');
+  const other = document.createElement('button');
+  const resultEl = document.createElement('p');
+  let cancelled = 0;
+  const results = [];
+  assert.equal(session.startRespeak('Hi.', resultEl, btn, (g) => results.push(g), { onCancel: () => { cancelled += 1; } }), true);
+  rec.onstart();
+  // Another button is refused while this one listens.
+  assert.equal(session.startRespeak('Hi.', document.createElement('p'), other, () => {}), false);
+  session.cancelTurn();
+  rec.onend();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(cancelled, 1);
+  assert.deepEqual(results, []);
+});
+
+/* my page's ← 홈 is a way out of a listen on a review card, the same as the
+ * header's 마이페이지 is out of a session's. */
+test('leaving my page mid-listen throws the listen away and wakes the card', async () => {
+  resetDom();
+  ['home', 'session', 'report', 'mypage'].forEach((s) => router.register(s, s));
+  state.language = 'en';
+  const posted = [];
+  stubFetch(async (url) => {
+    if (url.includes('/result')) posted.push(url);
+    return jsonResponse({});
+  });
+  rec.calls = [];
+  mypage.renderReviewList([{ id: 11, text: 'I go', fixed: 'I went.', correction: '', tag: '' }], { due: 1, mastered: 0, total: 1 });
+  router.show('mypage');
+  const card = $('review-list').children[0];
+  mypage.speakReview({ id: 11, fixed: 'I went.' }, card);
+  rec.onstart();
+  assert.equal(session.canDo('cancel'), true);
+  mypage.leaveMypage();
+  assert.ok(rec.calls.includes('abort'), 'leaving did not abort the listen');
+  rec.onend();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(router.current(), 'home');
+  assert.equal(session.canDo('cancel'), false, 'the listen kept running behind the home screen');
+  assert.ok(rec.calls.includes('abort'));
+  assert.deepEqual(posted, []);
+  const skip = card.children.find((c) => c.classList.contains('actions')).children.find((c) => c.classList.contains('skip'));
+  assert.equal(skip.disabled, false, 'a cancelled listen left the card busy');
+});

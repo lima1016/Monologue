@@ -8,7 +8,7 @@ import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
-import { openMypage, onReviewClick, onHistoryClick, loadHistory } from './mypage.js';
+import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory } from './mypage.js';
 import * as router from './router.js';
 
 /* ---------- screens ---------- */
@@ -46,7 +46,7 @@ $('mypage-language-seg').addEventListener('click', switchLanguage);
 
 $('btn-mypage').addEventListener('click', openMypage);
 $('btn-mypage-home').addEventListener('click', () => {
-  router.show('home');
+  leaveMypage();
   loadHome();
 });
 $('review-list').addEventListener('click', onReviewClick);

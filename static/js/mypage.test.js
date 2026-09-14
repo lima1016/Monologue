@@ -381,6 +381,113 @@ test('a 더 보기 still out when my page is opened again is not appended', asyn
   assert.equal($('history-list').children.length, 20);
 });
 
+/* A respeak stand-in that holds the listen open until the test delivers. */
+function heldRespeak(started = true) {
+  const h = { calls: 0 };
+  h.fn = (target, resultEl, btn, onResult, opts = {}) => {
+    h.calls += 1;
+    h.lastOnResult = onResult;
+    if (h.calls === 1) { h.onResult = onResult; h.onCancel = opts.onCancel; }
+    return started;
+  };
+  return h;
+}
+
+test('while 말해보기 listens, 듣기 and 다음에 on that card stay out of it', async () => {
+  const seen = routes();
+  await mypage.openMypage();
+  const card = $('review-list').children[0];
+  const play = findByClass(card, 'play');
+  const skip = findByClass(card, 'skip');
+  const h = heldRespeak();
+  const speaking = mypage.speakReview(ITEMS[0], card, h.fn);
+  assert.equal(play.disabled, true, '듣기 is live during the listen');
+  assert.equal(skip.disabled, true, '다음에 is live during the listen');
+  // Pressed anyway (a delegated click reaches these whatever `disabled` says).
+  await mypage.skipReview(ITEMS[0], card);
+  play.disabled = false;
+  await mypage.playReview(ITEMS[0], play);
+  assert.deepEqual(seen.results, [], 'a skip during the listen was saved');
+  assert.equal(seen.audio.length, 0, 'the app spoke into the listen');
+  assert.equal($('review-list').children.includes(card), true);
+  // A second 말해보기 on the same card still reaches the re-speak (it stops it).
+  mypage.speakReview(ITEMS[0], card, h.fn);
+  assert.equal(h.calls, 2);
+  assert.equal(h.lastOnResult, null, 'the stop press started a second attempt of its own');
+  assert.equal(skip.disabled, true, 'the stop press woke the card before the verdict');
+  h.onResult(false, 'I go');
+  await speaking;
+  assert.deepEqual(seen.results, [[11, 'fail']], 'the verdict was not saved exactly once');
+  assert.equal(play.disabled, false);
+  assert.equal(skip.disabled, false);
+  await mypage.playReview(ITEMS[0], play);
+  assert.equal(seen.audio.length, 1, '듣기 stayed dead after the verdict');
+  await mypage.skipReview(ITEMS[0], card);
+  assert.deepEqual(seen.results, [[11, 'fail'], [11, 'skip']]);
+});
+
+test('a 듣기 still preparing when 말해보기 starts stays asleep for the listen', async () => {
+  routes();
+  await mypage.openMypage();
+  const card = $('review-list').children[0];
+  const play = findByClass(card, 'play');
+  const playing = mypage.playReview(ITEMS[0], play);
+  const h = heldRespeak();
+  mypage.speakReview(ITEMS[0], card, h.fn);
+  await playing;
+  assert.equal(play.disabled, true, 'the finished 듣기 woke up in the middle of the listen');
+  h.onResult(null, null);
+  assert.equal(play.disabled, false);
+});
+
+test('hearing nothing, a cancel, or a refused start each wake the card', async () => {
+  routes();
+  await mypage.openMypage();
+  const card = $('review-list').children[0];
+  const skip = findByClass(card, 'skip');
+  const heard = heldRespeak();
+  const speaking = mypage.speakReview(ITEMS[0], card, heard.fn);
+  heard.onResult(null, null);
+  await speaking;
+  assert.equal(skip.disabled, false, 'hearing nothing left the card busy');
+
+  const cancelled = heldRespeak();
+  mypage.speakReview(ITEMS[0], card, cancelled.fn);
+  assert.equal(skip.disabled, true);
+  cancelled.onCancel();
+  assert.equal(skip.disabled, false, 'a cancel left the card busy');
+
+  mypage.speakReview(ITEMS[0], card, heldRespeak(false).fn);
+  assert.equal(skip.disabled, false, 'a refused start left the card busy');
+});
+
+test('a pass that is removed keeps 듣기 and 다음에 asleep until it goes', async () => {
+  const seen = routes();
+  await mypage.openMypage();
+  const card = $('review-list').children[0];
+  const h = heldRespeak();
+  const speaking = mypage.speakReview(ITEMS[0], card, h.fn);
+  h.onResult(true, 'I went there');
+  await speaking;
+  assert.equal(card.inert, true);
+  await mypage.skipReview(ITEMS[0], card);
+  assert.deepEqual(seen.results, [[11, 'pass']]);
+});
+
+test('after a fail, and after a save that failed, focus goes back to 말해보기', async () => {
+  routes();
+  await mypage.openMypage();
+  const card = $('review-list').children[0];
+  const speak = findByClass(card, 'speak');
+  await mypage.speakReview(ITEMS[0], card, (t, r, b, onResult) => { onResult(false, 'I go'); return true; });
+  assert.equal(document.activeElement, speak, 'a fail left focus nowhere');
+
+  routes({ result: () => jsonResponse({ detail: 'down' }, { ok: false, status: 500 }) });
+  speak.blur();
+  await mypage.speakReview(ITEMS[0], card, (t, r, b, onResult) => { onResult(true, 'x'); return true; });
+  assert.equal(document.activeElement, speak, 'a failed save left focus nowhere');
+});
+
 /* ---------- the UI stability rules (spec 2026-09-14-monologue-ui-stability) ---------- */
 
 test('the first load holds a skeleton of each section with the loading words (R3)', async () => {

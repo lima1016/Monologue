@@ -274,7 +274,9 @@ export function toggleExplain(card) {
 }
 
 export async function playReview(item, btn) {
-  if (btn.disabled) return;
+  // The app's own voice into a listening mic could pass the review for the
+  // learner: a card whose 말해보기 is listening plays nothing.
+  if (btn.disabled || isListening(cardOf(btn))) return;
   btn.disabled = true;
   btn.textContent = '음성 준비 중...';
   try {
@@ -286,7 +288,8 @@ export async function playReview(item, btn) {
     }
     play(key || null, item.fixed);
   } finally {
-    btn.disabled = false;
+    // A listen started meanwhile keeps it asleep.
+    btn.disabled = isListening(cardOf(btn));
     btn.textContent = PLAY_LABEL;
   }
 }
@@ -294,21 +297,62 @@ export async function playReview(item, btn) {
 /* The same re-speak, and the same verdict, as the session screen's chip.
    startRespeak writes its own 듣는 중... / 받아쓰는 중... / comparison into the
    result line; the verdict below overwrites that. Resolves once the verdict
-   is handled -- never, if the re-speak was refused (startRespeak says why). */
+   is handled, the listen is cancelled, or the re-speak was refused
+   (startRespeak says why).
+
+   While it listens the card is busy: 듣기 would play the app's own voice into
+   the mic, and 다음에 would save a skip the verdict then contradicts. Both
+   are disabled and refused until the attempt is over, whatever the outcome. */
 export function speakReview(item, card, respeak = startRespeak) {
   // A card whose result is being saved, or that is on its way out, takes no
   // second attempt.
   if (card.inert) return Promise.resolve();
   const resultEl = find(card, 'review-result');
   const btn = find(card, 'speak');
+  if (isListening(card)) {
+    // This press is 그만 말하기: startRespeak stops its own listen, and the
+    // attempt already running still delivers the verdict.
+    respeak(item.fixed, resultEl, btn, null, { busy: BUSY });
+    return Promise.resolve();
+  }
+  const token = loadToken;
   return new Promise((resolve) => {
-    respeak(item.fixed, resultEl, btn, (good, spoken) => {
-      judged(item, card, resultEl, good, spoken).finally(resolve);
-    }, { busy: BUSY });
+    let over = false;
+    const finish = () => {
+      if (over) return false;
+      over = true;
+      setListening(card, false);
+      return true;
+    };
+    setListening(card, true);
+    const started = respeak(item.fixed, resultEl, btn, (good) => {
+      if (!finish()) return;
+      judged(item, card, resultEl, good, btn, token).finally(resolve);
+    }, { busy: BUSY, onCancel: () => { if (finish()) resolve(); } });
+    if (!started && finish()) resolve();
   });
 }
 
-async function judged(item, card, resultEl, good) {
+function isListening(card) {
+  return Boolean(card && card.dataset.listening === '1');
+}
+
+function setListening(card, on) {
+  card.dataset.listening = on ? '1' : '';
+  for (const cls of ['play', 'skip']) {
+    const b = find(card, cls);
+    if (b) b.disabled = on;
+  }
+}
+
+/* The card a button sits in (dom-shim has no closest). */
+function cardOf(node) {
+  let n = node;
+  while (n && !(n.classList && n.classList.contains('review-card'))) n = n.parentNode;
+  return n || null;
+}
+
+async function judged(item, card, resultEl, good, btn = null, token = loadToken) {
   const say = (words, tone) => {
     setShown(resultEl, true);
     resultEl.classList.remove('good', 'bad');
@@ -326,12 +370,12 @@ async function judged(item, card, resultEl, good) {
   try {
     saved = await postJSON(`/review/${item.id}/result`, { result: good ? 'pass' : 'fail' });
   } catch {
-    card.inert = false;
+    wake(card, btn);
     notify('복습 결과를 저장하지 못했어요');
     return;
   }
   if (!good) {
-    card.inert = false;
+    wake(card, btn);
     say('조금 달라요. 내일 다시 볼게요', 'bad');
     return;
   }
@@ -342,8 +386,15 @@ async function judged(item, card, resultEl, good) {
   setTimeout(() => { removeCard(card); }, fadeAt);
 }
 
+/* Asleep (inert) drops focus from the card; the learner's place comes back
+   to the 말해보기 they pressed. */
+function wake(card, btn) {
+  card.inert = false;
+  if (btn) btn.focus();
+}
+
 export async function skipReview(item, card) {
-  if (card.inert) return;
+  if (card.inert || isListening(card)) return;
   card.inert = true;
   try {
     await postJSON(`/review/${item.id}/result`, { result: 'skip' });
@@ -503,6 +554,13 @@ export function onHistoryClick(e) {
   if (pressed.classList.contains('history-head')) toggleHistoryRow(row);
   else if (pressed.classList.contains('report')) openReport(Number(row.dataset.id));
   else if (pressed.classList.contains('transcript')) openTranscript(Number(row.dataset.id), find(row, 'history-slot'));
+}
+
+/* my page's ← 홈. A listen on a review card would otherwise run on behind
+   the home screen and save a verdict nobody saw: thrown away, as 취소. */
+export function leaveMypage() {
+  if (canDo('cancel')) cancelTurn();
+  router.show('home');
 }
 
 export async function openReport(sessionId) {
