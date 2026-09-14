@@ -223,8 +223,12 @@ _LATIN_WORD = re.compile(f"[{_LATIN}]+")
 _CJK_IDEOGRAPH = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
 # 곧은 작은따옴표는 낱말 속 아포스트로피(don't)와 같은 글자다. 글자 바로 뒤의
 # 것은 인용을 열지 못하게 해야 `don't 请问 isn't` 사이가 인용으로 지워지지 않는다.
+# 닫는 쪽도 마찬가지다(that's): 글자 바로 앞에서는 닫지 못하게 하고, 느슨한 `.+?`로
+# 인용 속 아포스트로피(I'd, that's)를 건너뛰어 진짜 닫는 인용부호까지 늘린다 --
+# 그러지 않으면 "I'd like a table..." 같은 문장의 대부분이 인용 밖으로 새어,
+# 실제로 가르치는 표현이어도 영문 낱말 수가 한글 글자 수를 넘어 거절된다.
 _QUOTED = re.compile(
-    r'"[^"]*"|“[^”]*”|(?<![A-Za-z])\'[^\']*\'|‘[^’]*’|「[^」]*」|『[^』]*』')
+    r'"[^"]*"|“[^”]*”|(?<![A-Za-z])\'.+?\'(?![A-Za-z])|‘[^’]*’|「[^」]*」|『[^』]*』')
 
 
 _MAX_QUOTED_EXPRESSION = 12
@@ -481,9 +485,16 @@ _NO_FEEDBACK = {"ok": None, "fixed": None, "tag": None,
                 "correction": None, "suggestion": None}
 
 # Quote styles the model actually uses when quoting an example sentence back:
-# straight and curly single/double quotes, and Japanese corner brackets.
+# straight and curly single/double quotes, and Japanese corner brackets. The
+# straight single quote is also an apostrophe inside a contraction (I'd,
+# don't), so it may only open a quote when not preceded by a Latin letter and
+# only close one when not followed by a Latin letter -- otherwise "I'd" reads
+# as a one-letter quote closing right after the "I". The lazy `.+?` then
+# skips straight past an internal apostrophe like that (its lookahead fails)
+# and keeps extending until it finds a real closing quote, so a trailing
+# Korean particle ('...'라고) still closes it correctly.
 _QUOTED_SPAN = re.compile(
-    r"'([^']*)'|\"([^\"]*)\"|‘([^’]*)’|“([^”]*)”|"
+    r"(?<![A-Za-z])'(.+?)'(?![A-Za-z])|\"([^\"]*)\"|‘([^’]*)’|“([^”]*)”|"
     r"「([^」]*)」"
 )
 

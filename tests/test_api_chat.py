@@ -385,6 +385,18 @@ DROP_SELF_QUOTING_CASES = [
     ("card please", "이 표현을 자주 연습해보세요.", "이 표현을 자주 연습해보세요."),  # no quotes at all
     ("card please", "''", "''"),  # only an empty quote
     ("card please", None, None),  # not a string -- must not raise
+    # Contractions: the apostrophe inside "I'd" must not be read as closing the
+    # quote early.
+    ("I'd like a window seat.",
+     "원어민이라면 'I'd like a window seat.'라고 해요.", None),
+    ("I'd like a window seat.",
+     "'I'll have the window seat, please.'라고도 할 수 있어요.",
+     "'I'll have the window seat, please.'라고도 할 수 있어요."),
+    ("I'd like a window seat.",
+     "다른 상황에서는 'I'd like an aisle seat.'라고도 하고, "
+     "'I'll take a window seat.'라고도 해요.",
+     "다른 상황에서는 'I'd like an aisle seat.'라고도 하고, "
+     "'I'll take a window seat.'라고도 해요."),
 ]
 
 
@@ -458,6 +470,16 @@ def test_chat_keeps_a_suggestion_that_only_contains_the_fix(client, monkeypatch)
 def test_drop_if_quoted_ignores_an_empty_sentence():
     from app import api
     assert api._drop_if_quoted("''라고 하세요", "...") == "''라고 하세요"
+
+
+def test_drop_if_quoted_drops_a_contraction_sentence_quoted_back_as_fixed():
+    """The `fixed` guard in _feedback uses _drop_if_quoted directly -- a
+    contraction's apostrophe must not be mistaken for the closing quote."""
+    from app import api
+    assert api._drop_if_quoted(
+        "원어민이라면 'I'd like a window seat.'라고 해요.",
+        "I'd like a window seat.",
+    ) is None
 
 
 def test_chat_neutralizes_punctuation_only_corrections(client, monkeypatch):
