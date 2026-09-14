@@ -584,17 +584,14 @@ test('a failed report takes the waiting card down and says so', async () => {
  * `canDo('stop')` is true in `respeaking` the same as in `listening`
  * (turnstate.js), so once the button is no longer disabled, pressing it ends
  * the re-speak exactly like the chip's own button does. That much is
- * confirmed by reading, not by a test. */
-const respeakInterim = (transcript) => ({
-  resultIndex: 0,
-  results: [Object.assign([{ transcript }], { isFinal: false })],
-});
+ * confirmed by reading, not by a test -- the `canDo('stop')` assertion below
+ * is what main.js's handler itself checks before calling recognition.stop(). */
 const respeakFinal = (transcript) => ({
   resultIndex: 0,
   results: [Object.assign([{ transcript }], { isFinal: true })],
 });
 
-test('the big mic stays pressable while a re-speak is actively listening', () => {
+test('the big mic is pressable the instant a re-speak starts, before anything is heard', () => {
   resetDom();
   rec.calls = [];
   const btn = document.createElement('button');
@@ -602,14 +599,19 @@ test('the big mic stays pressable while a re-speak is actively listening', () =>
 
   session.startRespeak('Hello there.', result, btn);
   rec.onstart();
-  // A live interim result is what actually re-syncs the controls once
-  // `activeRespeak` is set (see setInterimHandler in session.js) -- the same
-  // moment a real re-speak visibly starts streaming text into the chip.
-  rec.onresult(respeakInterim('Hel'));
+  // No onresult at all yet -- a learner who presses the chip and immediately
+  // wants to stop (or who stays silent) must not find the big mic dead. This
+  // is the moment startRespeak itself sets `activeRespeak`; syncControls must
+  // already reflect it here, not only once some later event (an interim
+  // result) happens to call syncControls again.
 
   assert.equal($('btn-mic').disabled, false,
-    '재발화가 듣는 동안 큰 마이크를 눌러 끝낼 수 있어야 한다 (지금까지는 죽어 있었다)');
+    '재발화가 시작된 순간부터 큰 마이크를 눌러 끝낼 수 있어야 한다 (아직 아무것도 못 들었어도)');
   assert.equal($('btn-mic').classList.contains('listening'), true, '펄스는 원래도 돌고 있었다');
+  // What main.js's own mic handler actually checks before calling
+  // recognition.stop() -- the disabled check above is the DOM's reflection
+  // of this, but this is the authority syncControls itself reads.
+  assert.equal(session.canDo('stop'), true, '누르면 main.js가 recognition.stop()을 부를 수 있어야 한다');
 
   // Let this re-speak finish so it does not bleed into the next test.
   rec.onresult(respeakFinal('Hello there.'));

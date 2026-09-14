@@ -73,8 +73,8 @@ function syncControls() {
   // Live while listening too -- pressing the mic again is what ends a turn
   // now, so the button must not go dead the moment a recognition session
   // starts. Checked against `listening` directly, not canDo('stop'): `stop`
-  // is also true during `respeaking` too, handled by the `activeRespeak`
-  // check below.
+  // is also true during `respeaking`, handled by the `activeRespeak` check
+  // below.
   //
   // A re-speak in progress pulses the big mic exactly like an ordinary
   // listen (the `listening` class below is shared by both), so it must be
@@ -440,6 +440,14 @@ export function startRespeak(target, resultEl, btn) {
   if (!recognition) { notify('이 브라우저는 음성 인식을 지원하지 않습니다.'); return; }
   setTurnState('RESPEAK');
   activeRespeak = { btn, resultEl };
+  // setTurnState above already ran syncControls, but before `activeRespeak`
+  // existed -- syncControls reads it to decide whether the big mic may end
+  // this re-speak (see its own comment), so without a second call here the
+  // button would stay disabled from the moment the chip is pressed until
+  // something else happens to call syncControls again (the first interim
+  // result, in practice) -- dead through exactly the window where a learner
+  // who wants to stop immediately, or during silence, would press it.
+  syncControls();
   if (btn) btn.textContent = RESPEAK_STOP_LABEL;
   resultEl.hidden = false;
   resultEl.className = 'respeak-result';
