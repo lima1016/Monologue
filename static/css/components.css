@@ -54,6 +54,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   border-bottom-right-radius: var(--space-1);
 }
 .msg.user.undoable { cursor: pointer; }
+.msg.user.undoable:hover { outline: 1px solid var(--accent); outline-offset: 2px; }
 
 /* A new bubble, chip or suggestion card eases in rather than appearing in one
    frame (spec R8). A small drop is fine here, unlike on a screen: none of these
@@ -66,7 +67,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .msg, .chip-row, .suggest-card { animation: none; }
 }
-.msg.user.undoable:hover { outline: 1px solid var(--accent); outline-offset: 2px; }
 
 .play-mine {
   display: block; margin-top: var(--space-2);
@@ -176,9 +176,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
    margin on .chip-detail would stay behind when collapsed). visibility keeps
    the collapsed re-speak button out of the tab order, as [hidden] did. */
 .chip-detail.is-collapsed { grid-template-rows: 0fr; }
-.chip-detail-inner { overflow: hidden; min-height: 0; transition: visibility var(--dur-fast); }
+.chip-detail-inner { overflow: hidden; min-height: 0; opacity: 1;
+                     transition: opacity var(--dur-fast) ease, visibility var(--dur-fast); }
 .chip-detail-inner > :first-child { margin-top: var(--space-2); }
-.chip-detail.is-collapsed .chip-detail-inner { visibility: hidden; }
+.chip-detail.is-collapsed .chip-detail-inner { visibility: hidden; opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
   .chip-detail, .chip-detail-inner { transition: none; }
 }
@@ -351,6 +352,9 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 }
 .thinking i:nth-child(2) { animation-delay: .15s; }
 .thinking i:nth-child(3) { animation-delay: .3s; }
+/* Held in place but unseen (#thinking between turns): no reason to keep
+   pulsing dots nobody can see. */
+.thinking.is-invisible i { animation-play-state: paused; }
 @keyframes thinking-pulse {
   0%, 60%, 100% { opacity: .25; }
   30%           { opacity: 1; }
@@ -413,9 +417,11 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
               padding: var(--space-1) var(--space-3); }
 
 #controls { justify-content: center; margin-top: var(--space-3); }
-/* 세션 끝내기 <-> 리포트 만드는 중… keeps one width (spec R7): the longer
-   label, nine glyphs at ~1em, plus padding and border. */
-#btn-end { min-width: calc(9em + var(--space-4) * 2 + 2px); }
+/* 세션 끝내기 <-> 리포트 만드는 중… keeps one width (spec R7). It carries
+   .btn-stable, whose 8.5em is sized for 자유 대화로 시작; this label is nine
+   glyphs (seven syllables, two spaces, an ellipsis), so it overrides the
+   width the way .btn-stable's own comment asks a longer label to. */
+#btn-end.btn-stable { min-width: calc(9em + var(--space-4) * 2 + 2px); }
 #controls input { max-width: 420px; flex: 0 1 420px; }
 
 @media (max-width: 720px) {

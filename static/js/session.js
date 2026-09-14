@@ -33,11 +33,32 @@ let liveHeard = '';
 /* #mic-hint is two lines tall and never grows (spec R6). A long live
    transcript is cut from the FRONT -- the words just said are the ones the
    learner is checking, so they are the ones kept. CSS line-clamp alone would
-   cut from the end and hide exactly those. */
-const HINT_MAX = 80;
+   cut from the end and hide exactly those.
+
+   The cap is in width units, not characters: a full-width glyph (CJK, kana,
+   Hangul, full-width forms) is about two Latin letters wide at the hint's
+   size, so a character cap that fits two lines of English ran a Japanese
+   transcript to three lines on a phone -- and then line-clamp cut its end
+   after all. 64 units is about two lines of mixed text at phone width. */
+const HINT_MAX_UNITS = 64;
+// Hangul Jamo, CJK radicals through Yi (kana, CJK symbols, ideographs),
+// Hangul syllables, compatibility ideographs and forms, full-width forms,
+// and the supplementary ideograph planes.
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u{20000}-\u{3fffd}]/u;
+const glyphUnits = (ch) => (WIDE.test(ch) ? 2 : 1);
+
 export function clampHint(text) {
-  if (text.length <= HINT_MAX) return text;
-  return `…${text.slice(-HINT_MAX).trimStart()}`;
+  const glyphs = [...text];
+  let units = 0;
+  for (const ch of glyphs) units += glyphUnits(ch);
+  if (units <= HINT_MAX_UNITS) return text;
+  let start = glyphs.length;
+  let kept = 0;
+  while (start > 0 && kept + glyphUnits(glyphs[start - 1]) <= HINT_MAX_UNITS) {
+    start -= 1;
+    kept += glyphUnits(glyphs[start]);
+  }
+  return `…${glyphs.slice(start).join('').trimStart()}`;
 }
 
 /* The re-speak chip currently listening, if any -- `{ btn, resultEl }` or

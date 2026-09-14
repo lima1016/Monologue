@@ -375,12 +375,16 @@ test('the thinking dots keep their place when the bot is not thinking', () => {
   session.setTurnState('CANCEL');
   assert.equal($('thinking').hidden, false);
   assert.ok($('thinking').classList.contains('is-invisible'));
+  session.setTurnState('SEND');
+  assert.equal($('thinking').classList.contains('is-invisible'), false, '보내는 동안에는 보여야 한다');
+  session.setTurnState('SEND_FAILED');
+  assert.ok($('thinking').classList.contains('is-invisible'));
 });
 
 test('a long live transcript is clamped from the front so the newest words stay visible', () => {
   const long = 'word '.repeat(40).trim();
   const out = session.clampHint(long);
-  assert.ok(out.length <= 81);
+  assert.ok(out.length <= 65);
   assert.ok(out.startsWith('…'));
   assert.ok(out.endsWith('word'));
   assert.equal(session.clampHint('short'), 'short');
@@ -390,6 +394,32 @@ test('a long live transcript is clamped from the front so the newest words stay 
   const clipped = session.clampHint(numbered);
   assert.ok(clipped.startsWith('…') && clipped.endsWith('w39'), clipped);
   assert.ok(!clipped.includes('w0 '), clipped);
+});
+
+/* Full-width glyphs are about twice as wide as Latin letters at the hint's
+   size, so a Japanese transcript under the old 80-character cap still ran to
+   three lines on a phone and line-clamp cut its END. The cap is in width
+   units: CJK, kana and Hangul count 2, everything else 1, 64 units in all. */
+test('a long Japanese transcript is clamped by width, keeping its last glyph', () => {
+  const kana = 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほ';   // 30
+  const long = `${kana}${kana.slice(0, 29)}ん`;                              // 60 glyphs, ends ん
+  assert.equal([...long].length, 60);
+  const out = session.clampHint(long);
+  assert.ok(out.startsWith('…'), out);
+  assert.ok([...out.slice(1)].length <= 32, out);
+  assert.ok(out.endsWith('ん'), out);
+  assert.equal(session.clampHint('こんにちは'), 'こんにちは');
+});
+
+test('a long English transcript is clamped to 64 units plus the ellipsis, keeping its last word', () => {
+  const words = Array.from({ length: 20 }, (_, i) => `ab${String(i).padStart(2, '0')}`).join(' ');
+  const long = `${words}`.padStart(100, 'x');
+  assert.equal(long.length, 100);
+  const out = session.clampHint(long);
+  assert.ok(out.startsWith('…'), out);
+  assert.ok(out.length - 1 <= 64, out);
+  assert.ok(out.endsWith('ab19'), out);
+  assert.equal(session.clampHint('I went there.'), 'I went there.');
 });
 
 /* One interim result through the fake recognition's own onresult, the way

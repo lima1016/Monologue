@@ -118,3 +118,33 @@ def test_screen_enter_keyframes_animate_opacity_only_not_transform():
     toast_name = _animation_name(_rule_body(css, ".toast {"))
     toast_body = _keyframes_body(css, toast_name)
     assert "transform" in toast_body, ".toast has no fixed/sticky descendants and may still translate"
+
+
+def test_mic_hint_is_two_lines_tall_and_clamped():
+    """#mic-hint never changes the dock's height (spec R6): two lines held
+    open, two lines at most."""
+    body = _rule_body(_all_css(), "#mic-hint {")
+    assert "-webkit-line-clamp: 2" in body
+    assert "display: -webkit-box" in body
+    assert "overflow: hidden" in body
+    assert "min-height: calc(2 * 1.55em)" in body
+
+
+def test_chip_detail_opens_by_grid_rows_not_hidden():
+    """The correction chip's detail eases open (spec R8): a grid row from 0fr
+    to 1fr, its inner wrapper clipped, and its content fading in with it."""
+    css = _all_css()
+    detail = _rule_body(css, ".chip-detail {")
+    assert "display: grid" in detail and "grid-template-rows: 1fr" in detail
+    assert "transition: grid-template-rows" in detail
+    assert "grid-template-rows: 0fr" in _rule_body(css, ".chip-detail.is-collapsed {")
+    inner = _rule_body(css, ".chip-detail-inner {")
+    assert "overflow: hidden" in inner and "opacity" in inner
+
+
+def test_report_wait_fades_in_with_opacity_only():
+    """#report-wait is itself position: fixed; its fade is opacity alone."""
+    css = _all_css()
+    name = _animation_name(_rule_body(css, ".report-wait {"))
+    frames = _keyframes_body(css, name)
+    assert "opacity" in frames and "transform" not in frames
