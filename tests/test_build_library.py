@@ -232,3 +232,42 @@ def test_main_prints_the_partial_report_of_a_stopped_run(store, monkeypatch, cap
     build_library.main(["--language", "en", "--theme", "hotel", "--per-theme", "1"])
     out = capsys.readouterr().out
     assert "'stopped': 'model-errors'" in out and "'added': 2" in out
+
+
+# ---------- free setups get the same attempts as scripts ----------
+
+def _free_model(answers):
+    """Free-setup answers in order (an Exception is raised); scripts never asked (per_theme 0)."""
+    answers = list(answers)
+    calls = []
+
+    def model(messages, schema, **kw):
+        calls.append(schema)
+        nxt = answers.pop(0)
+        if isinstance(nxt, Exception):
+            raise nxt
+        return nxt
+    return model, calls
+
+
+GOOD_FREE = {"title": "호텔 프런트", "goal": "방 열쇠를 받는다", "persona_prompt": "You are a hotel clerk."}
+BAD_FREE = {"title": "호텔", "goal": "", "persona_prompt": ""}     # validate_item refuses an empty persona
+
+
+def test_a_free_setup_is_retried_until_it_works(store):
+    from app.llm import LLMError
+    model, calls = _free_model([BAD_FREE, LLMError("blip"), GOOD_FREE])
+    report = build_library.build([THEME], ["en"], 0, chat_json=model, log=lambda *a: None)
+    assert db.get_library_scenario("lib-hotel-en-free")["persona_prompt"] == "You are a hotel clerk."
+    assert len(calls) == 3 and report["retries"] == 2 and report["gave_up"] == 0
+    assert report["reasons"] == {"free-setup": 1, "model-error": 1}
+
+
+def test_a_free_setup_that_never_works_is_given_up_after_four_tries(store):
+    model, calls = _free_model([BAD_FREE] * 5)
+    said = []
+    report = build_library.build([THEME], ["en"], 0, chat_json=model, log=said.append)
+    assert len(calls) == 4 and report["retries"] == 3
+    assert report["gave_up"] == 1 and report["reasons"]["free-setup"] == 4
+    assert db.library_scenarios("en", "hotel", "free") == []
+    assert any("free setup" in s and "gave up" in s for s in said), said

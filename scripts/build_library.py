@@ -115,15 +115,24 @@ def build(themes, languages, per_theme, *, chat_json=llm.chat_json, log=print):
                 where = f"[{language}] theme {index}/{len(themes)} {theme['id']}"
                 if not db.library_scenarios(language, theme["id"], "free"):
                     label = f"{where} free setup"
-                    try:
-                        _free_setup(theme, language, ask)
-                    except _ModelFailed:
-                        pass     # a missing free setup is retried next run
-                    except _Stopped:
-                        raise
-                    except Exception as exc:
-                        stats["reasons"]["free-setup"] += 1
-                        log(f"{where} free setup failed: {exc}")
+                    for attempt in range(_ATTEMPTS + 1):
+                        if attempt:
+                            stats["retries"] += 1
+                        try:
+                            _free_setup(theme, language, ask)
+                        except _ModelFailed:
+                            continue
+                        except _Stopped:
+                            raise
+                        except Exception as exc:
+                            stats["reasons"]["free-setup"] += 1
+                            log(f"{label} failed ({type(exc).__name__}): {exc}")
+                            continue
+                        log(f"{label} ok")
+                        break
+                    else:
+                        stats["gave_up"] += 1     # a missing free setup is tried again next run
+                        log(f"{label} gave up")
                 existing = db.library_scenarios(language, theme["id"], "script")
                 used = {s["id"] for s in existing}
                 for n in range(1, per_theme + 1):
