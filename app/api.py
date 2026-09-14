@@ -712,6 +712,108 @@ def chat_turn(payload: ChatTurn):
     }
 
 
+SUGGEST_UNAVAILABLE = "지금은 추천을 만들 수 없어요"
+_SUGGEST_RECENT = 6
+_SUGGEST_TEMPERATURE = 0.7
+
+
+class _NoSuggestions(Exception):
+    pass
+
+
+def _reply_meaning(language: str, reply: dict) -> str | None:
+    """The model's own meaning when it is really Korean; otherwise the same
+    checked, cached translation the ▸ 뜻 button uses; otherwise None, and the
+    card offers ▸ 뜻 instead."""
+    meaning = _first_line(reply["meaning"]) if reply["meaning"] else None
+    if meaning and _is_korean_meaning(meaning, source=reply["text"]):
+        return meaning
+    return _cached_translation(language, reply["text"])
+
+
+def _generate_suggestions(language, bot_last, *, level="beginner", scenario_title=None,
+                          scenario_goal=None, topic=None, recent=()) -> list[dict]:
+    """Two or three replies the learner could say next, or _NoSuggestions.
+
+    Temperature 0.7, above feedback's 0.3: the point is replies that go in
+    different directions, and a near-greedy model gives three phrasings of one.
+    Fewer than two survivors earns one more sample (plain resampling -- at 0.7
+    that alone changes the answer); a dead model does not, because the second
+    call would only wait out the same timeout again.
+    """
+    messages = prompts.build_suggest_messages(
+        language, bot_last, level=level, scenario_title=scenario_title,
+        scenario_goal=scenario_goal, topic=topic, recent=recent,
+    )
+    kept: list[dict] = []
+    for _ in range(2):
+        try:
+            result = llm.chat_json(messages, prompts.suggest_schema(),
+                                   temperature=_SUGGEST_TEMPERATURE)
+        except Exception as exc:
+            raise _NoSuggestions from exc
+        raw = result.get("replies") if isinstance(result, dict) else None
+        kept = _valid_replies(raw, language, bot_last, kept)
+        if len(kept) >= 2:
+            break
+    if not kept:
+        raise _NoSuggestions
+    return [{"text": r["text"], "meaning": _reply_meaning(language, r)} for r in kept]
+
+
+@functools.lru_cache(maxsize=256)
+def _cached_suggestions(session_id: int, bot_message_id: int) -> tuple[dict, ...]:
+    """Successful suggestions per bot line. Pressing 💡 again on the same line
+    shows the same replies -- if they changed on every press, "the one I saw a
+    moment ago" would be gone. lru_cache does not cache exceptions, so a
+    failure is retried on the next press.
+
+    The dicts are the cache's own objects; the route copies them before adding
+    audio_key. Keyed by message id, so undo (which removes the learner turn
+    and the bot reply after it) never leaves a stale entry reachable."""
+    session = db.get_session(session_id)
+    messages = db.get_messages(session_id)
+    index = next(i for i, m in enumerate(messages) if m["id"] == bot_message_id)
+    before = messages[max(0, index - _SUGGEST_RECENT):index]
+    language = session["language"]
+    scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
+    return tuple(_generate_suggestions(
+        language, messages[index]["text"],
+        level=db.stable_level(language) or "beginner",
+        scenario_title=scenario.get("title") if scenario else None,
+        scenario_goal=scenario.get("goal") if scenario else None,
+        topic=session["topic"] if session["mode"] == "lesson" else None,
+        recent=tuple((m["speaker"], m["text"]) for m in before),
+    ))
+
+
+@router.post("/sessions/{session_id}/suggest")
+def suggest_replies(session_id: int):
+    """💡 뭐라고 하지? -- replies the learner could say to the bot's last line.
+
+    Never stored: these are prompts to speak, not turns. Nothing is sent on the
+    learner's behalf either; they say it themselves, the same reason a
+    recognised turn skips the input box."""
+    session = db.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "no such session")
+    if session["mode"] == "script":
+        raise HTTPException(400, "a script already says what to say")
+    if session["ended_at"] is not None:
+        raise HTTPException(409, "this session has already ended")
+    bot = next((m for m in reversed(db.get_messages(session_id)) if m["speaker"] == "bot"), None)
+    if bot is None:
+        raise HTTPException(409, "there is no bot line to answer yet")
+    try:
+        replies = _cached_suggestions(session_id, bot["id"])
+    except _NoSuggestions:
+        raise HTTPException(503, SUGGEST_UNAVAILABLE)
+    # Audio outside the cache: _speak is itself disk-cached and cheap, and a
+    # None cached here would outlive a VOICEVOX restart.
+    return {"replies": [{**r, "audio_key": _speak(r["text"], session["language"])}
+                        for r in replies]}
+
+
 class ScriptLineStore(BaseModel):
     index: int
 
