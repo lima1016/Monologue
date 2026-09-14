@@ -157,7 +157,7 @@ globalThis.Audio = class Audio {
 };
 
 /* Every test installs its own; this default keeps a bare import of the graph
-   (which calls loadChips/refreshHealth/loadHome at once) from hitting the
+   (which calls refreshHealth/loadHome at once) from hitting the
    network or throwing before a test has had a chance to say what it wants. */
 export function stubFetch(handler) {
   globalThis.fetch = async (url, options = {}) => handler(url, options);

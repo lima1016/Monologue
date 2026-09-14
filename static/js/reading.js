@@ -146,6 +146,10 @@ export async function toggleMeaning(el, body) {
     body.hidden = !body.hidden;
     return;
   }
+  // 번역은 로컬 모델 왕복이라 몇 초 걸린다. 그동안 버튼만 눌린 채 아무것도
+  // 안 보이면 고장처럼 읽힌다 -- 실패 문구가 뜰 바로 그 자리에 기다림을 쓴다.
+  body.textContent = '뜻 가져오는 중...';
+  body.hidden = false;
   try {
     const { meaning } = await postJSON('/translate', {
       language: el.dataset.sourceLang || 'ja',

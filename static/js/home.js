@@ -1,28 +1,18 @@
-/* The home screen: the one input, the catalogue chips, 이어서 하기, and the
-   counters. Named in the Phase 2 design
+/* The home screen: the three mode cards, 이어서 하기, and the counters. Named
+   in the Phase 2 design
    (docs/superpowers/specs/2026-08-29-monologue-phase2-design.md:325) as its own
-   module and split out of session.js, which had grown to four screens.
+   module and split out of session.js, which had grown to four screens. What to
+   practise -- the wish, the themes, 시작 -- lives on the pick screen (pick.js).
 
-   The dependency runs one way only: home.js imports startSession and addMessage
-   from session.js, because starting and resuming both hand off to the session
-   screen. session.js must never import from here -- the moment it does, the two
-   are one module again with an import statement between them. */
-import { $, getJSON, postJSON, state, notify } from './api.js';
+   The dependency runs one way only: home.js imports addMessage from session.js,
+   because resuming hands off to the session screen, and pick.js imports the
+   start/resume guard from here. session.js must never import from either --
+   the moment it does, they are one module again with an import statement
+   between them. */
+import { $, getJSON, state, notify } from './api.js';
 import * as router from './router.js';
-import { addMessage, startSession } from './session.js';
+import { addMessage } from './session.js';
 import { setSuggestVisible } from './suggest.js';
-
-/* One place that builds the catalogue request, so the three callers below
-   cannot drift apart on the query string. Deliberately not cached: a cache
-   here would have to be invalidated on language switch, on mode switch and on
-   every scenario generation, and getting that wrong recreates the
-   wrong-language-chip bug this screen already had once. The two calls inside
-   startFromHome are mutually exclusive per press, so nothing is fetched twice
-   in one gesture either -- this is duplicated code, not a duplicated round
-   trip. */
-function fetchScenarios(language, mode) {
-  return getJSON(`/scenarios?language=${language}&mode=${mode}`);
-}
 
 // Filled by loadHome (Task 8) once a resumable session is found; read by
 // resumeSession (Task 8). Declared here, ahead of either function, so a
@@ -151,14 +141,14 @@ export function relativeDay(iso) {
 
 /* The one thing that knows a session is already being opened -- by either door.
 
-   Opening one is a multi-second local-model call, and #wish (Enter) and the
-   chips both reach startFromHome while #btn-start is disabled, so disabling
-   that one button is not a guard. Two Enter presses, or a chip clicked during a
-   generation wait, create *two* sessions; the loser is left open holding only
-   its bot opening line, and would then be offered back as the resume card.
-   Same defect and same shape as the `ending` flag in session.js (and as commit
-   07caa64 for sendTurn): a flag, not a disabled attribute, because the entry
-   points are not all buttons.
+   Opening one is a multi-second local-model call, and #wish (Enter), the theme
+   cards and the tabs all reach startFromPick (pick.js) while #btn-start is
+   disabled, so disabling that one button is not a guard. Two Enter presses
+   create *two* sessions; the loser is left open holding only its bot opening
+   line, and would then be offered back as the resume card. Same defect and
+   same shape as the `ending` flag in session.js (and as commit 07caa64 for
+   sendTurn): a flag, not a disabled attribute, because the entry points are
+   not all buttons.
 
    One flag rather than one per door, because what is being guarded is one
    resource -- state.sessionId and the session screen painted from it -- and two
@@ -169,9 +159,17 @@ export function relativeDay(iso) {
    #conversation: nothing corrupted, but the learner watched the conversation
    they had just asked for be replaced by a different one.
 
+   It lives here, next to resumeSession, and pick.js reads and writes it
+   through isBusy/setBusy: pick.js already sits above home.js in the import
+   order, so this adds no edge that could close a cycle, and session.js still
+   imports neither.
+
    Every path that sets it must clear it in a `finally`, or one failed start or
-   resume locks the home screen for the rest of the page's life. */
+   resume locks both screens for the rest of the page's life. */
 let busy = false;
+
+export function isBusy() { return busy; }
+export function setBusy(value) { busy = Boolean(value); }
 
 /* 이어서 하기: attach to the existing session rather than starting a new one.
    GET /sessions/{id} already returns every message, so replaying them is
@@ -187,6 +185,11 @@ export async function resumeSession() {
   if (!resumeTarget || busy) return;
   busy = true;
   try {
+    // A network round trip with nothing else on screen changing -- the card
+    // says what it is doing until the conversation is painted or the attempt
+    // fails. Inside the try so no throw can land between `busy = true` and the
+    // `finally` that clears it.
+    $('resume-status').hidden = false;
     const { session, messages } = await getJSON(`/sessions/${resumeTarget.id}`);
     state.sessionId = resumeTarget.id;
     state.mode = resumeTarget.mode;
@@ -220,86 +223,6 @@ export async function resumeSession() {
     notify(`이어서 하지 못했습니다: ${err.message}`);
   } finally {
     busy = false;
-  }
-}
-
-/* The chips are the catalogue, not a required choice. A learner who knows what
-   they want types it; the chips are for the ones they have used before and for
-   the days they have no idea. */
-export async function loadChips() {
-  const box = $('chips');
-  box.replaceChildren();
-  // Captured at call time, the same way loadHome does it: two quick language
-  // (or mode) clicks issue two overlapping requests, and if the older one
-  // resolves last it would paint its now-wrong catalogue over the newer,
-  // correct one. These chips are clickable, so a stale chip is not merely
-  // cosmetic -- it hands startFromHome a scenario id from the other language.
-  const lang = state.language;
-  const mode = state.mode;
-  if (mode === 'lesson') return;   // lesson takes a topic, not a scenario
-  try {
-    const { scenarios } = await fetchScenarios(lang, mode);
-    if (state.language !== lang || state.mode !== mode) return; // a newer switch already won
-    for (const s of scenarios.slice(0, 8)) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = s.title;
-      b.dataset.id = s.id;
-      box.append(b);
-    }
-  } catch {
-    // The catalogue is a convenience, not a required choice -- the learner can
-    // still type what they want. Leaving the box empty (it was cleared above)
-    // is honest; an unhandled rejection here used to empty it anyway, just
-    // without anything having decided to.
-  }
-}
-
-/* Three ways in, one button:
-   - a chip, or text that names a scenario we already have -> reuse it
-   - text we have never seen -> ask the model to build it
-   - nothing typed -> pick one, because "고르세요" is what this screen removed */
-export async function startFromHome(scenarioId = null) {
-  if (busy) return;
-  const wish = $('wish').value.trim();
-  // Captured once, here, and used for every request below -- never re-read
-  // from `state` after an await. /scenarios/generate is a local 14b call that
-  // takes seconds, and the language segment and the mode buttons stay live
-  // throughout it: a switch landing mid-generation would otherwise post the
-  // new language with the old language's scenario id, creating a session
-  // stamped `ja` bound to an `en` scenario, whose turns then feed the wrong
-  // language's history forever with nothing on screen to say so.
-  const language = state.language;
-  const mode = state.mode;
-  // Inside the try, not before it: a throw between setting `busy` and the
-  // `finally` that clears it latches the flag true for the life of the page,
-  // and every home-screen button then silently stops working. #btn-start
-  // going missing is exactly such a throw. resumeSession has no such gap.
-  try {
-    busy = true;
-    $('btn-start').disabled = true;
-    let id = scenarioId;
-    if (!id && mode !== 'lesson' && wish) {
-      const { scenarios } = await fetchScenarios(language, mode);
-      const hit = scenarios.find((s) => s.title.trim() === wish);
-      if (hit) id = hit.id;
-      else {
-        notify('상황을 만드는 중입니다...');
-        const made = await postJSON('/scenarios/generate', { language, mode, wish });
-        id = made.id;
-        notify('');
-      }
-    }
-    if (!id && mode !== 'lesson') {
-      const { scenarios } = await fetchScenarios(language, mode);
-      if (!scenarios.length) { notify('연습할 상황이 없습니다.'); return; }
-      id = scenarios[Math.floor(Math.random() * scenarios.length)].id;
-    }
-    await startSession({ language, mode, scenarioId: id, topic: mode === 'lesson' ? wish : null });
-  } catch (err) {
-    notify(`시작하지 못했습니다: ${err.message}`);
-  } finally {
-    busy = false;
-    $('btn-start').disabled = false;
+    $('resume-status').hidden = true;
   }
 }

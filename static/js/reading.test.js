@@ -185,6 +185,25 @@ test('the meaning toggle fetches once and then just reopens', async () => {
   assert.equal(translateCalls, 1, '두 번째 펼침은 요청 없이 열려야 한다');
 });
 
+test('the meaning line says 뜻 가져오는 중... while the translation is out', async () => {
+  resetDom();
+  const { toggleMeaning } = await import('./reading.js');
+  let release;
+  const held = new Promise((r) => { release = r; });
+  stubFetch(async () => { await held; return jsonResponse({ meaning: '안녕하세요' }); });
+
+  const el = document.createElement('li');
+  el.dataset.source = 'こんにちは';
+  const body = document.createElement('span');
+  body.hidden = true;
+  const opening = toggleMeaning(el, body);
+  assert.equal(body.textContent, '뜻 가져오는 중...');
+  assert.equal(body.hidden, false, 'the waiting line must be visible, not written into a hidden span');
+  release();
+  await opening;
+  assert.equal(body.textContent, '안녕하세요');
+});
+
 test('a failed translation says so instead of blanking the line', async () => {
   resetDom();
   const { toggleMeaning } = await import('./reading.js');

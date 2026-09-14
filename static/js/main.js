@@ -2,7 +2,9 @@ import { $, postJSON, notify, state } from './api.js';
 import { play, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
 import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
-import { loadChips, loadHome, resumeSession, startFromHome } from './home.js';
+import { loadHome, resumeSession } from './home.js';
+import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
+         startFromPick, syncLanguageButtons } from './pick.js';
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
@@ -11,44 +13,55 @@ import * as router from './router.js';
 /* ---------- screens ---------- */
 
 router.register('home', 'home');
+router.register('pick', 'pick');
 router.register('session', 'session');
 router.register('report', 'report');
 router.show('home');
 
 /* ---------- wiring ---------- */
 
-$('language-seg').addEventListener('click', (e) => {
+/* Home and pick each carry a language segment; both are the one state.language,
+   so they share this handler and are kept in step by syncLanguageButtons. */
+function switchLanguage(e) {
   const btn = e.target.closest('button[data-language]');
   if (!btn) return;
   state.language = btn.dataset.language;
-  [...$('language-seg').children].forEach((b) => b.classList.toggle('on', b === btn));
-  loadChips();
+  syncLanguageButtons();
   refreshHealth();
-  // Both GET /sessions/resumable and GET /stats/home are scoped by
-  // language: without this, switching languages leaves the previous
-  // language's resume card and counters on screen under the new selection.
-  loadHome();
-});
+  // Themes, the resume card and the counters are all scoped by language:
+  // without a reload the previous language's stay on screen under the new
+  // selection. Only the visible screen reloads -- ← 홈 calls loadHome anyway.
+  if (router.current() === 'pick') loadThemes();
+  else loadHome();
+}
+$('language-seg').addEventListener('click', switchLanguage);
+$('pick-language-seg').addEventListener('click', switchLanguage);
 
 $('modes').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-mode]');
-  if (!btn) return;
-  state.mode = btn.dataset.mode;
-  [...$('modes').children].forEach((b) => b.classList.toggle('on', b === btn));
-  $('wish').placeholder = state.mode === 'lesson'
-    ? '예: 과거형, 식당에서 쓰는 표현'
-    : '예: 구직 면접, 병원 접수, 길 묻기';
-  loadChips();
+  if (btn) openPick(btn.dataset.mode);
 });
 
-$('chips').addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-id]');
-  if (btn) startFromHome(btn.dataset.id);
+$('btn-home').addEventListener('click', () => {
+  router.show('home');
+  loadHome();
 });
 
-$('btn-start').addEventListener('click', () => startFromHome());
+$('category-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-category]');
+  if (btn) selectCategory(btn.dataset.category);
+});
+
+$('theme-grid').addEventListener('click', (e) => {
+  const theme = e.target.closest('button[data-theme]');
+  if (theme) { selectTheme(theme.dataset.theme); return; }
+  const own = e.target.closest('button[data-scenario]');
+  if (own) selectScenario(own.dataset.scenario);
+});
+
+$('btn-start').addEventListener('click', startFromPick);
 $('btn-resume').addEventListener('click', resumeSession);
-$('wish').addEventListener('keydown', (e) => { if (e.key === 'Enter') startFromHome(); });
+$('wish').addEventListener('keydown', (e) => { if (e.key === 'Enter') startFromPick(); });
 $('btn-send').addEventListener('click', sendTurn);
 $('btn-next').addEventListener('click', nextScriptLine);
 $('btn-end').addEventListener('click', endSession);
@@ -166,7 +179,6 @@ $('panel-body').addEventListener('click', (e) => {
   if (line) play(line.audio_key, line.text);
 });
 
-loadChips();
 refreshHealth();
 loadHome();
 loadReadingPrefs();

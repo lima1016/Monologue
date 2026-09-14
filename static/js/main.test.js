@@ -32,7 +32,7 @@ test('the whole module graph evaluates, and startup raises nothing', async () =>
   // harness being broken.
   await import('./main.js');
 
-  // main.js fires loadChips/refreshHealth/loadHome at load without awaiting
+  // main.js fires refreshHealth/loadHome at load without awaiting
   // them. Give those promises room to settle before asking whether any of
   // them rejected with nobody listening.
   await new Promise((r) => setTimeout(r, 20));
