@@ -349,6 +349,56 @@ def _first_line(raw: str) -> str | None:
     return None
 
 
+# 💡 뭐라고 하지? -- what makes a generated reply worth showing.
+_KANA = re.compile(r"[぀-ヿ]")
+_SUGGEST_MAX_WORDS_EN = 12
+_SUGGEST_MAX_CHARS_JA = 30
+_SUGGEST_MAX_REPLIES = 3
+
+
+def _sayable(text: str, language: str) -> bool:
+    """Can the learner say this line as practice in `language`?
+
+    Any Hangul means the model answered in the wrong language. Japanese needs
+    at least one kana: a kanji-only line is exactly what a Chinese leak looks
+    like. Too long is refused rather than cut -- a truncated sentence is a
+    wrong sentence, and the learner would practise it.
+    """
+    if _HANGUL.search(text):
+        return False
+    if language == "ja":
+        return bool(_KANA.search(text)) and len(normalize(text).replace(" ", "")) <= _SUGGEST_MAX_CHARS_JA
+    return bool(_LATIN_LETTER.search(text)) and len(text.split()) <= _SUGGEST_MAX_WORDS_EN
+
+
+def _valid_replies(raw_replies, language: str, bot_last: str, kept=()) -> list[dict]:
+    """The model's replies that pass, after whatever was already kept.
+
+    Never raises on malformed output -- chat_json guarantees JSON, not shape.
+    A duplicate (after normalisation) of a kept line or of the bot's own line
+    is dropped: three ways to say one thing, or the bot's line handed back,
+    is not a choice.
+    """
+    out = [dict(r) for r in kept]
+    seen = {normalize(r["text"]) for r in out}
+    bot_key = normalize(bot_last)
+    for item in raw_replies if isinstance(raw_replies, list) else []:
+        if len(out) >= _SUGGEST_MAX_REPLIES:
+            break
+        if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+            continue
+        text = _first_line(item["text"])
+        if not text or not _sayable(text, language):
+            continue
+        key = normalize(text)
+        if not key or key in seen or key == bot_key:
+            continue
+        seen.add(key)
+        meaning = item.get("meaning")
+        out.append({"text": text, "meaning": meaning.strip() if isinstance(meaning, str) else None})
+    return out
+
+
 class ReadingPrefs(BaseModel):
     furigana: bool
     # 발음 줄을 보일지. 이름이 romaji인 것은 표기 선택이 생기기 전부터 저장된 값을
