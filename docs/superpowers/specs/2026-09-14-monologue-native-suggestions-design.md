@@ -99,7 +99,7 @@
 
 ### 음성
 
-통과한 줄마다 `_speak(text, language)` → `audio_key`. TTS가 죽었으면 None, 클라이언트 `play(null, text)`가 브라우저 음성으로 읽는다
+통과한 줄마다 `_speak(text, language)` → `audio_key`. **캐시 밖에서** 요청마다 붙인다 -- `_speak`는 디스크 캐시라 싸고, 캐시 안에 두면 TTS가 죽어 있던 순간의 null이 서버 재시작까지 남는다. TTS가 죽었으면 None, 클라이언트 `play(null, text)`가 브라우저 음성으로 읽는다
 (대화 말풍선과 같은 규칙).
 
 ### 캐시
@@ -112,9 +112,10 @@
 
 ### 버튼
 
-- `#mic-dock`의 `취소 (Esc)` 옆에 `<button id="btn-suggest" class="ghost">💡 뭐라고 하지?</button>`.
+- `#controls` 줄의 `세션 끝내기` 앞에 `<button id="btn-suggest" class="ghost" type="button" hidden>💡 뭐라고 하지?</button>`.
+  (`취소 (Esc)`는 듣는 동안에만 보이므로 그 옆에 두면 평소에는 외톨이가 된다.)
 - **자유·수업 모드에서만 보인다**(대본 모드는 `hidden`).
-- 대화창에 봇 말풍선이 하나도 없으면 비활성.
+- 대화창에 봇 말풍선이 하나도 없으면 눌러도 아무 일도 없다(자유·수업은 시작 대사가 항상 있어 실제로는 생기지 않는다).
 - **턴 상태 머신(`turnstate.js`)과 독립이다.** 추천 요청은 녹음·전송·재생과 겹칠 자원이 없다 --
   봇이 말하는 중이나 듣는 중에도 누를 수 있다. 그래서 `syncControls`에 넣지 않는다.
 - 요청 중에는 버튼을 비활성화하고(연타 방지) 끝나면 되돌린다.
