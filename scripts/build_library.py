@@ -19,6 +19,46 @@ from app import config, db, library, llm, prompts, scenarios  # noqa: E402
 _ATTEMPTS = 3   # retries after the first try
 
 
+def prepare_console(stream):
+    """UTF-8, flushed line by line. A Windows console defaults to cp949 and to
+    block buffering when redirected to a file: the first model error quoting an
+    emoji would kill the run, and a log file would show nothing for minutes.
+    A test runner's captured stream may not have reconfigure; leave it be."""
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+
+
+def console_log(stream):
+    """A log function that never raises on a character the stream cannot hold.
+    prepare_console already covers sys.stdout; this covers any stream that
+    could not be reconfigured, which is why it is the one the tests pin."""
+    def log(text):
+        text = str(text)
+        try:
+            stream.write(text + "\n")
+        except UnicodeEncodeError:
+            encoding = getattr(stream, "encoding", None) or "ascii"
+            stream.write(text.encode(encoding, "replace").decode(encoding) + "\n")
+        stream.flush()
+    return log
+
+
+def _stored(language, theme, per_theme):
+    wanted = {f"lib-{theme['id']}-{language}-{n:02d}" for n in range(1, per_theme + 1)}
+    return sum(s["id"] in wanted for s in db.library_scenarios(language, theme["id"], "script"))
+
+
+def plan_lines(themes, languages, per_theme):
+    """What the run is about to do, printed before the first model call."""
+    lines = [f"database: {config.DB_PATH}",
+             f"languages: {', '.join(languages)} | themes: {len(themes)} | per theme: {per_theme}"]
+    for language in languages:
+        stored = sum(_stored(language, t, per_theme) for t in themes)
+        target = per_theme * len(themes)
+        lines.append(f"[{language}] stored {stored} / target {target}, missing {target - stored}")
+    return lines
+
+
 def _free_setup(theme, language, chat_json):
     wish = f"{theme['title']} ({', '.join(theme['situations'])})"
     result = chat_json(prompts.build_scenario_messages(language, "free", wish),
@@ -34,14 +74,17 @@ def _free_setup(theme, language, chat_json):
 
 def build(themes, languages, per_theme, *, chat_json=llm.chat_json, log=print):
     stats = {"added": 0, "retries": 0, "gave_up": 0, "reasons": Counter()}
+    target = per_theme * len(themes) * len(languages)
+    done = sum(_stored(language, t, per_theme) for language in languages for t in themes)
     for language in languages:
-        for theme in themes:
+        for index, theme in enumerate(themes, 1):
+            where = f"[{language}] theme {index}/{len(themes)} {theme['id']}"
             if not db.library_scenarios(language, theme["id"], "free"):
                 try:
                     _free_setup(theme, language, chat_json)
                 except Exception as exc:  # a missing free setup is retried next run
                     stats["reasons"]["free-setup"] += 1
-                    log(f"[{language}] {theme['id']} free setup failed: {exc}")
+                    log(f"{where} free setup failed: {exc}")
             existing = db.library_scenarios(language, theme["id"], "script")
             used = {s["id"] for s in existing}
             for n in range(1, per_theme + 1):
@@ -65,7 +108,7 @@ def build(themes, languages, per_theme, *, chat_json=llm.chat_json, log=print):
                         # e.g. Ollama returning a null content, which surfaces as
                         # TypeError out of json.loads(None), not LLMError.
                         stats["reasons"]["model-error"] += 1
-                        log(f"[{language}] {theme['id']} {n:02d}/{per_theme}"
+                        log(f"{where} {n:02d}/{per_theme}"
                            f" unexpected {type(exc).__name__} from the model: {exc}")
                         continue
                     lines = result.get("lines") if isinstance(result, dict) else None
@@ -84,16 +127,17 @@ def build(themes, languages, per_theme, *, chat_json=llm.chat_json, log=print):
                         # timeout here is transient, not a reason to lose the
                         # rest of the run. Retried like any other bad attempt.
                         stats["reasons"]["db-error"] += 1
-                        log(f"[{language}] {theme['id']} {n:02d}/{per_theme}"
+                        log(f"{where} {n:02d}/{per_theme}"
                            f" unexpected {type(exc).__name__} saving: {exc}")
                         continue
                     existing.append(db.get_library_scenario(sid))
                     stats["added"] += 1
-                    log(f"[{language}] {theme['id']} {n:02d}/{per_theme} ok")
+                    done += 1
+                    log(f"{where} {n:02d}/{per_theme} (done {done}/{target}) ok")
                     break
                 else:
                     stats["gave_up"] += 1
-                    log(f"[{language}] {theme['id']} {n:02d}/{per_theme} gave up")
+                    log(f"{where} {n:02d}/{per_theme} (done {done}/{target}) gave up")
     stats["reasons"] = dict(stats["reasons"])
     return stats
 
@@ -104,14 +148,19 @@ def main(argv=None):
     parser.add_argument("--theme", nargs="*")
     parser.add_argument("--per-theme", type=int, default=config.LIBRARY_PER_THEME)
     args = parser.parse_args(argv)
+    prepare_console(sys.stdout)
+    log = console_log(sys.stdout)
     db.init_db()
     themes = library.load_themes()
     if args.theme:
         themes = [t for t in themes if t["id"] in args.theme]
+    languages = args.language or list(config.LANGUAGES)
+    for line in plan_lines(themes, languages, args.per_theme):
+        log(line)
     started = time.perf_counter()
-    report = build(themes, args.language or list(config.LANGUAGES), args.per_theme)
+    report = build(themes, languages, args.per_theme, log=log)
     report["minutes"] = round((time.perf_counter() - started) / 60, 1)
-    print(report)
+    log(report)
 
 
 if __name__ == "__main__":

@@ -125,3 +125,51 @@ def test_a_database_error_while_saving_is_retried(store, monkeypatch):
     report = build_library.build([THEME], ["en"], 1, chat_json=model, log=lambda *a: None)
     assert report["reasons"]["db-error"] == 1
     assert [s["id"] for s in db.library_scenarios("en", "hotel", "script")] == ["lib-hotel-en-01"]
+
+
+# ---------- an unattended run: what reaches the console ----------
+
+def test_a_log_line_the_console_cannot_encode_does_not_raise():
+    """A Windows console defaults to cp949, and a model error can quote
+    anything -- an emoji in an exception message must not kill a six-hour run."""
+    import io
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="cp949")
+    log = build_library.console_log(stream)
+    log("[ja] cafe model error: bad char 😀 in 咖啡點餐")
+    stream.flush()
+    out = raw.getvalue().decode("cp949")
+    assert out.startswith("[ja] cafe model error: bad char ?") and out.endswith("\n")
+
+
+def test_the_console_is_switched_to_utf8_line_buffered_when_it_can_be():
+    import io
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp949")
+    build_library.prepare_console(stream)
+    assert stream.encoding == "utf-8" and stream.line_buffering
+    build_library.prepare_console(io.StringIO())    # no reconfigure: left alone, no error
+
+
+def test_the_plan_says_what_is_stored_and_what_is_missing(store):
+    other = {**THEME, "id": "cafe-restaurant"}
+    for n in (1, 2):
+        db.add_library_scenario({"id": f"lib-hotel-en-{n:02d}", "theme_id": "hotel", "situation": "s",
+                                 "language": "en", "type": "script", "title": "t", "lines": _lines(f"P{n}")})
+    lines = build_library.plan_lines([THEME, other], ["en", "ja"], 3)
+    text = "\n".join(lines)
+    assert str(config.DB_PATH) in text
+    assert "en, ja" in text and "themes: 2" in text and "per theme: 3" in text
+    assert "[en] stored 2 / target 6, missing 4" in text
+    assert "[ja] stored 0 / target 6, missing 6" in text
+
+
+def test_progress_lines_carry_the_theme_position_and_a_running_total(store):
+    other = {**THEME, "id": "cafe-restaurant"}
+    db.add_library_scenario({"id": "lib-hotel-en-01", "theme_id": "hotel", "situation": "s",
+                             "language": "en", "type": "script", "title": "t", "lines": _lines("Stored kappa")})
+    model = FakeModel([(f"t{i}", _lines(f"Run{i} lambda{i*19}")) for i in range(3)])
+    said = []
+    build_library.build([THEME, other], ["en"], 2, chat_json=model, log=said.append)
+    ok = [s for s in said if s.endswith("ok") or " ok " in s]
+    assert any("theme 1/2" in s and "done 2/4" in s for s in ok), said
+    assert any("theme 2/2" in s and "done 4/4" in s for s in ok), said
