@@ -10,6 +10,7 @@
 import { $, getJSON, postJSON, state, notify } from './api.js';
 import * as router from './router.js';
 import { addMessage, startSession } from './session.js';
+import { setSuggestVisible } from './suggest.js';
 
 /* One place that builds the catalogue request, so the three callers below
    cannot drift apart on the query string. Deliberately not cached: a cache
@@ -189,6 +190,7 @@ export async function resumeSession() {
     const { session, messages } = await getJSON(`/sessions/${resumeTarget.id}`);
     state.sessionId = resumeTarget.id;
     state.mode = resumeTarget.mode;
+    setSuggestVisible(resumeTarget.mode);
     // Same rule startSession follows for a session it just created: the
     // session that actually exists becomes the app's language, not whatever
     // the language segment happens to show. Correct today only because

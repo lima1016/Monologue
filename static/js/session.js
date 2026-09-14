@@ -4,6 +4,7 @@ import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
 import { annotate, attachMeaning, escapeHtml } from './reading.js';
+import { setSuggestVisible } from './suggest.js';
 
 /* ---------- turn state ---------- */
 
@@ -296,6 +297,7 @@ export async function startSession({ language, mode, scenarioId, topic } = {}) {
     // rather than the button that was pressed after it was requested.
     state.language = payload.language;
     state.mode = payload.mode;
+    setSuggestVisible(payload.mode);
     router.show('session');
     $('conversation').innerHTML = '';
     notify('');

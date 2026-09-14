@@ -5,6 +5,7 @@ import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
 import { loadChips, loadHome, resumeSession, startFromHome } from './home.js';
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
+import { suggestForLatest } from './suggest.js';
 import * as router from './router.js';
 
 /* ---------- screens ---------- */
@@ -124,13 +125,18 @@ $('conversation').addEventListener('click', (e) => {
 // 한 클릭에 두 동작을 얹으면 되돌리려다 소리가 나거나 그 반대가 된다.
 // 대본 패널에는 되돌리기가 없으므로 거기서는 양쪽 줄 다 눌러 들을 수 있다.
 $('conversation').addEventListener('click', (e) => {
-  // 뜻 토글이 먼저다. renderTokens가 말풍선 안에도 '▸ 뜻' 버튼을 그리므로,
-  // 대본 패널과 똑같이 여기서도 받아줘야 한다 -- 안 그러면 대화창의 뜻만
-  // 눌러도 아무 일이 없는 반쪽짜리가 된다.
+  // 뜻 토글이 먼저다. renderTokens가 말풍선과 추천 줄 안에도 '▸ 뜻' 버튼을
+  // 그리므로, 대본 패널과 똑같이 여기서도 받아줘야 한다.
   const meaning = e.target.closest('button.meaning');
   if (meaning) {
-    const bubble = meaning.closest('.msg.bot');
-    toggleMeaning(bubble, bubble.querySelector('.meaning-body'));
+    const host = meaning.closest('.msg.bot, .suggest-line');
+    if (host) toggleMeaning(host, host.querySelector('.meaning-body'));
+    return;
+  }
+  // 추천 줄은 들을 수만 있다. 키가 없으면(TTS가 죽어 있었음) 브라우저 음성.
+  const reply = e.target.closest('.suggest-line');
+  if (reply) {
+    play(reply.dataset.audioKey || null, reply.dataset.source);
     return;
   }
   const bubble = e.target.closest('.msg.bot');
@@ -145,6 +151,7 @@ $('conversation').addEventListener('click', (e) => {
   // the button's label and, once opened, the Korean meaning.
   play(bubble.dataset.audioKey, bubble.dataset.source || bubble.textContent);
 });
+$('btn-suggest').addEventListener('click', suggestForLatest);
 
 $('panel-body').addEventListener('click', (e) => {
   const meaning = e.target.closest('button.meaning');
