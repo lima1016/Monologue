@@ -93,6 +93,16 @@ def test_generating_a_scenario_stores_it_and_returns_it(client, monkeypatch):
     assert body["id"] in [s["id"] for s in listed]
 
 
+@pytest.mark.parametrize("title", [",$咖啡店點餐", "They Said No!", ""])
+def test_a_generated_title_that_is_not_korean_falls_back_to_the_wish(client, monkeypatch, title):
+    monkeypatch.setattr("app.api.llm.chat_json", lambda messages, schema, **kw: {
+        "title": title, "goal": "g", "persona_prompt": "You are a moving company clerk.",
+    })
+    r = client.post("/api/scenarios/generate",
+                    json={"language": "en", "mode": "free", "wish": " 이사 업체에 견적 묻기 "})
+    assert r.status_code == 200 and r.json()["title"] == "이사 업체에 견적 묻기"
+
+
 def test_a_generated_scenario_that_fails_validation_is_rejected(client, monkeypatch):
     """A local 14b will sometimes return something unusable. Better a clear
     error than a row that explodes when the learner presses 시작."""

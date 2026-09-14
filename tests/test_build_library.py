@@ -88,10 +88,17 @@ def test_duplicates_of_stored_scripts_are_rejected(store):
 
 
 def test_previous_titles_and_openings_reach_the_prompt(store):
-    model = FakeModel([("first title", _lines("Opening theta1")), ("second", _lines("Opening iota2"))])
+    model = FakeModel([("첫 번째 제목", _lines("Opening theta1")), ("두 번째", _lines("Opening iota2"))])
     build_library.build([THEME], ["en"], 2, chat_json=model, log=lambda *a: None)
     last_user = [c for c in model.calls if "persona_prompt" not in str(c)][-1][-1]["content"]
-    assert "first title" in last_user and "Opening theta1 line 0 for practice." in last_user
+    assert "첫 번째 제목" in last_user and "Opening theta1 line 0 for practice." in last_user
+
+
+def test_a_title_that_is_not_korean_falls_back_to_the_situation(store):
+    model = FakeModel([(",$咖啡店點餐", _lines("Title mu1")), ("They Said No!", _lines("Title nu2")),
+                       ("  방 바꿔 달라고 하기 ", _lines("Title xi3"))])
+    build_library.build([THEME], ["en"], 3, chat_json=model, log=lambda *a: None)
+    assert [s["title"] for s in db.library_scenarios("en", "hotel", "script")] == ["체크인", "방 문제", "방 바꿔 달라고 하기"]
 
 
 def test_a_non_llm_error_from_the_model_still_counts_as_a_retry(store):

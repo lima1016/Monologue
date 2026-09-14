@@ -163,3 +163,24 @@ def test_free_setup(store):
                                 "persona_prompt": "p", "max_turns": 16})
     assert library.free_setup("en", "hotel")["id"] == "lib-hotel-en-free"
     assert library.free_setup("ja", "hotel") is None
+
+
+@pytest.mark.parametrize("title,expected", [
+    ("카페에서 주문하기", "카페에서 주문하기"),
+    ("  호텔 체크인  ", "호텔 체크인"),
+    (",$咖啡店點餐", "상황"),               # Chinese with a junk prefix (seen from qwen2.5)
+    ("They Said No!", "상황"),              # English
+    ("カフェで注文", "상황"),                 # Japanese kana
+    ("커피 注文하기", "상황"),                # Hangul mixed with an ideograph
+    ("", "상황"),
+    (None, "상황"),
+    (["not", "text"], "상황"),
+])
+def test_korean_title(title, expected):
+    assert library.korean_title(title, " 상황 ") == expected
+
+
+def test_korean_title_is_capped():
+    long = "아주 긴 제목 " * 10
+    got = library.korean_title(long, "상황")
+    assert len(got) <= 40 and got.startswith("아주 긴 제목") and got == got.strip()

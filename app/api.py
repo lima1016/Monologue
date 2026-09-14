@@ -175,7 +175,7 @@ def generate_scenario(payload: ScenarioWish):
         "id": f"user-{uuid.uuid4().hex[:12]}",
         "language": payload.language,
         "type": payload.mode,
-        "title": (result.get("title") or wish).strip(),
+        "title": library.korean_title(result.get("title"), wish),
         "goal": (result.get("goal") or "").strip() or None,
     }
     if payload.mode == "free":

@@ -36,6 +36,19 @@ def get_theme(theme_id):
     return next((t for t in _themes() if t["id"] == theme_id), None)
 
 
+_TITLE_MAX = 40
+
+
+def korean_title(title, fallback):
+    """A card title the learner reads in Korean, or `fallback` (trimmed). The
+    model has returned ",$咖啡店點餐" and "They Said No!" for a Korean title
+    (2026-09-14): usable only with Hangul in it and no kana or ideographs."""
+    text = title.strip() if isinstance(title, str) else ""
+    if not text or not _HANGUL.search(text) or _CJK.search(text):
+        return fallback.strip()
+    return text[:_TITLE_MAX].strip()
+
+
 def _line_ok(text: str, language: str) -> bool:
     if _HANGUL.search(text):
         return False

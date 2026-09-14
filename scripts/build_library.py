@@ -156,7 +156,7 @@ def build(themes, languages, per_theme, *, chat_json=llm.chat_json, log=print):
                             stats["reasons"][reason] += 1
                             continue
                         item = {"id": sid, "theme_id": theme["id"], "situation": situation, "language": language,
-                                "type": "script", "title": (result.get("title") or situation).strip(),
+                                "type": "script", "title": library.korean_title(result.get("title"), situation),
                                 "lines": lines}
                         try:
                             db.add_library_scenario(item)
