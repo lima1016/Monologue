@@ -352,3 +352,26 @@ def test_translate_retry_asks_again_in_korean_with_the_bad_answer_in_view():
     assert again[len(first)] == {"role": "assistant", "content": "오늘은几位呢？"}
     assert again[-1]["role"] == "user"
     assert "한글" in again[-1]["content"]
+
+
+def test_feedback_suggestion_is_defined_as_what_a_native_speaker_would_say_here():
+    system = prompts.build_feedback_messages("en", "test")[0]["content"]
+    assert "이 상황에서 원어민" in system
+    assert "fixed" in system.split("- suggestion:")[1]  # the don't-quote-fixed rule sits in the suggestion bullet
+
+
+def test_feedback_context_now_lets_suggestion_use_the_scene():
+    system = prompts.build_feedback_messages("en", "test", bot_last="Checking in today?")[0]["content"]
+    assert "suggestion을 이 상황에 맞추는 데" in system
+    assert "답변에 그대로 옮기지 마세요" not in system
+
+
+def test_no_feedback_example_suggestion_quotes_its_own_fixed():
+    """예시가 `fixed`를 되풀이하면 모델은 규칙보다 예시를 따른다."""
+    import re
+    from app.text_match import normalize
+    for language, examples in prompts.FEEDBACK_EXAMPLES.items():
+        for ex in examples:
+            spans = re.findall(r"'([^']*)'", ex["suggestion"])
+            assert spans, (language, ex["learner"])
+            assert all(normalize(s) != normalize(ex["fixed"]) for s in spans), (language, ex["learner"])

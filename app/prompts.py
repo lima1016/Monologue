@@ -247,6 +247,7 @@ def build_system_prompt(mode, language, *, scenario=None, topic=None,
 # answer with a short formulaic line in the target language instead). Each
 # assistant turn is exactly the JSON shape feedback_schema() expects -- nothing
 # more -- so the model isn't taught to wrap it in extra prose.
+# No example's suggestion may quote its own fixed -- the model copies examples over rules (test_no_feedback_example_suggestion_quotes_its_own_fixed).
 FEEDBACK_EXAMPLES = {
     "en": [
         {
@@ -259,8 +260,7 @@ FEEDBACK_EXAMPLES = {
                 "추가해야 합니다. 올바른 문장은 'I went to the store yesterday.'입니다."
             ),
             "suggestion": (
-                "원어민이라면 'I went to the store yesterday.' 또는 'Yesterday I "
-                "went to the store.'처럼 말할 거예요."
+                "원어민이라면 'I stopped by the store yesterday.'처럼 더 가볍게 말하기도 해요."
             ),
         },
         {
@@ -286,7 +286,7 @@ FEEDBACK_EXAMPLES = {
                 "'行きました'로 바꿔야 합니다. 올바른 문장은 'きのう、レストランに"
                 "行きました。'입니다."
             ),
-            "suggestion": "원어민이라면 '昨日、レストランに行きました。'처럼 자연스럽게 말할 거예요.",
+            "suggestion": "원어민이라면 '昨日はレストランで食べてきました。'처럼 말하기도 해요.",
         },
         {
             "learner": "わたしは毎朝コーヒーを飲みます。",
@@ -323,9 +323,11 @@ FEEDBACK_SYSTEM = """당신은 한국인 학생을 가르치는 한국어 원어
 - tag: 틀린 부분의 종류. 아래 정의를 보고 정확히 하나만 고릅니다
 {defs}
 - correction: 무엇이 왜 틀렸는지. 한국어로 두 문장 이내
-- suggestion: 원어민이라면 어떻게 말할지. correction과 같은 지적을 다른 말로
-  반복하지 말고, 문장이 이미 맞을 때도 쓸 수 있는 다른 표현으로 씁니다. 한국어로
-  두 문장 이내
+- suggestion: 이 상황에서 원어민이라면 이 말을 어떻게 했을지. 학생이 하려던 뜻은 그대로
+  두고, 상대방이 직전에 한 말과 대화 목표에 자연스럽게 이어지는 한마디를 따옴표로 인용해
+  보여줍니다. correction과 같은 지적을 되풀이하지 말고, fixed 문장을 그대로 인용하지
+  마세요 -- fixed와는 다른 표현이어야 합니다. 문장이 이미 맞을 때도 쓸 수 있는 다른
+  표현으로 씁니다. 한국어로 두 문장 이내
 
 tag는 correction에서 실제로 지적한 내용과 일치해야 합니다.
 
@@ -353,8 +355,8 @@ def _feedback_context(*, scenario_title=None, scenario_goal=None,
     if not lines:
         return ""
     return (
-        "\n\n참고할 문맥입니다. 학생이 무엇을 말하려 했는지 판단하는 데만 쓰고,"
-        " 답변에 그대로 옮기지 마세요.\n" + "\n".join(lines)
+        "\n\n참고할 문맥입니다. 학생이 무엇을 말하려 했는지 판단하고, suggestion을"
+        " 이 상황에 맞추는 데 쓰세요. 문맥 문장을 그대로 베끼지는 마세요.\n" + "\n".join(lines)
     )
 
 

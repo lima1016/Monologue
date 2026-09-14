@@ -438,28 +438,35 @@ _QUOTED_SPAN = re.compile(
 )
 
 
-def _drop_self_quoting_suggestion(suggestion, learner_text: str):
-    """A neutralised correction's `suggestion` is the one field that survives
-    to the screen, and the model wrote it while it still believed in a fix
-    that has since been discarded -- so it sometimes quotes back exactly what
-    the learner already said ("say 'Card, please.'" when the learner said
-    "Card please"), which tells them nothing. Drop it only when a *quoted
-    span* is equal (not merely contains) the learner's own normalised text:
-    a genuine alternative like "Could I have the card, please?" contains
-    "card please" as a substring and must survive.
+def _drop_if_quoted(suggestion, sentence: str):
+    """Drop `suggestion` when one of its *quoted spans* is equal (not merely
+    contains) `sentence` after normalisation -- a suggestion that only quotes
+    back a sentence already on screen tells the learner nothing.
 
-    Applies only inside neutralisation -- a suggestion attached to a real
-    correction is never touched here. Never raises: a non-string suggestion
-    (schema makes it unlikely, not impossible) is returned unchanged.
+    Two callers: a neutralised correction quoting the learner's own words back
+    (the model wrote it while it still believed in a fix since discarded), and
+    a real correction quoting `fixed` back (the 교정 block already shows that
+    sentence). A genuine alternative that merely contains the sentence, like
+    "Could I have the card, please?" for "card please", survives.
+
+    Never raises: a non-string suggestion is returned unchanged, and an empty
+    normalised sentence matches nothing (an empty quote '' must not count).
     """
     if not isinstance(suggestion, str):
         return suggestion
-    target = normalize(learner_text)
+    target = normalize(sentence)
+    if not target:
+        return suggestion
     for match in _QUOTED_SPAN.finditer(suggestion):
         span = next(g for g in match.groups() if g is not None)
         if normalize(span) == target:
             return None
     return suggestion
+
+
+def _drop_self_quoting_suggestion(suggestion, learner_text: str):
+    """The neutralised-correction use of _drop_if_quoted -- see there."""
+    return _drop_if_quoted(suggestion, learner_text)
 
 
 def _feedback(language: str, text: str, *, scenario_title=None,
@@ -515,12 +522,17 @@ def _feedback(language: str, text: str, *, scenario_title=None,
                     result.get("suggestion"), graded_text
                 ),
             }
+        suggestion = result.get("suggestion")
+        if ok is False and isinstance(fixed, str) and fixed:
+            # The 교정 block already shows `fixed`; a suggestion quoting it back
+            # is the same sentence twice. See _drop_if_quoted.
+            suggestion = _drop_if_quoted(suggestion, fixed)
         return {
             "ok": None if ok is None else bool(ok),
             "fixed": fixed,
             "tag": result.get("tag"),
             "correction": result.get("correction"),
-            "suggestion": result.get("suggestion"),
+            "suggestion": suggestion,
         }
     except Exception:
         return dict(_NO_FEEDBACK)

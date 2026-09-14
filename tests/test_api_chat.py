@@ -42,7 +42,7 @@ def fake_engines(monkeypatch):
             "fixed": "I went there.",
             "tag": "시제",
             "correction": "'go'는 과거형이 아닙니다.",
-            "suggestion": "'I went there.'라고 말하세요.",
+            "suggestion": "'I went over there.'라고도 해요.",
         }
 
     monkeypatch.setattr("app.api.llm.chat", fake_chat)
@@ -198,7 +198,7 @@ def test_chat_stores_both_turns_with_feedback_on_the_user_turn(client):
 
     assert body["bot_reply"] == "Sure, right this way!"
     assert body["correction"] == "'go'는 과거형이 아닙니다."
-    assert body["suggestion"] == "'I went there.'라고 말하세요."
+    assert body["suggestion"] == "'I went over there.'라고도 해요."
     assert body["audio_key"]
 
     msgs = db.get_messages(sid)
@@ -427,6 +427,37 @@ def test_chat_keeps_a_genuinely_alternative_suggestion_on_a_neutralized_turn(cli
     body = client.post("/api/chat", json={"session_id": sid, "text": "Card please"}).json()
     assert body["ok"] is True
     assert body["suggestion"] == "좀 더 자연스럽게 말하려면 'Could I have the card, please?'라고도 할 수 있어요."
+
+
+def test_chat_drops_a_suggestion_that_quotes_the_fix_already_shown(client, monkeypatch):
+    """교정 블록이 이미 `fixed`를 보여준다. 이렇게도가 같은 문장을 인용하면 정보가 없다."""
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    monkeypatch.setattr("app.api.llm.chat_json", lambda m, s, **kw: {
+        "ok": False, "fixed": "I went there.", "tag": "시제",
+        "correction": "'go'는 과거형이 아닙니다.",
+        "suggestion": "원어민이라면 'I went there!'라고 말할 거예요."})
+    body = client.post("/api/chat", json={"session_id": sid, "text": "I go there"}).json()
+    assert body["fixed"] == "I went there."
+    assert body["suggestion"] is None
+    stored = next(m for m in db.get_messages(sid) if m["speaker"] == "user")
+    assert stored["suggestion"] is None
+
+
+def test_chat_keeps_a_suggestion_that_only_contains_the_fix(client, monkeypatch):
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    suggestion = "'I went there with my sister.'처럼 덧붙여도 좋아요."
+    monkeypatch.setattr("app.api.llm.chat_json", lambda m, s, **kw: {
+        "ok": False, "fixed": "I went there.", "tag": "시제",
+        "correction": "'go'는 과거형이 아닙니다.", "suggestion": suggestion})
+    body = client.post("/api/chat", json={"session_id": sid, "text": "I go there"}).json()
+    assert body["suggestion"] == suggestion
+
+
+def test_drop_if_quoted_ignores_an_empty_sentence():
+    from app import api
+    assert api._drop_if_quoted("''라고 하세요", "...") == "''라고 하세요"
 
 
 def test_chat_neutralizes_punctuation_only_corrections(client, monkeypatch):
