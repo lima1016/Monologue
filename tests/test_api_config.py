@@ -212,6 +212,15 @@ def test_weekly_goal_is_saved_and_bounded(client):
     assert client.post("/api/settings/weekly-goal", json={"goal": 15}).status_code == 422
 
 
+@pytest.mark.parametrize("stored", ["banana", "999"])
+def test_a_corrupt_stored_weekly_goal_falls_back_to_the_default(client, stored):
+    """_weekly_goal() already guards both shapes of corruption (int() failing
+    outright, and a value outside 1-14) -- this pins that the fallback holds
+    end to end through the route, not just in the helper."""
+    db.set_setting("weekly_goal", stored)
+    assert client.get("/api/stats/home?language=en").json()["week"]["goal"] == 5
+
+
 def test_home_stats_recommend_recent_themes_library_and_history(client, monkeypatch):
     from app import api, db
     monkeypatch.setattr(api, "_today", lambda: date(2026, 9, 14))
