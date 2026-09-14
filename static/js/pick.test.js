@@ -414,3 +414,44 @@ test('a theme whose pick failed can be clicked again and picks again', async () 
   await pick.selectTheme('cafe-restaurant');
   assert.equal(seen.picks.length, 2);
 });
+
+/* ---------- leaving and coming back during a start ----------
+
+   ← 홈 stays live during a start, and home's mode cards call openPick. If
+   openPick reset the screen, the learner who looked away would come back to
+   an unlocked screen with no status while a model call is still running --
+   the one thing this screen promises never to do. */
+test('going home and back during a held generation keeps the status, the lock and the wish', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const seen = routes({ generate: async () => { await held; return jsonResponse({ id: 'user-abc' }); } });
+  await pick.openPick('script');
+  $('wish').value = '이사 업체에 견적 묻기';
+  const started = pick.startFromPick();
+  await new Promise((r) => setTimeout(r, 0));
+
+  router.show('home');                 // ← 홈
+  await pick.openPick('free');         // a different mode card on home
+  assert.equal(router.current(), 'pick');
+  assert.equal($('start-status').hidden, false);
+  assert.equal($('start-status-text').textContent, '대본 만드는 중...');
+  assert.equal($('btn-start').disabled, true);
+  assert.equal($('wish').value, '이사 업체에 견적 묻기');
+  assert.equal($('pick-mode').textContent, '스크립트');
+  assert.equal(state.mode, 'script');
+
+  release();
+  await started;
+  assert.equal(seen.sessions[0].mode, 'script');
+  assert.equal(seen.sessions[0].scenario_id, 'user-abc');
+});
+
+test('a mode card pressed while a resume is in flight does nothing', async () => {
+  routes();
+  await pick.openPick('script');
+  router.show('home');
+  home.setBusy(true);                  // what resumeSession holds while it loads
+  await pick.openPick('free');
+  assert.equal(router.current(), 'home');
+  assert.equal(state.mode, 'script');
+});

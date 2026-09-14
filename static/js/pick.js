@@ -57,6 +57,14 @@ export function syncLanguageButtons() {
 }
 
 export async function openPick(mode) {
+  // A start is in flight: ← 홈 and back (or any mode card) returns to that
+  // start as it stands -- its status, lock, wish and mode -- rather than an
+  // unlocked screen with no words while the model call keeps running. A
+  // resume in flight (busy, but nothing locked here) leaves home as it is.
+  if (isBusy()) {
+    if (locked) router.show('pick');
+    return;
+  }
   state.mode = mode;
   router.show('pick');
   $('pick-mode').textContent = MODE_LABELS[mode] || mode;
