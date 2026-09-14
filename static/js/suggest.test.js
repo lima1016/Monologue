@@ -58,6 +58,18 @@ test('the card lands after the bot line that was asked about, even if another ar
   assert.equal($('btn-suggest').disabled, false);
 });
 
+test('the card sits under the bot line even when my reply already follows it', async () => {
+  setup();
+  const asked = bubble('bot', 'Window or aisle?');
+  const mine = bubble('user', 'Window.');
+  stubFetch(async () => jsonResponse({ replies: REPLIES }));
+  await suggest.suggestForLatest();
+
+  const kids = $('conversation').children;
+  assert.equal(kids[kids.indexOf(asked) + 1].className, 'suggest-card');
+  assert.equal(kids.indexOf(mine), kids.indexOf(asked) + 2, '카드가 내 말풍선보다 앞에 온다');
+});
+
 test('a card shows each reply with its meaning and its audio, and nothing that sends', async () => {
   setup();
   bubble('bot', 'Window or aisle?');
