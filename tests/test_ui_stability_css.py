@@ -178,3 +178,19 @@ def test_refreshed_cards_do_not_transition_under_reduced_motion():
     marker = ".is-refreshing, :where(" + ", ".join(REFRESHED_CARDS) + ") {"
     body = _rule_body(block, marker)
     assert "transition: none" in body and "transition-delay: 0s" in body
+
+
+def test_toast_sits_below_the_header_not_over_its_controls():
+    """At the top of the page a toast at `top: var(--space-4)` covered the
+    header's 설정 button. It is anchored just under the header's height,
+    written in the same tokens the header is built from."""
+    body = _rule_body(_all_css(), ".toast {")
+    top = re.search(r"\btop:\s*([^;]+);", body)
+    assert top, "the toast must be anchored by top"
+    value = top.group(1)
+    assert value.startswith("calc(") and "--space-4" in value and "--text-base" in value, value
+
+
+def test_toast_close_button_is_at_least_24px():
+    body = _rule_body(_all_css(), "#notice-close {")
+    assert "min-width: 24px" in body and "min-height: 24px" in body

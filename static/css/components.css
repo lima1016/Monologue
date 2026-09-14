@@ -93,9 +93,20 @@ button:disabled { opacity: .45; cursor: not-allowed; }
    (the scrollbar's width is reserved, see base.css). */
 
 /* #notice is `position: fixed`, so it never pushes the page below it --
-   `.notice` above still carries its background/colour/shape. */
+   `.notice` above still carries its background/colour/shape.
+
+   Anchored just under the header, not at the viewport's top edge, where it
+   covered 설정 and the status dots. The header's height is its vertical
+   padding (--space-4 twice), its tallest child -- the 설정 button: --space-2
+   padding twice, one --text-base line at the body's 1.55, a 1px border each
+   side -- and its 1px bottom rule; one --space-2 of air below that. Top rather
+   than bottom-centre: the session screen's mic dock is sticky at the bottom
+   and changes height, so a bottom toast would cover the mic or have to track
+   the dock; the header is one fixed-height row on every screen. */
 .toast {
-  position: fixed; top: var(--space-4); left: 50%; transform: translateX(-50%);
+  position: fixed;
+  top: calc(var(--space-4) * 2 + var(--space-2) * 2 + var(--text-base) * 1.55 + 2px + 1px + var(--space-2));
+  left: 50%; transform: translateX(-50%);
   z-index: 30; display: flex; align-items: center; gap: var(--space-2);
   max-width: min(560px, calc(100vw - 2 * var(--space-4)));
   box-shadow: var(--shadow-lift);
@@ -110,7 +121,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
    never adds a text node inside `#notice` -- `#notice`'s own textContent
    stays exactly `#notice-text`'s message (`aria-label` still names the
    button for assistive tech). */
-#notice-close { padding: 0 var(--space-2); line-height: 1; }
+#notice-close { padding: 0 var(--space-2); line-height: 1;
+                min-width: 24px; min-height: 24px; }   /* WCAG 2.2 target size */
 #notice-close::before { content: '×'; }
 
 /* A screen entering through router.show() (spec R1). The screen being left
