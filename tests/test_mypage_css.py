@@ -92,3 +92,14 @@ def test_the_level_note_keeps_its_gap():
     assert "#level-body > p" not in css
     assert "margin: 0" in _rule_body(css, ":where(#level-body) > p {")
     assert "margin-top: var(--space-1)" in _rule_body(css, ".level-note {")
+
+
+def test_the_accuracy_line_keeps_its_gap_below():
+    """`#mypage .hint { margin: 0 }` (id + class) outranked `#accuracy-line`'s
+    margin, so the line sat flush on the first tag bar."""
+    css = _all_css()
+    assert "#mypage .hint {" not in css
+    assert "margin: 0" in _rule_body(css, "#mypage :where(.hint) {")
+    assert "margin: 0 0 var(--space-2)" in _rule_body(css, "#accuracy-line {")
+    # Same specificity now, so the later rule has to be #accuracy-line's.
+    assert css.index("#mypage :where(.hint) {") < css.index("#accuracy-line {")

@@ -853,7 +853,7 @@ button.meaning:hover { color: var(--accent-ink); }
 /* Direct children only: a nested .label (a review card's 내가 한 말) keeps its
    own inline rule, which an id selector here would otherwise beat. */
 #mypage .panel > .label { margin: 0 0 var(--space-2); }
-#mypage .hint { font-size: var(--text-sm); margin: 0; }
+#mypage :where(.hint) { font-size: var(--text-sm); margin: 0; }
 
 /* Same easing both ways as home's refreshed cards: the delay on .is-refreshing
    only dims a slow reload, and un-dimming eases back. */
