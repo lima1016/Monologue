@@ -35,6 +35,18 @@ export function syncLanguageButtons() {
   }
 }
 
+/* True when the learner asked the OS for less motion. Timers that exist only
+   to let a fade finish skip straight to the end state then. */
+export function reducedMotion() {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+// --dur-fast in tokens.css: how long a fade-out runs before the element goes.
+export const LEAVE_MS = 150;
+
+let noticeToken = 0;
+
 export function notify(message) {
   const box = $('notice');
   const text = $('notice-text');
@@ -43,8 +55,23 @@ export function notify(message) {
   // writing the message onto `box` would silently delete `#notice-close`
   // (and its listener) the first time a notice was shown. `#notice-text` is
   // the only piece of `#notice` that should ever hold the message.
-  text.textContent = message || '';
-  box.hidden = !message;
+  const token = ++noticeToken;
+  if (message) {
+    text.textContent = message;
+    box.classList.remove('is-leaving');
+    box.hidden = false;
+    return;
+  }
+  const done = () => {
+    box.hidden = true;
+    box.classList.remove('is-leaving');
+    text.textContent = '';
+  };
+  if (box.hidden || reducedMotion()) { done(); return; }
+  // Fades out (.toast.is-leaving) with its message still on it, then hides.
+  // A message that arrives meanwhile bumps the token, and this hide is void.
+  box.classList.add('is-leaving');
+  setTimeout(() => { if (token === noticeToken) done(); }, LEAVE_MS);
 }
 
 // Hides `el` without pulling it out of the layout -- `hidden` keeps its

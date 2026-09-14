@@ -111,7 +111,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   max-width: min(560px, calc(100vw - 2 * var(--space-4)));
   box-shadow: var(--shadow-lift);
   animation-name: toast-in; animation-duration: var(--dur-fast); animation-timing-function: ease-out;
+  transition: opacity var(--dur-fast) ease;
 }
+/* notify('') fades the toast out before hiding it (api.js). */
+.toast.is-leaving { opacity: 0; }
 @keyframes toast-in {
   from { opacity: 0; transform: translate(-50%, -6px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
@@ -176,6 +179,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .screen-enter, .toast, .skeleton { animation: none; }
   .fade { transition: none; }
+  .toast { transition: none; }
   .is-refreshing, :where(#today-card, #today-alt, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
     transition: none; transition-delay: 0s;
   }

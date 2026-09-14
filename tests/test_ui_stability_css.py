@@ -194,3 +194,12 @@ def test_toast_sits_below_the_header_not_over_its_controls():
 def test_toast_close_button_is_at_least_24px():
     body = _rule_body(_all_css(), "#notice-close {")
     assert "min-width: 24px" in body and "min-height: 24px" in body
+
+
+def test_toast_fades_out_when_leaving():
+    """notify('') adds .is-leaving and hides the toast 150ms later (api.js)."""
+    css = _all_css()
+    assert "opacity: 0" in _rule_body(css, ".toast.is-leaving {")
+    assert "transition: opacity var(--dur-fast)" in _rule_body(css, ".toast {")
+    block = "\n".join(_reduced_motion_blocks(css))
+    assert re.search(r"\.toast\s*\{[^}]*transition: none", block)
