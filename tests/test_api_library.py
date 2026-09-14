@@ -100,3 +100,63 @@ def test_background_audio_failure_is_logged(client, monkeypatch, caplog):
         r = client.post("/api/library/pick", json={"language": "en", "mode": "script", "theme_id": "hotel"})
     assert r.status_code == 200
     assert any(rec.levelname == "WARNING" for rec in caplog.records)
+
+
+# ---------- the audio warm-up keeps only the latest pick ----------
+
+class HoldingExecutor:
+    """Queues jobs as real Futures and runs nothing until told to -- the one
+    audio worker busy with something else."""
+    def __init__(self):
+        from concurrent.futures import Future
+        self._Future = Future
+        self.jobs = []
+
+    def submit(self, fn, *args):
+        future = self._Future()
+        self.jobs.append((future, fn, args))
+        return future
+
+    def run(self, index):
+        future, fn, args = self.jobs[index]
+        if future.set_running_or_notify_cancel():
+            future.set_result(fn(*args))
+            return True
+        return False
+
+
+def _pick(client):
+    return client.post("/api/library/pick", json={"language": "en", "mode": "script", "theme_id": "hotel"})
+
+
+def test_a_new_pick_cancels_the_warm_up_still_waiting_in_the_queue(client, monkeypatch):
+    _script(1)
+    ex = HoldingExecutor()
+    monkeypatch.setattr(api, "_audio_executor", ex)
+    for _ in range(3):
+        assert _pick(client).status_code == 200
+    assert [f.cancelled() for f, _, _ in ex.jobs] == [True, True, False]
+    spoken = []
+    monkeypatch.setattr(api, "_speak", lambda text, language: spoken.append(text))
+    assert ex.run(0) is False and ex.run(2) is True
+    assert len(spoken) == 16
+
+
+def test_a_warm_up_already_running_stops_between_lines_once_a_newer_pick_arrives(client, monkeypatch):
+    _script(1)
+    ex = HoldingExecutor()
+    monkeypatch.setattr(api, "_audio_executor", ex)
+    _pick(client)
+    spoken = []
+
+    def speak(text, language):
+        spoken.append(text)
+        if len(spoken) == 2:
+            _pick(client)        # the learner clicks another card while line 2 is synthesising
+    monkeypatch.setattr(api, "_speak", speak)
+    ex.run(0)
+    assert len(spoken) == 2, "the stale warm-up kept synthesising a script nobody is about to open"
+    spoken.clear()
+    monkeypatch.setattr(api, "_speak", lambda text, language: spoken.append(text))
+    ex.run(1)
+    assert len(spoken) == 16

@@ -379,3 +379,38 @@ test('a failed resume releases the guard', async () => {
   await started;
   assert.ok(seen.sessionBody, 'the start was still locked after a failed resume');
 });
+
+/* ---------- clicking the card that is already chosen ---------- */
+
+test('clicking the selected theme again while its pick is out does not pick twice', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const seen = routes({ pick: async () => { await held; return jsonResponse({ id: 'lib-x', title: 't', situation: 's' }); } });
+  await pick.openPick('script');
+  const first = pick.selectTheme('cafe-restaurant');
+  const second = pick.selectTheme('cafe-restaurant');
+  release();
+  await Promise.all([first, second]);
+  assert.equal(seen.picks.length, 1);
+});
+
+test('clicking the selected theme again after its pick landed does not pick twice', async () => {
+  const seen = routes();
+  await pick.openPick('script');
+  await pick.selectTheme('cafe-restaurant');
+  await pick.selectTheme('cafe-restaurant');
+  assert.equal(seen.picks.length, 1);
+  await pick.startFromPick();
+  assert.equal(seen.sessions[0].scenario_id, 'lib-hotel-en-07');
+});
+
+test('a theme whose pick failed can be clicked again and picks again', async () => {
+  let n = 0;
+  const seen = routes({ pick: async () => (++n === 1
+    ? jsonResponse({ detail: '이 테마는 아직 준비되지 않았어요' }, { ok: false, status: 409 })
+    : jsonResponse({ id: 'lib-y', title: 't', situation: 's' })) });
+  await pick.openPick('script');
+  await pick.selectTheme('cafe-restaurant');
+  await pick.selectTheme('cafe-restaurant');
+  assert.equal(seen.picks.length, 2);
+});

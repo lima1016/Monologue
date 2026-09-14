@@ -3,6 +3,7 @@ import functools
 import json
 import logging
 import re
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -62,6 +63,14 @@ THEME_NOT_READY = "이 테마는 아직 준비되지 않았어요"
 # _speak와 겹칠 뿐이다. 캐시 키가 같으므로 겹쳐도 결과는 같다.
 _audio_executor = ThreadPoolExecutor(max_workers=1)
 
+# Only the most recent pick is worth warming: clicking through five cards would
+# otherwise queue five 16-line scripts behind one worker, and the one the
+# learner opens waits behind all of them. A newer pick cancels the queued job
+# and bumps the generation, which a job already running checks between lines.
+_warmup_lock = threading.Lock()
+_warmup_future = None
+_warmup_generation = 0
+
 
 @router.get("/themes")
 def list_themes(language: Language):
@@ -80,14 +89,26 @@ class LibraryPick(BaseModel):
     theme_id: str
 
 
-def _prepare_audio(lines, language):
+def _prepare_audio(lines, language, generation=None):
     """Warm the TTS cache for a script the learner is about to open. Best effort:
-    start_session's own _speak synthesises anything this did not get to."""
+    start_session's own _speak synthesises anything this did not get to.
+    Stops between lines once a newer pick has replaced this one."""
     for line in lines:
+        if generation is not None and generation != _warmup_generation:
+            return
         try:
             _speak(line["text"], language)
         except Exception:
             log.warning("could not prepare audio for a picked script line", exc_info=True)
+
+
+def _warm_up(lines, language):
+    global _warmup_future, _warmup_generation
+    with _warmup_lock:
+        _warmup_generation += 1
+        if _warmup_future is not None:
+            _warmup_future.cancel()      # False if already running; the generation stops it
+        _warmup_future = _audio_executor.submit(_prepare_audio, lines, language, _warmup_generation)
 
 
 @router.post("/library/pick")
@@ -103,7 +124,7 @@ def pick_from_library(payload: LibraryPick):
     if item is None:
         raise HTTPException(409, THEME_NOT_READY)
     if payload.mode == "script":
-        _audio_executor.submit(_prepare_audio, item["lines"], payload.language)
+        _warm_up(item["lines"], payload.language)
     return {"id": item["id"], "title": item["title"], "situation": item.get("situation")}
 
 

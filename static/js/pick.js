@@ -114,6 +114,11 @@ export async function selectTheme(themeId) {
   const language = state.language;
   const theme = themes.find((t) => t.id === themeId);
   if (!theme || !isReady(theme, mode)) return;
+  // The card already chosen, whose pick is out or landed: a second click would
+  // only send a second pick and queue a second script's audio on the server.
+  // A failed pick clears `pending`, so that card can still be tried again.
+  if (selected?.kind === 'theme' && selected.id === themeId && pending
+      && pending.themeId === themeId && pending.language === language && pending.mode === mode) return;
   selected = { kind: 'theme', id: themeId };
   render();
   if (mode !== 'script') { pending = null; return; }
