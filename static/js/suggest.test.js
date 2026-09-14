@@ -19,6 +19,10 @@ const REPLIES = [
   { text: 'Aisle is fine.', meaning: null, audio_key: null },
 ];
 
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// By class, not className: a card on its way out also carries fade/is-invisible.
+const cardsOnScreen = () => $('conversation').children.filter((n) => n.classList.contains('suggest-card'));
+
 function setup() {
   resetDom();
   state.language = 'en';
@@ -109,12 +113,13 @@ test('a failure takes the card down, says so, and can be asked again', async () 
   bubble('bot', 'Window or aisle?');
   stubFetch(async () => jsonResponse({ detail: '지금은 추천을 만들 수 없어요' }, { ok: false, status: 503 }));
   await suggest.suggestForLatest();
-  assert.equal($('conversation').children.filter((n) => n.className === 'suggest-card').length, 0);
+  await wait(160);                     // the card fades out before it goes
+  assert.equal(cardsOnScreen().length, 0);
   assert.match($('notice-text').textContent, /지금은 추천을 만들 수 없어요/);
 
   stubFetch(async () => jsonResponse({ replies: REPLIES }));
   await suggest.suggestForLatest();
-  assert.equal($('conversation').children.filter((n) => n.className === 'suggest-card').length, 1);
+  assert.equal(cardsOnScreen().length, 1);
 });
 
 test('a failure that arrives after the learner moved to another session stays quiet', async () => {
@@ -128,8 +133,9 @@ test('a failure that arrives after the learner moved to another session stays qu
   state.sessionId = 999; // the learner started a new session before the response came back
   release();
   await pending;
+  await wait(160);
 
-  assert.equal($('conversation').children.filter((n) => n.className === 'suggest-card').length, 0,
+  assert.equal(cardsOnScreen().length, 0,
     '카드는 여전히 치운다');
   assert.equal($('notice-text').textContent, '', '다른 세션으로 넘어간 뒤에는 실패를 알리지 않는다');
 
@@ -141,6 +147,34 @@ test('a failure that arrives after the learner moved to another session stays qu
   state.sessionId = 7;
   await suggest.suggestForLatest();
   assert.equal(calls, 1);
+});
+
+/* A failed card fades (.fade + .is-invisible) before it is removed, rather
+   than the loading card vanishing in one frame. */
+test('a failed card fades out, then is removed', async () => {
+  setup();
+  bubble('bot', 'Window or aisle?');
+  stubFetch(async () => jsonResponse({ detail: 'x' }, { ok: false, status: 503 }));
+  await suggest.suggestForLatest();
+  const [card] = cardsOnScreen();
+  assert.ok(card, 'the card vanished in one frame instead of fading');
+  assert.ok(card.classList.contains('fade') && card.classList.contains('is-invisible'));
+  await wait(160);
+  assert.equal(cardsOnScreen().length, 0);
+});
+
+test('under reduced motion a failed card goes at once', async () => {
+  setup();
+  bubble('bot', 'Window or aisle?');
+  const saved = window.matchMedia;
+  window.matchMedia = () => ({ matches: true });
+  try {
+    stubFetch(async () => jsonResponse({ detail: 'x' }, { ok: false, status: 503 }));
+    await suggest.suggestForLatest();
+    assert.equal(cardsOnScreen().length, 0);
+  } finally {
+    window.matchMedia = saved;
+  }
 });
 
 test('with no bot line there is nothing to ask', async () => {
