@@ -157,6 +157,10 @@ def test_translate_refuses_a_meaning_in_the_wrong_language(client, monkeypatch, 
     "카페 라테 말고 café 주세요",            # 라틴-1 글자는 외국 문자가 아니다
     "ＯＫ, 알겠습니다",                     # 전각 영문도 영문이다
     "'I'm fine'은 괜찮다는 뜻이에요",
+    # A longer contraction-laden quoted sentence: the apostrophe inside "I'd"
+    # or "that's" must not be read as closing the quote early, or most of the
+    # sentence leaks out unquoted and outweighs the short Korean gloss.
+    "'I'd like a table for two, if that's possible.'는 뜻이에요",
 ])
 def test_a_korean_meaning_with_latin_words_is_korean(meaning):
     from app import api

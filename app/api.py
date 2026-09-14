@@ -223,8 +223,12 @@ _LATIN_WORD = re.compile(f"[{_LATIN}]+")
 _CJK_IDEOGRAPH = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
 # 곧은 작은따옴표는 낱말 속 아포스트로피(don't)와 같은 글자다. 글자 바로 뒤의
 # 것은 인용을 열지 못하게 해야 `don't 请问 isn't` 사이가 인용으로 지워지지 않는다.
+# 닫는 쪽도 마찬가지다(that's): 글자 바로 앞에서는 닫지 못하게 하고, 느슨한 `.+?`로
+# 인용 속 아포스트로피(I'd, that's)를 건너뛰어 진짜 닫는 인용부호까지 늘린다 --
+# 그러지 않으면 "I'd like a table..." 같은 문장의 대부분이 인용 밖으로 새어,
+# 실제로 가르치는 표현이어도 영문 낱말 수가 한글 글자 수를 넘어 거절된다.
 _QUOTED = re.compile(
-    r'"[^"]*"|“[^”]*”|(?<![A-Za-z])\'[^\']*\'|‘[^’]*’|「[^」]*」|『[^』]*』')
+    r'"[^"]*"|“[^”]*”|(?<![A-Za-z])\'.+?\'(?![A-Za-z])|‘[^’]*’|「[^」]*」|『[^』]*』')
 
 
 _MAX_QUOTED_EXPRESSION = 12
@@ -349,6 +353,68 @@ def _first_line(raw: str) -> str | None:
     return None
 
 
+# 💡 뭐라고 하지? -- what makes a generated reply worth showing.
+_KANA = re.compile(r"[぀-ヿ]")
+_SUGGEST_MAX_WORDS_EN = 12
+_SUGGEST_MAX_CHARS_JA = 30
+_SUGGEST_MAX_REPLIES = 3
+# 일본어 답장에는 금지된 것: 로마자 표기와 괄호(둘 다 반각/전각). 프롬프트가 이미
+# 로마자와 괄호를 쓰지 말라고 하므로, 여기서는 그 규칙을 어긴 답을 거른다 --
+# 가끔 "OK" 한 줄을 잃는 대가는 감수할 만하다.
+_JA_FORBIDDEN = re.compile(r"[A-Za-z()（）]")
+
+
+def _sayable(text: str, language: str) -> bool:
+    """Can the learner say this line as practice in `language`?
+
+    Any Hangul means the model answered in the wrong language. Japanese needs
+    at least one kana: a kanji-only line is exactly what a Chinese leak looks
+    like. Too long is refused rather than cut -- a truncated sentence is a
+    wrong sentence, and the learner would practise it. An English reply with
+    any CJK ideograph or kana leaked the wrong language too, even though it
+    also has Latin letters. A Japanese reply may not carry Latin letters or
+    brackets -- those are exactly a romaji gloss or a parenthetical aside,
+    both of which the prompt forbids.
+    """
+    if _HANGUL.search(text):
+        return False
+    if language == "ja":
+        if _JA_FORBIDDEN.search(text):
+            return False
+        return bool(_KANA.search(text)) and len(normalize(text).replace(" ", "")) <= _SUGGEST_MAX_CHARS_JA
+    if _CJK_IDEOGRAPH.search(text) or _KANA.search(text):
+        return False
+    return bool(_LATIN_LETTER.search(text)) and len(text.split()) <= _SUGGEST_MAX_WORDS_EN
+
+
+def _valid_replies(raw_replies, language: str, bot_last: str, kept=()) -> list[dict]:
+    """The model's replies that pass, after whatever was already kept.
+
+    Never raises on malformed output -- chat_json guarantees JSON, not shape.
+    A duplicate (after normalisation) of a kept line or of the bot's own line
+    is dropped: three ways to say one thing, or the bot's line handed back,
+    is not a choice.
+    """
+    out = [dict(r) for r in kept]
+    seen = {normalize(r["text"]) for r in out}
+    bot_key = normalize(bot_last)
+    for item in raw_replies if isinstance(raw_replies, list) else []:
+        if len(out) >= _SUGGEST_MAX_REPLIES:
+            break
+        if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+            continue
+        text = _first_line(item["text"])
+        if not text or not _sayable(text, language):
+            continue
+        key = normalize(text)
+        if not key or key in seen or key == bot_key:
+            continue
+        seen.add(key)
+        meaning = item.get("meaning")
+        out.append({"text": text, "meaning": meaning.strip() if isinstance(meaning, str) else None})
+    return out
+
+
 class ReadingPrefs(BaseModel):
     furigana: bool
     # 발음 줄을 보일지. 이름이 romaji인 것은 표기 선택이 생기기 전부터 저장된 값을
@@ -431,35 +497,49 @@ _NO_FEEDBACK = {"ok": None, "fixed": None, "tag": None,
                 "correction": None, "suggestion": None}
 
 # Quote styles the model actually uses when quoting an example sentence back:
-# straight and curly single/double quotes, and Japanese corner brackets.
+# straight and curly single/double quotes, and Japanese corner brackets. The
+# straight single quote is also an apostrophe inside a contraction (I'd,
+# don't), so it may only open a quote when not preceded by a Latin letter and
+# only close one when not followed by a Latin letter -- otherwise "I'd" reads
+# as a one-letter quote closing right after the "I". The lazy `.+?` then
+# skips straight past an internal apostrophe like that (its lookahead fails)
+# and keeps extending until it finds a real closing quote, so a trailing
+# Korean particle ('...'라고) still closes it correctly.
 _QUOTED_SPAN = re.compile(
-    r"'([^']*)'|\"([^\"]*)\"|‘([^’]*)’|“([^”]*)”|"
+    r"(?<![A-Za-z])'(.+?)'(?![A-Za-z])|\"([^\"]*)\"|‘([^’]*)’|“([^”]*)”|"
     r"「([^」]*)」"
 )
 
 
-def _drop_self_quoting_suggestion(suggestion, learner_text: str):
-    """A neutralised correction's `suggestion` is the one field that survives
-    to the screen, and the model wrote it while it still believed in a fix
-    that has since been discarded -- so it sometimes quotes back exactly what
-    the learner already said ("say 'Card, please.'" when the learner said
-    "Card please"), which tells them nothing. Drop it only when a *quoted
-    span* is equal (not merely contains) the learner's own normalised text:
-    a genuine alternative like "Could I have the card, please?" contains
-    "card please" as a substring and must survive.
+def _drop_if_quoted(suggestion, sentence: str):
+    """Drop `suggestion` when one of its *quoted spans* is equal (not merely
+    contains) `sentence` after normalisation -- a suggestion that only quotes
+    back a sentence already on screen tells the learner nothing.
 
-    Applies only inside neutralisation -- a suggestion attached to a real
-    correction is never touched here. Never raises: a non-string suggestion
-    (schema makes it unlikely, not impossible) is returned unchanged.
+    Two callers: a neutralised correction quoting the learner's own words back
+    (the model wrote it while it still believed in a fix since discarded), and
+    a real correction quoting `fixed` back (the 교정 block already shows that
+    sentence). A genuine alternative that merely contains the sentence, like
+    "Could I have the card, please?" for "card please", survives.
+
+    Never raises: a non-string suggestion is returned unchanged, and an empty
+    normalised sentence matches nothing (an empty quote '' must not count).
     """
     if not isinstance(suggestion, str):
         return suggestion
-    target = normalize(learner_text)
+    target = normalize(sentence)
+    if not target:
+        return suggestion
     for match in _QUOTED_SPAN.finditer(suggestion):
         span = next(g for g in match.groups() if g is not None)
         if normalize(span) == target:
             return None
     return suggestion
+
+
+def _drop_self_quoting_suggestion(suggestion, learner_text: str):
+    """The neutralised-correction use of _drop_if_quoted -- see there."""
+    return _drop_if_quoted(suggestion, learner_text)
 
 
 def _feedback(language: str, text: str, *, scenario_title=None,
@@ -515,12 +595,17 @@ def _feedback(language: str, text: str, *, scenario_title=None,
                     result.get("suggestion"), graded_text
                 ),
             }
+        suggestion = result.get("suggestion")
+        if ok is False and isinstance(fixed, str) and fixed:
+            # The 교정 block already shows `fixed`; a suggestion quoting it back
+            # is the same sentence twice. See _drop_if_quoted.
+            suggestion = _drop_if_quoted(suggestion, fixed)
         return {
             "ok": None if ok is None else bool(ok),
             "fixed": fixed,
             "tag": result.get("tag"),
             "correction": result.get("correction"),
-            "suggestion": result.get("suggestion"),
+            "suggestion": suggestion,
         }
     except Exception:
         return dict(_NO_FEEDBACK)
@@ -648,6 +733,118 @@ def chat_turn(payload: ChatTurn):
         "audio_key": _speak(reply, language),
         **feedback,
     }
+
+
+SUGGEST_UNAVAILABLE = "지금은 추천을 만들 수 없어요"
+_SUGGEST_RECENT = 6
+_SUGGEST_TEMPERATURE = 0.7
+
+
+class _NoSuggestions(Exception):
+    pass
+
+
+def _reply_meaning(language: str, reply: dict) -> str | None:
+    """The model's own meaning when it is really Korean; otherwise the same
+    checked, cached translation the ▸ 뜻 button uses; otherwise None, and the
+    card offers ▸ 뜻 instead."""
+    meaning = _first_line(reply["meaning"]) if reply["meaning"] else None
+    if meaning and _is_korean_meaning(meaning, source=reply["text"]):
+        return meaning
+    return _cached_translation(language, reply["text"])
+
+
+def _generate_suggestions(language, bot_last, *, level="beginner", scenario_title=None,
+                          scenario_goal=None, topic=None, recent=()) -> list[dict]:
+    """Two or three replies the learner could say next, or _NoSuggestions.
+
+    Temperature 0.7, above feedback's 0.3: the point is replies that go in
+    different directions, and a near-greedy model gives three phrasings of one.
+    Fewer than two survivors earns one more sample (plain resampling -- at 0.7
+    that alone changes the answer); a dead model does not, because the second
+    call would only wait out the same timeout again.
+    """
+    messages = prompts.build_suggest_messages(
+        language, bot_last, level=level, scenario_title=scenario_title,
+        scenario_goal=scenario_goal, topic=topic, recent=recent,
+    )
+    kept: list[dict] = []
+    for _ in range(2):
+        try:
+            result = llm.chat_json(messages, prompts.suggest_schema(),
+                                   temperature=_SUGGEST_TEMPERATURE)
+        except Exception as exc:
+            raise _NoSuggestions from exc
+        raw = result.get("replies") if isinstance(result, dict) else None
+        kept = _valid_replies(raw, language, bot_last, kept)
+        if len(kept) >= 2:
+            break
+    if not kept:
+        raise _NoSuggestions
+    return [{"text": r["text"], "meaning": _reply_meaning(language, r)} for r in kept]
+
+
+@functools.lru_cache(maxsize=256)
+def _cached_suggestions(session_id: int, bot_message_id: int) -> tuple[dict, ...]:
+    """Successful suggestions per bot line. Pressing 💡 again on the same line
+    shows the same replies -- if they changed on every press, "the one I saw a
+    moment ago" would be gone. lru_cache does not cache exceptions, so a
+    failure is retried on the next press.
+
+    The dicts are the cache's own objects; the route copies them before adding
+    audio_key. Keyed by message id, so undo (which removes the learner turn
+    and the bot reply after it) never leaves a stale entry reachable.
+
+    Two presses on the same still-fresh line can both miss the cache and both
+    call the model -- lru_cache does not coalesce in-flight calls. The 💡
+    button disables itself while a request is out, so this needs no lock."""
+    session = db.get_session(session_id)
+    messages = db.get_messages(session_id)
+    # Undo can remove the bot line between the route's own lookup and this
+    # read (sync routes run in a threadpool, so the two reads are not
+    # atomic); treat a vanished line the same as a model failure rather than
+    # letting StopIteration escape.
+    index = next((i for i, m in enumerate(messages) if m["id"] == bot_message_id), None)
+    if index is None:
+        raise _NoSuggestions
+    before = messages[max(0, index - _SUGGEST_RECENT):index]
+    language = session["language"]
+    scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
+    return tuple(_generate_suggestions(
+        language, messages[index]["text"],
+        level=db.stable_level(language) or "beginner",
+        scenario_title=scenario.get("title") if scenario else None,
+        scenario_goal=scenario.get("goal") if scenario else None,
+        topic=session["topic"] if session["mode"] == "lesson" else None,
+        recent=tuple((m["speaker"], m["text"]) for m in before),
+    ))
+
+
+@router.post("/sessions/{session_id}/suggest")
+def suggest_replies(session_id: int):
+    """💡 뭐라고 하지? -- replies the learner could say to the bot's last line.
+
+    Never stored: these are prompts to speak, not turns. Nothing is sent on the
+    learner's behalf either; they say it themselves, the same reason a
+    recognised turn skips the input box."""
+    session = db.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "no such session")
+    if session["mode"] == "script":
+        raise HTTPException(400, "a script already says what to say")
+    if session["ended_at"] is not None:
+        raise HTTPException(409, "this session has already ended")
+    bot = next((m for m in reversed(db.get_messages(session_id)) if m["speaker"] == "bot"), None)
+    if bot is None:
+        raise HTTPException(409, "there is no bot line to answer yet")
+    try:
+        replies = _cached_suggestions(session_id, bot["id"])
+    except _NoSuggestions:
+        raise HTTPException(503, SUGGEST_UNAVAILABLE)
+    # Audio outside the cache: _speak is itself disk-cached and cheap, and a
+    # None cached here would outlive a VOICEVOX restart.
+    return {"replies": [{**r, "audio_key": _speak(r["text"], session["language"])}
+                        for r in replies]}
 
 
 class ScriptLineStore(BaseModel):
