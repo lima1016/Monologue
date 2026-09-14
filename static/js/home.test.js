@@ -154,22 +154,68 @@ test('the resume card says 대화 불러오는 중... while the conversation loa
     return jsonResponse({});
   });
 
-  // The line's row is held inside the card either way (setShown), so the
-  // card does not grow a line when 계속 is pressed and shrink when it ends.
+  // The loading line takes the subtitle's place (both sit stacked in one
+  // line, see index.html), so the card never grows a line: exactly one of
+  // the two is visible at a time, and neither leaves the layout.
   const status = $('resume-status');
-  const shown = () => !status.hidden && !status.classList.contains('is-invisible');
-  const heldInvisible = () => !status.hidden && status.classList.contains('is-invisible');
+  const sub = $('resume-sub');
+  const shown = (el) => !el.hidden && !el.classList.contains('is-invisible');
+  const kept = (el) => !el.hidden && el.classList.contains('is-invisible');
   const resuming = home.resumeSession();
-  assert.ok(shown(), 'nothing said the resume was loading');
+  assert.ok(shown(status), 'nothing said the resume was loading');
+  assert.ok(kept(sub), 'the subtitle stayed visible under the loading line');
   release();
   await resuming;
-  assert.ok(heldInvisible(), 'the loading line collapsed its row or stayed up');
+  assert.ok(kept(status), 'the loading line collapsed its row or stayed up');
+  assert.ok(shown(sub), 'the subtitle did not come back');
 
   failNext = true;
   const failing = home.resumeSession();
-  assert.ok(shown());
+  assert.ok(shown(status) && kept(sub));
   await failing;
-  assert.ok(heldInvisible(), 'a failed resume left the loading line up, or collapsed its row');
+  assert.ok(kept(status) && shown(sub), 'a failed resume left the loading line up');
+});
+
+/* 이어서 하기 exists for one language and not the other, so a language switch
+   used to pop it in and out and jump the week card 105px. It slides instead:
+   a class (grid rows 1fr -> 0fr in CSS), never `hidden`. */
+test('the resume card collapses by class when there is no session, and expands when there is', async () => {
+  const card = $('resume-card');
+  await armResumeCard();
+  assert.equal(card.hidden, false);
+  assert.equal(card.classList.contains('is-collapsed'), false);
+  assert.notEqual(card.getAttribute('aria-hidden'), 'true');
+  assert.equal(card.inert, false);
+
+  homeRoutes(PAYLOAD());                  // no session under this language
+  await home.loadHome();
+  assert.equal(card.hidden, false, 'the card popped out with hidden instead of sliding');
+  assert.ok(card.classList.contains('is-collapsed'));
+  assert.equal(card.getAttribute('aria-hidden'), 'true');
+  assert.equal(card.inert, true, 'a collapsed card must not take focus or clicks');
+
+  await armResumeCard();
+  assert.equal(card.classList.contains('is-collapsed'), false);
+  assert.equal(card.inert, false);
+});
+
+test('a failed reload for another language shuts the resume card and puts it to sleep', async () => {
+  state.language = 'en';
+  await armResumeCard();
+  stubFetch(async () => { throw new Error('down'); });
+  state.language = 'ja';
+  await home.loadHome();
+  assert.ok($('resume-card').classList.contains('is-collapsed'));
+  assert.equal($('resume-card').inert, true, 'the shut card still takes focus and clicks');
+  state.language = 'en';
+});
+
+test('the aside still folds when the week card is hidden and the resume card collapsed', async () => {
+  homeRoutes(PAYLOAD({ has_history: false }));
+  await home.loadHome();
+  assert.ok($('resume-card').classList.contains('is-collapsed'));
+  assert.equal($('week-card').hidden, true);
+  assert.ok($('home').classList.contains('no-aside'));
 });
 
 /* The right-hand column (이어서 하기 / 이번 주) collapses when there is nothing
@@ -303,7 +349,7 @@ test('the dimmed cards cannot be used while home reloads after a language switch
   state.language = 'en';
   state.sessionId = null;
   await armResumeCard();
-  assert.equal($('resume-card').hidden, false);
+  assert.equal($('resume-card').classList.contains('is-collapsed'), false);
 
   let release;
   const held = new Promise((r) => { release = r; });
@@ -328,9 +374,12 @@ test('the dimmed cards cannot be used while home reloads after a language switch
 
   release();
   await reloading;
-  for (const id of ['today-card', 'resume-card', 'week-card', 'recent-themes-wrap']) {
+  for (const id of ['today-card', 'week-card', 'recent-themes-wrap']) {
     assert.equal($(id).inert, false, `#${id} stayed inert after the reload finished`);
   }
+  // No session under ja: the resume card is shut now, and stays asleep for that reason.
+  assert.ok($('resume-card').classList.contains('is-collapsed'));
+  assert.equal($('resume-card').inert, true, 'a collapsed resume card woke up with the others');
   state.language = 'en';
 });
 

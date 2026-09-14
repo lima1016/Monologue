@@ -82,13 +82,21 @@
     </div>
 
     <aside class="home-aside">
-      <div id="resume-card" hidden>
-        <div>
-          <p id="resume-title"></p>
-          <p id="resume-sub" class="hint"></p>
-          <p id="resume-status" class="hint is-invisible" aria-hidden="true">대화 불러오는 중...</p>
+      <!-- Collapsed (not hidden) until home.js finds a session: it slides open
+           and shut by grid rows, see components.css. -->
+      <div id="resume-card" class="is-collapsed" aria-hidden="true" inert>
+        <div class="resume-clip">
+          <div class="resume-box">
+            <div class="resume-text">
+              <p id="resume-title"></p>
+              <div class="resume-line">
+                <p id="resume-sub" class="hint"></p>
+                <p id="resume-status" class="hint is-invisible" aria-hidden="true">대화 불러오는 중...</p>
+              </div>
+            </div>
+            <button id="btn-resume">계속 →</button>
+          </div>
         </div>
-        <button id="btn-resume">계속 →</button>
       </div>
 
       <div class="panel" id="week-card" hidden>

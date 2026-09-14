@@ -91,7 +91,7 @@ export async function loadHome() {
 
     if (state.language !== lang) return; // a newer switch already won
 
-    $('resume-card').hidden = !session;
+    setResumeShown(Boolean(session));
     resumeTarget = session || null;
     if (session) {
       $('resume-title').textContent = `이어서 하기 — ${session.title}`;
@@ -151,7 +151,7 @@ export async function loadHome() {
 }
 
 function hideHistory() {
-  $('resume-card').hidden = true;
+  setResumeShown(false);
   $('today-alt').hidden = true;
   $('recommend').hidden = true;
   clearWeekSkeleton();
@@ -178,8 +178,25 @@ function setRefreshing(on) {
   for (const id of REFRESHED) {
     const card = $(id);
     card.classList.toggle('is-refreshing', on);
-    card.inert = on;
+    card.inert = on || resumeCollapsed(card);
   }
+}
+
+/* 이어서 하기 opens and shuts by class, never `hidden`, so CSS can slide it
+   (see #resume-card.is-collapsed): a language with a session and one without
+   no longer jump the week card by the card's height. A collapsed card is
+   still in the tree, so it is also inert and aria-hidden -- its 계속 button
+   must not be reachable while it is shut. */
+function resumeCollapsed(card = $('resume-card')) {
+  return card.id === 'resume-card' && card.classList.contains('is-collapsed');
+}
+
+function setResumeShown(on) {
+  const card = $('resume-card');
+  card.hidden = false;
+  card.classList.toggle('is-collapsed', !on);
+  card.setAttribute('aria-hidden', String(!on));
+  card.inert = !on || card.classList.contains('is-refreshing');
 }
 
 /* Shaped like paintToday's card -- title line (the wait's own words sit
@@ -257,7 +274,7 @@ function el(tag, className = '', text = '') {
    구현하지 않고 항상 null 을 돌려주므로, 선택자로 쓰면 이 함수는 테스트에서
    조용히 아무것도 안 하게 된다. */
 function syncAside() {
-  const empty = $('resume-card').hidden && $('week-card').hidden;
+  const empty = resumeCollapsed() && $('week-card').hidden;
   $('home').classList.toggle('no-aside', empty);
 }
 
@@ -486,9 +503,11 @@ export async function resumeSession() {
     // says what it is doing until the conversation is painted or the attempt
     // fails. Inside the try so no throw can land between `busy = true` and the
     // `finally` that clears it.
-    // Its row is held inside the card (setShown), so the card does not grow
-    // a line when 계속 is pressed and shrink again when the attempt ends.
+    // It takes the subtitle's place in the same line (.resume-line stacks
+    // both in one cell), so the card does not grow a line when 계속 is
+    // pressed and shrink again when the attempt ends.
     setShown($('resume-status'), true);
+    setShown($('resume-sub'), false);
     const { session, messages } = await getJSON(`/sessions/${resumeTarget.id}`);
     state.sessionId = resumeTarget.id;
     state.mode = resumeTarget.mode;
@@ -530,5 +549,6 @@ export async function resumeSession() {
   } finally {
     busy = false;
     setShown($('resume-status'), false);
+    setShown($('resume-sub'), true);
   }
 }

@@ -205,12 +205,34 @@ def test_toast_fades_out_when_leaving():
     assert re.search(r"\.toast\s*\{[^}]*transition: none", block)
 
 
-def test_resume_status_line_is_held_in_the_markup():
-    """#resume-status starts invisible but in the layout (home.js setShown),
-    not `hidden`, so the resume card is one height from its first paint."""
+def test_resume_status_takes_the_subtitles_place_in_one_line():
+    """#resume-status and #resume-sub are the two children of one line
+    container, stacked in the same grid cell, so the loading line replaces the
+    subtitle instead of adding a line to the card."""
     html = (CSS.parent / "index.html").read_text(encoding="utf-8")
-    tag = re.search(r'<p id="resume-status"[^>]*>', html).group(0)
-    assert "is-invisible" in tag and " hidden" not in tag, tag
+    m = re.search(r'<div class="resume-line">\s*(<p id="resume-sub"[^>]*>[^<]*</p>)\s*'
+                  r'(<p id="resume-status"[^>]*>[^<]*</p>)\s*</div>', html)
+    assert m, "#resume-sub and #resume-status must share one .resume-line"
+    assert "is-invisible" in m.group(2) and " hidden" not in m.group(2)
+    css = _all_css()
+    assert "display: grid" in _rule_body(css, ".resume-line {")
+    assert "grid-area: 1 / 1" in _rule_body(css, ".resume-line > p {")
+
+
+def test_resume_card_collapses_by_grid_rows_with_opacity():
+    css = _all_css()
+    card = _rule_body(css, "#resume-card {")
+    assert "display: grid" in card and "grid-template-rows: 1fr" in card
+    moving = _rule_body(css, ":where(#resume-card) {")
+    for prop in ("grid-template-rows var(--dur-fast)", "opacity var(--dur-fast)", "margin-bottom var(--dur-fast)"):
+        assert prop in moving, prop
+    collapsed = _rule_body(css, "#resume-card.is-collapsed {")
+    assert "grid-template-rows: 0fr" in collapsed and "opacity: 0" in collapsed
+    assert "margin-bottom: calc(-1 * var(--space-4))" in collapsed, "the aside's gap must collapse too"
+    clip = _rule_body(css, ".resume-clip {")
+    assert "overflow: hidden" in clip and "min-height: 0" in clip
+    block = "\n".join(_reduced_motion_blocks(css))
+    assert re.search(r"#resume-card\s*\{[^}]*transition: none", block)
 
 
 def test_replayed_bubbles_do_not_animate():

@@ -619,14 +619,39 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 
 /* 이어하기: 통짜 액센트 판이 아니라 왼쪽 3px 막대. 통짜였을 때는 시작 버튼보다
    먼저 눈에 들어와서, "오늘 뭘 누르지"가 한 번에 읽히지 않았다. */
-#resume-card {
+/* 이어서 하기 exists under one language and not the other, so a language
+   switch opens or shuts it -- and it used to pop, jumping the week card below
+   it by the card's whole height. It slides instead: #resume-card is a
+   one-row grid whose row goes 1fr -> 0fr (.is-collapsed), .resume-clip cuts
+   the content as the row shrinks, and the card fades with it. The negative
+   margin takes the aside's flex gap away with it, so nothing is left behind.
+   The visual card (border, padding) is .resume-box, inside the clip, because
+   padding and borders on the grid itself could not shrink to zero. */
+#resume-card { display: grid; grid-template-rows: 1fr; }
+/* Zero specificity and after the shared :where rule above, so it replaces that
+   rule's opacity-only transition here and .is-refreshing's delay still
+   applies over it. */
+:where(#resume-card) {
+  transition: grid-template-rows var(--dur-fast) ease, opacity var(--dur-fast) ease,
+              margin-bottom var(--dur-fast) ease;
+}
+#resume-card.is-collapsed { grid-template-rows: 0fr; opacity: 0; margin-bottom: calc(-1 * var(--space-4)); }
+.resume-clip { overflow: hidden; min-height: 0; }
+@media (prefers-reduced-motion: reduce) {
+  #resume-card { transition: none; }
+}
+.resume-box {
   display: flex; align-items: center; gap: var(--space-3);
   background: var(--surface); color: var(--text);
   border: 1px solid var(--line); border-left: 3px solid var(--accent);
   border-radius: var(--radius); padding: var(--space-3) var(--space-4);
   box-shadow: none;
 }
-#resume-card > div { flex: 1; min-width: 0; }
+.resume-text { flex: 1; min-width: 0; }
+/* The loading line takes the subtitle's place: both sit in one grid cell, and
+   home.js shows exactly one of them, so the card never grows a line. */
+.resume-line { display: grid; }
+.resume-line > p { grid-area: 1 / 1; margin: 0; }
 #resume-title { margin: 0; font-weight: 650; }
 #resume-sub { color: var(--text-dim); opacity: 1; }
 #btn-resume { background: transparent; border-color: transparent;
