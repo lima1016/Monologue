@@ -375,3 +375,60 @@ def test_no_feedback_example_suggestion_quotes_its_own_fixed():
             spans = re.findall(r"'([^']*)'", ex["suggestion"])
             assert spans, (language, ex["learner"])
             assert all(normalize(s) != normalize(ex["fixed"]) for s in spans), (language, ex["learner"])
+
+
+def test_suggest_schema_asks_for_replies_with_text_and_meaning():
+    schema = prompts.suggest_schema()
+    assert schema["required"] == ["replies"]
+    item = schema["properties"]["replies"]["items"]
+    assert set(item["required"]) == {"text", "meaning"}
+
+
+def test_suggest_system_prompt_is_korean_and_asks_for_different_directions():
+    for language in ("en", "ja"):
+        system = prompts.build_suggest_messages(language, "Hi!")[0]["content"]
+        assert sum(1 for ch in system if "가" <= ch <= "힣") > 100
+        assert "방향" in system
+    assert "12단어" in prompts.build_suggest_messages("en", "Hi!")[0]["content"]
+    assert "30자" in prompts.build_suggest_messages("ja", "こんにちは")[0]["content"]
+
+
+def test_suggest_japanese_gets_the_script_only_rule():
+    assert prompts.JAPANESE_SCRIPT_ONLY_RULE in prompts.build_suggest_messages("ja", "こんにちは")[0]["content"]
+    assert prompts.JAPANESE_SCRIPT_ONLY_RULE not in prompts.build_suggest_messages("en", "Hi!")[0]["content"]
+
+
+def test_suggest_level_reaches_the_prompt_in_korean():
+    system = prompts.build_suggest_messages("en", "Hi!", level="intermediate")[0]["content"]
+    assert "중급" in system
+
+
+def test_suggest_context_only_fills_in_the_pieces_it_has():
+    bare = prompts.build_suggest_messages("en", "Hi!")[0]["content"]
+    assert "참고할 문맥" not in bare and "None" not in bare
+
+    full = prompts.build_suggest_messages(
+        "en", "Window or aisle?", scenario_title="공항 체크인", scenario_goal="창가 자리를 요청한다",
+        recent=(("bot", "Good morning! Passport, please."), ("user", "Here you are.")),
+    )[0]["content"]
+    assert "공항 체크인" in full and "창가 자리를 요청한다" in full
+    assert "상대방: Good morning! Passport, please." in full
+    assert "학생: Here you are." in full
+    assert "수업 주제" not in full
+
+    lesson = prompts.build_suggest_messages("en", "Try 'used to'.", topic="used to")[0]["content"]
+    assert "오늘 수업 주제: used to" in lesson and "지금 상황" not in lesson
+
+
+def test_suggest_query_turn_has_the_same_shape_as_the_example_turn():
+    """쿼리 턴만 모양이 다르면 로컬 모델은 내용보다 그 차이에 끌린다
+    (build_feedback_messages docstring)."""
+    import json
+    for language in ("en", "ja"):
+        msgs = prompts.build_suggest_messages(language, "LINE")
+        users = [m["content"] for m in msgs if m["role"] == "user"]
+        example_bot, _ = prompts.SUGGEST_EXAMPLES[language]
+        assert users[0] == users[-1].replace("LINE", example_bot)
+        answer = json.loads(next(m["content"] for m in msgs if m["role"] == "assistant"))
+        assert 2 <= len(answer["replies"]) <= 3
+        assert msgs[-1] == {"role": "user", "content": users[-1]}

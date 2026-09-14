@@ -626,3 +626,119 @@ def build_translate_retry_messages(messages, bad_answer) -> list[dict]:
     return [*messages,
             {"role": "assistant", "content": bad_answer},
             {"role": "user", "content": TRANSLATE_RETRY}]
+
+
+def suggest_schema() -> dict:
+    """What 💡 뭐라고 하지? asks for. Ollama makes it parse; api._valid_replies
+    decides what is actually shown (language, length, duplicates, Korean meaning)."""
+    return {
+        "type": "object",
+        "properties": {
+            "replies": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}, "meaning": {"type": "string"}},
+                    "required": ["text", "meaning"],
+                },
+            },
+        },
+        "required": ["replies"],
+    }
+
+
+_LEVEL_KOREAN = {"beginner": "초급", "intermediate": "중급", "advanced": "고급"}
+
+_SUGGEST_LENGTH_RULE = {
+    "en": "한 대답은 영어 12단어 이하입니다",
+    "ja": "한 대답은 일본어 30자 이하입니다",
+}
+
+# Editing this string? Run `pytest tests/test_suggest_quality.py -m engine`
+# against the real model afterward.
+SUGGEST_SYSTEM = """당신은 한국인 학생의 {lang} 회화 연습을 돕는 한국어 원어민 교사입니다.
+당신이 설명에 쓰는 언어는 한국어입니다. {lang}은(는) 학생이 소리 내어 말할 문장에만 씁니다.
+
+학생이 {lang}로 대화하는 중인데, 상대방이 방금 한 말에 뭐라고 대답할지 막막해합니다.
+학생이 그대로 따라 말할 수 있는 대답을 2~3개 주세요.
+
+- 대답마다 방향이 달라야 합니다. 예를 들어 하나는 받아들이기, 하나는 다른 것을
+  요청하거나 사양하기, 하나는 되묻거나 질문하기. 같은 말을 단어만 바꾼 대답은 안 됩니다
+- 실제 사람이 하는 짧은 입말로 씁니다. {length_rule}
+- 학생 수준({level})에 맞는 쉬운 단어를 씁니다
+- text: 학생이 말할 {lang} 문장 하나. 설명, 괄호, 따옴표, 로마자를 넣지 않습니다
+- meaning: 그 문장의 뜻을 자연스러운 한국어 한 줄로. 한글로만 씁니다
+
+마크다운과 이모지는 쓰지 않습니다."""
+
+# One worked example per language: the same invitation, answered three
+# different ways (accept / decline-with-alternative / ask back) -- the variety
+# the prompt asks for, shown rather than only stated.
+SUGGEST_EXAMPLES = {
+    "en": (
+        "Would you like to grab lunch together tomorrow?",
+        [
+            {"text": "Sure, that sounds great!", "meaning": "좋아요, 좋은 생각이에요!"},
+            {"text": "Sorry, I'm busy tomorrow. How about Friday?", "meaning": "미안해요, 내일은 바빠요. 금요일은 어때요?"},
+            {"text": "Where were you thinking of going?", "meaning": "어디 가려고 생각했어요?"},
+        ],
+    ),
+    "ja": (
+        "明日、一緒にお昼を食べませんか。",
+        [
+            {"text": "いいですね、ぜひ！", "meaning": "좋네요, 꼭 같이 먹어요!"},
+            {"text": "すみません、明日はちょっと忙しいです。", "meaning": "죄송해요, 내일은 좀 바빠요."},
+            {"text": "どこに行きますか。", "meaning": "어디로 가요?"},
+        ],
+    ),
+}
+
+
+def _suggest_request(bot_line: str) -> str:
+    return f"상대방이 방금 한 말: \"{bot_line}\"\n학생이 할 수 있는 대답을 방향이 다르게 2~3개 주세요."
+
+
+def _suggest_context(*, scenario_title=None, scenario_goal=None, topic=None, recent=()) -> str:
+    """Same rule as _feedback_context: a missing piece is left out, never
+    written as None, and no pieces at all means no paragraph."""
+    lines = []
+    if scenario_title:
+        goal_part = f" (목표: {scenario_goal})" if scenario_goal else ""
+        lines.append(f"- 지금 상황: {scenario_title}{goal_part}")
+    if topic:
+        lines.append(f"- 오늘 수업 주제: {topic}")
+    if recent:
+        lines.append("- 최근 대화:")
+        for speaker, text in recent:
+            who = "상대방" if speaker == "bot" else "학생"
+            lines.append(f"  {who}: {text}")
+    if not lines:
+        return ""
+    return "\n\n참고할 문맥입니다. 대답이 이 상황과 대화 흐름에 맞도록 쓰세요.\n" + "\n".join(lines)
+
+
+def build_suggest_messages(language, bot_last, *, level="beginner", scenario_title=None,
+                           scenario_goal=None, topic=None, recent=()) -> list[dict]:
+    """Ask for 2-3 replies the learner could say to the bot's last line.
+
+    Korean system prompt, for the reason every prompt in this file is Korean:
+    this model answers in the language it is addressed in. Context goes into
+    the system prompt, never the user turn, so the query turn keeps exactly
+    the example turn's shape.
+    """
+    language_name = KOREAN_LANGUAGE_NAMES[language]
+    system = SUGGEST_SYSTEM.format(
+        lang=language_name, length_rule=_SUGGEST_LENGTH_RULE[language],
+        level=_LEVEL_KOREAN.get(level, "초급"),
+    )
+    system += _suggest_context(scenario_title=scenario_title, scenario_goal=scenario_goal,
+                               topic=topic, recent=recent)
+    if language == "ja":
+        system += "\n" + JAPANESE_SCRIPT_ONLY_RULE
+    example_bot, example_replies = SUGGEST_EXAMPLES[language]
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": _suggest_request(example_bot)},
+        {"role": "assistant", "content": json.dumps({"replies": example_replies}, ensure_ascii=False)},
+        {"role": "user", "content": _suggest_request(bot_last)},
+    ]
