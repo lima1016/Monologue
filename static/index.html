@@ -49,6 +49,13 @@
         </span>
       </div>
 
+      <!-- Filled by home.js renderToday: the theme, why, and one start button per mode. -->
+      <div id="today-card" class="today-card">
+        <p class="label">오늘의 추천</p>
+        <div id="today-body"></div>
+      </div>
+      <p id="today-alt" class="today-alt" hidden></p>
+
       <p id="recommend" class="recommend" hidden></p>
 
       <!-- Each card goes to #pick for that mode; none of them is "selected" here. -->
@@ -63,6 +70,12 @@
           <span class="n">수업</span><span class="d">선생님과 주제를 잡고</span>
         </button>
       </div>
+
+      <div id="recent-themes-wrap" hidden>
+        <p class="label">최근 테마</p>
+        <div id="recent-themes" class="recent-themes"></div>
+      </div>
+      <p id="library-progress" class="hint" hidden></p>
     </div>
 
     <aside class="home-aside">
@@ -75,23 +88,17 @@
         <button id="btn-resume">계속 →</button>
       </div>
 
-      <div class="panel" id="home-stats" hidden>
-        <p class="label">내 기록</p>
-        <div class="stat-row">
-          <div class="stat"><span class="v" id="stat-streak">0</span><span class="k">연속 학습일</span></div>
-          <!-- "이번 주" until Phase C's review: db.home_stats counts learner
-               messages since now - 7 days, a rolling window, so on a Wednesday it
-               includes last Thursday. The label was the half that was wrong -- a
-               rolling window is the better number for a motivation counter because
-               it never collapses to near-zero every Monday morning. -->
-          <div class="stat"><span class="v" id="stat-week">0</span><span class="k">최근 7일 발화</span></div>
-          <div class="stat"><span class="v" id="stat-fixed">0</span><span class="k">고친 표현</span></div>
+      <div class="panel" id="week-card" hidden>
+        <p class="label">이번 주</p>
+        <div id="week-days" class="week-days"></div>
+        <p id="week-streak" class="hint" hidden></p>
+        <p id="week-progress"></p>
+        <div class="week-bar"><div id="week-bar"></div></div>
+        <div class="goal">
+          <button id="goal-minus" type="button" class="ghost" aria-label="목표 줄이기">−</button>
+          <span>목표 <b id="goal-value"></b> 세션</span>
+          <button id="goal-plus" type="button" class="ghost" aria-label="목표 늘리기">+</button>
         </div>
-      </div>
-
-      <div class="panel" id="home-recent" hidden>
-        <p class="label">최근 연습</p>
-        <ul id="recent-list"></ul>
       </div>
     </aside>
   </section>

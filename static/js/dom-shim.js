@@ -60,6 +60,9 @@ class El {
     this.hidden = false;
     this.disabled = false;
     this.dataset = {};
+    // A plain bag, not a CSSStyleDeclaration: the app only writes single
+    // properties (the week bar's width) and tests read them back.
+    this.style = {};
     this.attributes = {};
     this.listeners = {};
     this.childNodes = [];
