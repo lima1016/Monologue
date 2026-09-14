@@ -118,4 +118,4 @@ def get_scenario(scenario_id):
     for s in load_scenarios():
         if s["id"] == scenario_id:
             return s
-    return db.get_user_scenario(scenario_id)
+    return db.get_user_scenario(scenario_id) or db.get_library_scenario(scenario_id)

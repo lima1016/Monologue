@@ -6,10 +6,11 @@
 """
 import difflib
 import json
+import random
 import re
 from functools import lru_cache
 
-from app import config, scenarios
+from app import config, db, scenarios
 from app.text_match import normalize
 
 _HANGUL = re.compile(r"[가-힣ㄱ-ㆎ]")
@@ -82,3 +83,21 @@ def check_script(lines, language, existing=(), *, expected_lines=config.LIBRARY_
             if difflib.SequenceMatcher(None, joined, _joined(other)).ratio() >= _SIMILAR:
                 return "too-similar"
     return None
+
+
+def pick_script(language, theme_id, rng=random):
+    """다음에 연습할 대본: 한 번도 안 해본 것 중 무작위, 다 해봤으면 가장 오래전에
+    한 것. 같은 문장을 반복해 입에 붙이는 것도 연습이라 다 돌면 다시 준다."""
+    items = db.library_scenarios(language, theme_id, "script")
+    if not items:
+        return None
+    last = db.last_started([s["id"] for s in items])
+    fresh = [s for s in items if s["id"] not in last]
+    if fresh:
+        return rng.choice(fresh)
+    return min(items, key=lambda s: (last[s["id"]], s["id"]))
+
+
+def free_setup(language, theme_id):
+    items = db.library_scenarios(language, theme_id, "free")
+    return items[0] if items else None

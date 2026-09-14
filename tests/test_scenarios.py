@@ -141,3 +141,18 @@ def test_get_scenario_finds_a_generated_one(tmp_path, monkeypatch):
     assert scenarios.get_scenario("user-y")["title"] == "t"
     assert scenarios.get_scenario("restaurant-seating-en")["language"] == "en"
     assert scenarios.get_scenario("nope") is None
+
+
+def test_get_scenario_finds_a_library_one(tmp_path, monkeypatch):
+    db.add_library_scenario({"id": "lib-hotel-ja-01", "theme_id": "hotel", "situation": "체크인",
+                             "language": "ja", "type": "script", "title": "체크인",
+                             "lines": [{"speaker": "bot", "text": "いらっしゃいませ。"},
+                                       {"speaker": "user", "text": "予約しています。"}]})
+    assert scenarios.get_scenario("lib-hotel-ja-01")["lines"][0]["text"] == "いらっしゃいませ。"
+
+
+def test_library_scenarios_do_not_join_the_old_catalogue_list(tmp_path, monkeypatch):
+    db.add_library_scenario({"id": "lib-hotel-en-01", "theme_id": "hotel", "situation": "x",
+                             "language": "en", "type": "script", "title": "x",
+                             "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
+    assert all(s["id"] != "lib-hotel-en-01" for s in scenarios.scenarios_for("en", "script"))

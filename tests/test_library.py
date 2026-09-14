@@ -1,6 +1,7 @@
 import pytest
 
 from app import config, library
+from app import db
 
 
 def _script(texts, speakers=None):
@@ -109,3 +110,56 @@ def test_default_max_turns_is_sixteen_and_builtin_free_scenarios_follow():
     assert config.DEFAULT_MAX_TURNS == 16
     items = json.loads((config.DATA_DIR / "scenarios.json").read_text(encoding="utf-8"))
     assert all(i["max_turns"] == 16 for i in items if i["type"] == "free")
+
+
+@pytest.fixture()
+def store(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
+    db.init_db()
+    return db
+
+
+def _add(store, n, theme="hotel", language="en"):
+    store.add_library_scenario({"id": f"lib-{theme}-{language}-{n:02d}", "theme_id": theme, "situation": "s",
+                                "language": language, "type": "script", "title": f"t{n}",
+                                "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
+
+
+def test_pick_prefers_a_script_never_played(store):
+    for n in (1, 2, 3):
+        _add(store, n)
+    store.create_session("en", "script", scenario_id="lib-hotel-en-01")
+    store.create_session("en", "script", scenario_id="lib-hotel-en-03")
+    assert library.pick_script("en", "hotel")["id"] == "lib-hotel-en-02"
+
+
+def test_pick_chooses_randomly_among_the_unplayed(store):
+    for n in (1, 2, 3):
+        _add(store, n)
+    import random
+    picks = {library.pick_script("en", "hotel", rng=random.Random(seed))["id"] for seed in range(30)}
+    assert picks == {"lib-hotel-en-01", "lib-hotel-en-02", "lib-hotel-en-03"}
+
+
+def test_when_all_were_played_pick_the_one_played_longest_ago(store, monkeypatch):
+    for n in (1, 2):
+        _add(store, n)
+    times = iter(["2026-09-05T00:00:00+00:00", "2026-09-01T00:00:00+00:00"])
+    monkeypatch.setattr(db, "_now", lambda: next(times))
+    store.create_session("en", "script", scenario_id="lib-hotel-en-01")
+    store.create_session("en", "script", scenario_id="lib-hotel-en-02")
+    assert library.pick_script("en", "hotel")["id"] == "lib-hotel-en-02"
+
+
+def test_pick_is_scoped_to_language_and_theme_and_empty_is_none(store):
+    _add(store, 1, theme="hotel", language="ja")
+    assert library.pick_script("en", "hotel") is None
+    assert library.pick_script("ja", "cafe-restaurant") is None
+
+
+def test_free_setup(store):
+    store.add_library_scenario({"id": "lib-hotel-en-free", "theme_id": "hotel", "situation": None,
+                                "language": "en", "type": "free", "title": "호텔", "goal": "g",
+                                "persona_prompt": "p", "max_turns": 16})
+    assert library.free_setup("en", "hotel")["id"] == "lib-hotel-en-free"
+    assert library.free_setup("ja", "hotel") is None
