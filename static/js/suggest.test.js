@@ -117,6 +117,32 @@ test('a failure takes the card down, says so, and can be asked again', async () 
   assert.equal($('conversation').children.filter((n) => n.className === 'suggest-card').length, 1);
 });
 
+test('a failure that arrives after the learner moved to another session stays quiet', async () => {
+  setup();
+  bubble('bot', 'Window or aisle?');
+  let release;
+  stubFetch(() => new Promise((r) => {
+    release = () => r(jsonResponse({ detail: '지금은 추천을 만들 수 없어요' }, { ok: false, status: 503 }));
+  }));
+  const pending = suggest.suggestForLatest();
+  state.sessionId = 999; // the learner started a new session before the response came back
+  release();
+  await pending;
+
+  assert.equal($('conversation').children.filter((n) => n.className === 'suggest-card').length, 0,
+    '카드는 여전히 치운다');
+  assert.equal($('notice').textContent, '', '다른 세션으로 넘어간 뒤에는 실패를 알리지 않는다');
+
+  // The WeakMap entry for the original bubble was cleared too -- asking again
+  // (conceptually, back on the original session) would hit the server again
+  // rather than silently doing nothing.
+  let calls = 0;
+  stubFetch(async () => { calls += 1; return jsonResponse({ replies: REPLIES }); });
+  state.sessionId = 7;
+  await suggest.suggestForLatest();
+  assert.equal(calls, 1);
+});
+
 test('with no bot line there is nothing to ask', async () => {
   setup();
   let calls = 0;

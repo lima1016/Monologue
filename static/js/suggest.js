@@ -44,15 +44,19 @@ export async function suggestForLatest() {
   const button = $('btn-suggest');
   button.disabled = true;
   const language = state.language;
+  const sessionId = state.sessionId;
   try {
-    const { replies } = await postJSON(`/sessions/${state.sessionId}/suggest`, {});
+    const { replies } = await postJSON(`/sessions/${sessionId}/suggest`, {});
     if (!Array.isArray(replies) || !replies.length) throw new Error('no replies');
     title.textContent = SUGGEST_TITLE;
     renderReplies(card, replies, language);
   } catch {
     card.remove();
     cards.delete(bubble);
-    notify(SUGGEST_FAILED);
+    // 응답이 오는 사이 학습자가 다른 세션으로 넘어갔다면, 지금 와서 실패를
+    // 알리는 것은 지금 세션과 무관한 소음이다 -- 카드와 WeakMap 항목은
+    // 그래도 치운다: 이 요청은 끝났고, 다시 물으면 새로 물어야 한다.
+    if (state.sessionId === sessionId) notify(SUGGEST_FAILED);
   } finally {
     button.disabled = false;
   }
