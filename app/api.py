@@ -3,7 +3,9 @@ import functools
 import json
 import logging
 import re
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal
 
@@ -11,7 +13,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Response, Uploa
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from app import config, db, llm, prompts, reading, scenarios, stt, text_cleanup, tts
+from app import config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, tts
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
@@ -55,6 +57,87 @@ def list_scenarios(language: Language, mode: Mode | None = Query(default=None)):
     }
 
 
+THEME_NOT_READY = "이 테마는 아직 준비되지 않았어요"
+
+# 한 줄씩 순서대로. VOICEVOX를 동시에 두드려도 빨라지지 않고, 세션 시작의
+# _speak와 겹칠 뿐이다. 캐시 키가 같으므로 겹쳐도 결과는 같다.
+_audio_executor = ThreadPoolExecutor(max_workers=1)
+
+# Only the most recent pick is worth warming: clicking through five cards would
+# otherwise queue five 16-line scripts behind one worker, and the one the
+# learner opens waits behind all of them. A newer pick cancels the queued job
+# and bumps the generation, which a job already running checks between lines.
+_warmup_lock = threading.Lock()
+_warmup_future = None
+_warmup_generation = 0
+
+
+@router.get("/themes")
+def list_themes(language: Language):
+    out = []
+    for theme in library.load_themes():
+        out.append({**theme, "ready": {
+            "free": library.free_setup(language, theme["id"]) is not None,
+            "script": len(db.library_scenarios(language, theme["id"], "script")),
+        }})
+    return {"themes": out}
+
+
+class LibraryPick(BaseModel):
+    language: Language
+    mode: Mode
+    theme_id: str
+
+
+def _prepare_audio(lines, language, generation=None):
+    """Warm the TTS cache for a script the learner is about to open. Best effort:
+    start_session's own _speak synthesises anything this did not get to.
+    Stops between lines once a newer pick has replaced this one."""
+    for line in lines:
+        if generation is not None and generation != _warmup_generation:
+            return
+        try:
+            _speak(line["text"], language)
+        except Exception:
+            log.warning("could not prepare audio for a picked script line", exc_info=True)
+
+
+def _warm_up(lines, language):
+    global _warmup_future, _warmup_generation
+    with _warmup_lock:
+        _warmup_generation += 1
+        if _warmup_future is not None:
+            _warmup_future.cancel()      # False if already running; the generation stops it
+        _warmup_future = _audio_executor.submit(_prepare_audio, lines, language, _warmup_generation)
+
+
+@router.post("/library/pick")
+def pick_from_library(payload: LibraryPick):
+    if library.get_theme(payload.theme_id) is None:
+        raise HTTPException(404, "no such theme")
+    if payload.mode == "lesson":
+        raise HTTPException(400, "lesson mode has no themes")
+    if payload.mode == "free":
+        item = library.free_setup(payload.language, payload.theme_id)
+    else:
+        item = library.pick_script(payload.language, payload.theme_id)
+    if item is None:
+        raise HTTPException(409, THEME_NOT_READY)
+    if payload.mode == "script":
+        _warm_up(item["lines"], payload.language)
+    return {"id": item["id"], "title": item["title"], "situation": item.get("situation")}
+
+
+# library.check_script's reason codes, as the pick screen shows them after
+# "대본을 만들지 못했어요: ".
+SCRIPT_REJECTED = {
+    "line-count": "줄 수가 맞지 않아요",
+    "structure": "대사 순서가 맞지 않아요",
+    "language": "다른 언어가 섞였어요",
+    "too-long": "너무 긴 줄이 있어요",
+}
+
+
 class ScenarioWish(BaseModel):
     language: Language
     mode: Mode
@@ -75,19 +158,34 @@ def generate_scenario(payload: ScenarioWish):
     if not wish:
         raise HTTPException(422, "wish is empty")
 
-    try:
-        result = llm.chat_json(
-            prompts.build_scenario_messages(payload.language, payload.mode, wish),
-            prompts.scenario_schema(payload.mode),
-        )
-    except Exception:
-        raise HTTPException(503, "상황을 만들지 못했습니다. 잠시 뒤에 다시 시도해 주세요.")
+    # Script mode gets one retry: a local 14b sometimes returns the wrong
+    # number of lines or a bad shape (library.check_script catches both), and
+    # a fresh sample often fixes it. Free mode stays a single call -- there is
+    # nothing structural to check_script there.
+    attempts = 2 if payload.mode == "script" else 1
+    reason = None
+    for attempt in range(attempts):
+        try:
+            result = llm.chat_json(
+                prompts.build_scenario_messages(payload.language, payload.mode, wish),
+                prompts.scenario_schema(payload.mode),
+            )
+        except Exception:
+            raise HTTPException(503, "상황을 만들지 못했습니다. 잠시 뒤에 다시 시도해 주세요.")
+        if payload.mode != "script":
+            break
+        lines = result.get("lines") if isinstance(result, dict) else None
+        reason = library.check_script(lines, payload.language, check_duplicates=False)
+        if reason is None:
+            break
+    else:
+        raise HTTPException(422, SCRIPT_REJECTED.get(reason, "대본 모양이 맞지 않아요"))
 
     item = {
         "id": f"user-{uuid.uuid4().hex[:12]}",
         "language": payload.language,
         "type": payload.mode,
-        "title": (result.get("title") or wish).strip(),
+        "title": library.korean_title(result.get("title"), wish),
         "goal": (result.get("goal") or "").strip() or None,
     }
     if payload.mode == "free":
@@ -204,7 +302,7 @@ async def transcribe_turn(language: Language = Form(...), file: UploadFile = Fil
 def translate_line(payload: TranslateRequest):
     """한 줄의 한국어 뜻. 학습자가 펼칠 때만 불린다.
 
-    미리 번역하지 않는 이유는 두 가지다: 대본 8줄을 선번역하면 시작이 그만큼
+    미리 번역하지 않는 이유는 두 가지다: 대본 16줄을 선번역하면 시작이 그만큼
     느려지고, 펼쳐보지도 않을 줄까지 번역하게 된다. 먼저 짐작하고 확인하는
     편이 학습에 남는다는 것도 같은 방향이다.
     """
@@ -667,7 +765,7 @@ def start_session(payload: SessionStart):
         for line in scenario["lines"]:
             # 화자를 가리지 않는다. 학습자가 자기 차례 줄을 미리 듣고 따라 읽는 것이
             # 대본 모드의 핵심 동작이고, 그러려면 내 줄에도 음성이 있어야 한다. 대본은
-            # 8줄 남짓이고 tts는 캐시되므로 전부 선합성해도 비용은 무시할 만하다.
+            # 16줄 남짓이고 tts는 캐시되므로 전부 선합성해도 비용은 무시할 만하다.
             key = _speak(line["text"], payload.language)
             lines.append({"speaker": line["speaker"], "text": line["text"], "audio_key": key})
         return {"session_id": session_id, "mode": "script", "lines": lines}

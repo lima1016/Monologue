@@ -743,3 +743,37 @@ def test_a_stored_scenario_reads_back_in_the_catalogue_shape(store):
     so neither does this."""
     store.add_user_scenario(FREE_SCENARIO)
     assert "used_count" not in store.get_user_scenario("user-interview-1")
+
+
+def test_v5_adds_the_library_table_without_touching_existing_rows(store):
+    sid = store.create_session("en", "free", scenario_id="restaurant-seating-en")
+    store.init_db()
+    with store.connect() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(library_scenarios)")}
+    assert {"id", "theme_id", "situation", "language", "type", "title", "lines_json"} <= cols
+    assert store.get_session(sid)["scenario_id"] == "restaurant-seating-en"
+
+
+def test_library_rows_round_trip_in_the_catalogue_shape(store):
+    lines = [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hello."}]
+    store.add_library_scenario({"id": "lib-hotel-en-01", "theme_id": "hotel", "situation": "체크인",
+                                "language": "en", "type": "script", "title": "체크인", "lines": lines})
+    store.add_library_scenario({"id": "lib-hotel-en-free", "theme_id": "hotel", "situation": None,
+                                "language": "en", "type": "free", "title": "호텔",
+                                "goal": "방 열쇠를 받는다", "persona_prompt": "You are a clerk.", "max_turns": 16})
+    got = store.library_scenarios("en", "hotel", "script")
+    assert [s["id"] for s in got] == ["lib-hotel-en-01"]
+    assert got[0]["lines"] == lines and got[0]["theme_id"] == "hotel" and got[0]["situation"] == "체크인"
+    assert store.get_library_scenario("lib-hotel-en-free")["persona_prompt"] == "You are a clerk."
+    assert store.get_library_scenario("nope") is None
+
+
+def test_last_started_reports_the_latest_session_per_scenario(store, monkeypatch):
+    times = iter(["2026-09-01T00:00:00+00:00", "2026-09-03T00:00:00+00:00", "2026-09-02T00:00:00+00:00"])
+    monkeypatch.setattr(store, "_now", lambda: next(times))
+    store.create_session("en", "script", scenario_id="a")
+    store.create_session("en", "script", scenario_id="a")
+    store.create_session("en", "script", scenario_id="b")
+    assert store.last_started(["a", "b", "c"]) == {"a": "2026-09-03T00:00:00+00:00",
+                                                   "b": "2026-09-02T00:00:00+00:00"}
+    assert store.last_started([]) == {}

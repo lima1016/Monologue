@@ -5,7 +5,7 @@
     "type": "free",
     "title": "레스토랑 자리 안내",
     "goal": "창가 자리를 요청하고 안내받는다",
-    "max_turns": 8,
+    "max_turns": 16,
     "persona_prompt": "You are a friendly host at a mid-range American restaurant on a busy evening. The learner is a walk-in customer. Ask about party size, mention the wait, and offer seating options. Stay in character."
   },
   {
@@ -14,7 +14,7 @@
     "type": "free",
     "title": "공항 체크인",
     "goal": "체크인하고 좌석을 배정받는다",
-    "max_turns": 8,
+    "max_turns": 16,
     "persona_prompt": "You are an airline check-in agent at a US airport. The learner is a passenger flying to Seoul. Ask for their passport, ask about bags, and assign a seat. Stay in character."
   },
   {
@@ -39,7 +39,7 @@
     "type": "free",
     "title": "レストランの案内",
     "goal": "窓際の席をお願いして案内してもらう",
-    "max_turns": 8,
+    "max_turns": 16,
     "persona_prompt": "あなたは日本のレストランの店員です。学習者は予約なしで来たお客さんです。人数を聞き、待ち時間を伝え、席の希望を聞いてください。役に徹してください。"
   },
   {
@@ -48,7 +48,7 @@
     "type": "free",
     "title": "コンビニで買い物",
     "goal": "会計をして袋とお箸をもらう",
-    "max_turns": 8,
+    "max_turns": 16,
     "persona_prompt": "あなたは日本のコンビニの店員です。学習者はレジに来たお客さんです。会計をして、袋やお箸が必要か聞いてください。役に徹してください。"
   },
   {

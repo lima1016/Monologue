@@ -51,15 +51,9 @@
 
       <p id="recommend" class="recommend" hidden></p>
 
-      <!-- What to practise: the field, its hint and the chips are one group. -->
-      <div class="home-ask">
-        <input id="wish" type="text" placeholder="예: 구직 면접, 병원 접수, 길 묻기" aria-label="연습하고 싶은 내용">
-        <p class="hint">비워두고 시작하면 봇이 골라줍니다</p>
-        <div id="chips" class="chips"></div>
-      </div>
-
+      <!-- Each card goes to #pick for that mode; none of them is "selected" here. -->
       <div class="modes" id="modes">
-        <button type="button" data-mode="free" class="mode on">
+        <button type="button" data-mode="free" class="mode">
           <span class="n">자유 상황극</span><span class="d">상황을 정하고 자유롭게 대화</span>
         </button>
         <button type="button" data-mode="script" class="mode">
@@ -69,8 +63,6 @@
           <span class="n">수업</span><span class="d">선생님과 주제를 잡고</span>
         </button>
       </div>
-
-      <button id="btn-start" class="primary">시작</button>
     </div>
 
     <aside class="home-aside">
@@ -78,6 +70,7 @@
         <div>
           <p id="resume-title"></p>
           <p id="resume-sub" class="hint"></p>
+          <p id="resume-status" class="hint" hidden>대화 불러오는 중...</p>
         </div>
         <button id="btn-resume">계속 →</button>
       </div>
@@ -101,6 +94,30 @@
         <ul id="recent-list"></ul>
       </div>
     </aside>
+  </section>
+
+  <section id="pick" hidden>
+    <div class="pick-head">
+      <button id="btn-home" class="ghost" type="button">← 홈</button>
+      <h2 id="pick-mode"></h2>
+      <span class="seg" id="pick-language-seg">
+        <button type="button" data-language="en">English</button>
+        <button type="button" data-language="ja">日本語</button>
+      </span>
+    </div>
+    <div id="pick-themes">
+      <div id="category-tabs" class="tabs" role="tablist"></div>
+      <div id="theme-grid" class="theme-grid"></div>
+    </div>
+    <div class="home-ask">
+      <input id="wish" type="text" aria-label="직접 만들기">
+      <p id="wish-hint" class="hint"></p>
+    </div>
+    <button id="btn-start" class="primary">시작</button>
+    <div id="start-status" class="start-status" hidden>
+      <div class="thinking"><i></i><i></i><i></i></div>
+      <span id="start-status-text"></span>
+    </div>
   </section>
 
   <section id="session" hidden>

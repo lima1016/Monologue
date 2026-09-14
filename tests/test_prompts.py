@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from app import prompts
+from app import config, prompts
 
 
 def test_every_mode_and_language_produces_a_prompt_with_spoken_style_rules():
@@ -48,6 +48,14 @@ def test_free_mode_asks_the_bot_to_wind_down_near_the_turn_limit():
     late = prompts.build_system_prompt("free", "en", scenario=scenario, turns_used=7)
     assert "wrap" in late.lower() or "wind" in late.lower()
     assert "wrap" not in early.lower()
+
+
+def test_lesson_mode_asks_the_bot_to_wind_down_at_the_configured_turn_limit():
+    boundary = config.DEFAULT_MAX_TURNS - 2
+    early = prompts.build_system_prompt("lesson", "en", turns_used=boundary - 1)
+    late = prompts.build_system_prompt("lesson", "en", turns_used=boundary)
+    assert "wrap" not in early.lower()
+    assert "wrap" in late.lower() or "wind" in late.lower()
 
 
 def test_lesson_mode_injects_the_estimated_level():
@@ -432,3 +440,27 @@ def test_suggest_query_turn_has_the_same_shape_as_the_example_turn():
         answer = json.loads(next(m["content"] for m in msgs if m["role"] == "assistant"))
         assert 2 <= len(answer["replies"]) <= 3
         assert msgs[-1] == {"role": "user", "content": users[-1]}
+
+
+def test_generated_scripts_are_sixteen_lines():
+    system = prompts.build_scenario_messages("en", "script", "cafe")[0]["content"]
+    assert "대사 16줄" in system and "대사 8줄" not in system
+
+
+def test_library_script_prompt_names_theme_situation_and_what_to_avoid():
+    msgs = prompts.build_library_script_messages(
+        "ja", "호텔", "체크아웃 연장",
+        [{"title": f"제목{i}", "opening": f"첫대사{i}"} for i in range(12)])
+    system, user = msgs[0]["content"], msgs[-1]["content"]
+    assert "대사 16줄" in system
+    assert prompts.JAPANESE_SCRIPT_ONLY_RULE in system
+    assert "호텔" in user and "체크아웃 연장" in user
+    assert "제목11" in user and "첫대사11" in user
+    # exact prefix, not a bare substring check -- "제목1" alone would also
+    # match inside "제목10"/"제목11", which are supposed to be present.
+    assert "- 제목: 제목1 " not in user and "제목0" not in user   # only the most recent ten
+
+
+def test_library_script_prompt_without_previous_scripts_has_no_avoid_list():
+    user = prompts.build_library_script_messages("en", "호텔", "체크인", [])[-1]["content"]
+    assert "다르게" not in user

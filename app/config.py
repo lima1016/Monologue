@@ -53,4 +53,9 @@ PREVIEW_TEXT = {
 }
 
 MAX_TTS_CHARS = 400
-DEFAULT_MAX_TURNS = 8
+DEFAULT_MAX_TURNS = 16
+
+# 테마 라이브러리 (docs/superpowers/specs/2026-09-14-monologue-theme-library-design.md)
+LIBRARY_SCRIPT_LINES = 16
+LIBRARY_PER_THEME = 30
+THEME_CATEGORIES = ("daily", "travel", "smalltalk", "business")

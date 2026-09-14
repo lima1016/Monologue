@@ -106,6 +106,27 @@ MIGRATIONS = [
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_script_index"
         " ON messages(session_id, script_index)",
     ],
+    # v4 -> v5: the theme library (docs/superpowers/specs/2026-09-14-monologue-
+    # theme-library-design.md). Same columns as user_scenarios so scenarios.from_row
+    # reads both, plus theme_id and situation. Rows come from scripts/build_library.py
+    # and can be rebuilt from it; nothing here is the learner's own data.
+    ["""
+    CREATE TABLE IF NOT EXISTS library_scenarios (
+        id             TEXT PRIMARY KEY,
+        theme_id       TEXT    NOT NULL,
+        situation      TEXT,
+        language       TEXT    NOT NULL,
+        type           TEXT    NOT NULL,
+        title          TEXT    NOT NULL,
+        goal           TEXT,
+        persona_prompt TEXT,
+        max_turns      INTEGER,
+        lines_json     TEXT,
+        created_at     TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_library_theme
+        ON library_scenarios(language, type, theme_id);
+    """],
 ]
 
 
@@ -696,3 +717,51 @@ def get_user_scenario(scenario_id):
             "SELECT * FROM user_scenarios WHERE id = ?", (scenario_id,)
         ).fetchone()
     return scenarios.from_row(row) if row else None
+
+
+def add_library_scenario(item) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO library_scenarios (id, theme_id, situation, language, type, title,"
+            " goal, persona_prompt, max_turns, lines_json, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (item["id"], item["theme_id"], item.get("situation"), item["language"], item["type"],
+             item["title"], item.get("goal"), item.get("persona_prompt"), item.get("max_turns"),
+             json.dumps(item["lines"], ensure_ascii=False) if item.get("lines") else None,
+             _now()),
+        )
+
+
+def _library_item(row) -> dict:
+    item = scenarios.from_row(row)
+    item["theme_id"] = row["theme_id"]
+    item["situation"] = row["situation"]
+    return item
+
+
+def library_scenarios(language, theme_id, kind) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM library_scenarios WHERE language = ? AND theme_id = ? AND type = ?"
+            " ORDER BY id", (language, theme_id, kind)).fetchall()
+    return [_library_item(r) for r in rows]
+
+
+def get_library_scenario(scenario_id):
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM library_scenarios WHERE id = ?", (scenario_id,)).fetchone()
+    return _library_item(row) if row else None
+
+
+def last_started(scenario_ids) -> dict:
+    """id -> the newest started_at among sessions opened on it. Ids never played
+    are absent -- that absence is what library.pick_script reads as 'new'."""
+    ids = list(scenario_ids)
+    if not ids:
+        return {}
+    marks = ",".join("?" * len(ids))
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT scenario_id, MAX(started_at) AS last FROM sessions"
+            f" WHERE scenario_id IN ({marks}) GROUP BY scenario_id", ids).fetchall()
+    return {r["scenario_id"]: r["last"] for r in rows}
