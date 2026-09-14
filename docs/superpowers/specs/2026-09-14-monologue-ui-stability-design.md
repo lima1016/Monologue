@@ -16,7 +16,7 @@
 
 ## 규칙 (앞으로의 모든 화면에도 적용)
 
-- **R1 화면 전환:** 들어오는 화면에 150ms 페이드 + 6px 위에서 내려오기. 나가는 화면은 즉시 숨긴다(겹쳐 보이지 않게). `prefers-reduced-motion: reduce`면 효과 없음.
+- **R1 화면 전환:** 들어오는 화면에 150ms **오퍼시티 페이드만** 준다 -- opacity fade only — a transform on a screen would break its fixed/sticky children (스크린 요소 자체에 transform을 쓰면, 애니메이션이 도는 동안 그 화면이 `position: fixed` 자손의 containing block이 되어 버리고 `position: sticky` 자손도 깨진다 -- 세션 화면의 `#report-wait`(fixed), `#mic-dock`(sticky)가 그 예). 6px 이동은 넣지 않는다. 토스트(`.toast`)는 fixed/sticky 자손이 없으므로 자기 것은 계속 이동해도 된다. 나가는 화면은 즉시 숨긴다(겹쳐 보이지 않게). `prefers-reduced-motion: reduce`면 효과 없음.
 - **R2 다시 불러오기:** 이미 그려진 내용은 숨기지 않는다. 새 데이터가 오면 제자리에서 바꾼다. 기다리는 동안 `.is-refreshing`(투명도 0.55, 150ms)으로 흐리게. 실패하면 그때 숨긴다.
 - **R3 처음 불러오기:** 실제 내용과 같은 크기의 스켈레톤(`.skeleton` 회색 블록, 부드러운 명암 반복)을 둔다. 스켈레톤 자리에도 사용자 규칙대로 문구를 둔다(`오늘의 추천 불러오는 중...` 등 -- 기존 문구 유지).
 - **R4 알림:** `#notice`는 화면 위쪽 가운데에 떠 있는 토스트(`position: fixed`), 레이아웃에 영향 없음. 닫기 `×`. 들어오고 나갈 때 150ms 페이드. 기존 `notify(message)` 호출은 그대로(빈 문자열이면 닫힘).

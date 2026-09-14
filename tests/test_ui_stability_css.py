@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 CSS = (Path(__file__).resolve().parents[1] / "static" / "css")
@@ -59,3 +60,61 @@ def test_motion_is_switched_off_for_reduced_motion():
         body_end = block.index("}", body_start)
         body = block[body_start:body_end]
         assert "animation: none" in body, f"{selector}'s reduced-motion rule must set animation: none"
+
+
+def _rule_body(css, selector_with_brace):
+    """The declaration body of the first rule whose selector text is exactly
+    `selector_with_brace` (e.g. `.screen-enter {`), found by brace counting."""
+    idx = css.index(selector_with_brace)
+    body_start = idx + len(selector_with_brace)
+    depth, i = 1, body_start
+    while depth:
+        if css[i] == "{":
+            depth += 1
+        elif css[i] == "}":
+            depth -= 1
+        i += 1
+    return css[body_start:i - 1]
+
+
+def _keyframes_body(css, name):
+    marker = f"@keyframes {name}"
+    idx = css.index(marker)
+    body_start = css.index("{", idx + len(marker)) + 1
+    depth, i = 1, body_start
+    while depth:
+        if css[i] == "{":
+            depth += 1
+        elif css[i] == "}":
+            depth -= 1
+        i += 1
+    return css[body_start:i - 1]
+
+
+def _animation_name(rule_body):
+    m = re.search(r"animation(?:-name)?:\s*([\w-]+)", rule_body)
+    assert m, f"no animation-name found in rule: {rule_body!r}"
+    return m.group(1)
+
+
+def test_screen_enter_keyframes_animate_opacity_only_not_transform():
+    """A transform on `.screen-enter` (the screen element itself) makes it the
+    containing block for any `position: fixed` descendant -- #report-wait
+    lives inside #session -- and breaks `position: sticky` on any descendant
+    too -- #mic-dock also lives inside #session. Both are dormant today (the
+    session screen isn't wired to router.show() yet) but real in a browser
+    and invisible to node tests, so screens fade with opacity only.
+
+    `.toast` has no fixed/sticky descendants of its own, so it may still
+    translate -- this test only constrains `.screen-enter`'s keyframes."""
+    css = _all_css()
+    screen_enter_name = _animation_name(_rule_body(css, ".screen-enter {"))
+    screen_enter_body = _keyframes_body(css, screen_enter_name)
+    assert "transform" not in screen_enter_body, (
+        ".screen-enter's keyframes must not animate transform -- it would break "
+        "fixed/sticky descendants of the screen it's applied to"
+    )
+
+    toast_name = _animation_name(_rule_body(css, ".toast {"))
+    toast_body = _keyframes_body(css, toast_name)
+    assert "transform" in toast_body, ".toast has no fixed/sticky descendants and may still translate"

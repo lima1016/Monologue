@@ -102,11 +102,19 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #notice-close::before { content: '×'; }
 
 /* A screen entering through router.show() (spec R1). The screen being left
-   is hidden outright in the same pass, so the two never overlap mid-fade. */
-.screen-enter { animation: fade-down var(--dur-fast) ease-out; }
-@keyframes fade-down {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: none; }
+   is hidden outright in the same pass, so the two never overlap mid-fade.
+   Opacity only, deliberately no transform: a non-none `transform` on the
+   screen element itself would make it the containing block for any
+   `position: fixed` descendant (#report-wait, inside #session) and break
+   `position: sticky` on any descendant too (#mic-dock, also inside
+   #session) for every frame the animation runs. `.toast` has none of those
+   descendants, so its own keyframes (above) may still translate. Its own
+   keyframes, not fade-down/toast-in shared with anything else, so this
+   constraint can't be reintroduced by a future edit to a shared name. */
+.screen-enter { animation: screen-fade var(--dur-fast) ease-out; }
+@keyframes screen-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* Keeps an element in the layout while hiding it, instead of `hidden`
