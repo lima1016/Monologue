@@ -45,6 +45,13 @@ def test_level_shown_once_both_thresholds_are_met(client):
     assert level["value"] == "intermediate" and level["sessions"] == 3 and level["utterances"] == 15
 
 
+def test_level_waits_for_enough_utterances_not_only_sessions(client):
+    for _ in range(3):
+        _finished(turns=[("a", 1, None, None)] * 2)
+    level = client.get("/api/stats/mypage?language=en").json()["level"]
+    assert level["value"] is None and level["sessions"] == 3 and level["utterances"] == 6
+
+
 def test_accuracy_tags_and_review_counts(client):
     _finished(turns=[("I go", 0, "I went.", "시제"), ("She have", 0, "She has.", "단복수"),
                      ("I goed", 0, "I went.", "시제"), ("fine", 1, None, "없음"), ("?", None, None, None)])
