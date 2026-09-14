@@ -10,8 +10,30 @@ import './dom-shim.js';
 import { $, state } from './api.js';
 import * as router from './router.js';
 import { jsonResponse, resetDom, stubFetch } from './dom-shim.js';
-import { startSession, nextScriptLine, endSession } from './session.js';
-import * as session from './session.js';
+
+/* A fake SpeechRecognition, installed before session.js (and, transitively,
+ * audio.js) is ever evaluated -- mirrors audio.test.js's own fake, and for
+ * the same reason: without one, `recognition` comes back null (a real,
+ * mic-less browser is dom-shim's default -- see its own header comment), and
+ * `startRespeak` bails out on its `if (!recognition)` guard before ever
+ * touching `activeRespeak` or the turn state machine. The re-speak-ends-via-
+ * the-big-mic bug below cannot be driven at all without this.
+ *
+ * `session.js` is therefore imported dynamically, after this is installed on
+ * `window` -- a plain top-level `import` is hoisted and would evaluate
+ * audio.js (and cache its `recognition` as null) before this file's own code
+ * had a chance to run. */
+let rec = null;
+class FakeRecognition {
+  constructor() { this.calls = []; rec = this; }
+  start() { this.calls.push('start'); }
+  stop() { this.calls.push('stop'); }
+  abort() { this.calls.push('abort'); }
+}
+window.webkitSpeechRecognition = FakeRecognition;
+
+const session = await import('./session.js');
+const { startSession, nextScriptLine, endSession } = session;
 
 test('a script line with HTML-like text is escaped, not injected, into the panel', async () => {
   resetDom();
@@ -546,4 +568,72 @@ test('a failed report takes the waiting card down and says so', async () => {
   assert.equal($('report-wait').hidden, true, '실패하면 표시를 내리고 다시 누를 수 있어야 한다');
   assert.equal($('btn-end').textContent, '세션 끝내기');
   assert.match($('notice').textContent, /리포트 생성 실패/);
+});
+
+/* The pulsing-mic-does-nothing bug: syncControls disabled #btn-mic through
+ * the whole of `respeaking`, even though the mic visibly pulses then (the
+ * `listening` class is shared by `listening` and `respeaking`) and the
+ * learner has no other way to end a re-speak than the chip's own
+ * `그만 말하기` button. Only one re-speak can ever be active (startRespeak's
+ * own `activeRespeak.btn === btn` guard), so there is no ambiguity about
+ * whose session the big mic would be ending -- it may end it too.
+ *
+ * main.js's own `$('btn-mic')` click handler is not exercised here (main.js
+ * pulls in home.js/settings.js, which hit the network at import time) -- it
+ * already calls `recognition.stop()` whenever `canDo('stop')` is true, and
+ * `canDo('stop')` is true in `respeaking` the same as in `listening`
+ * (turnstate.js), so once the button is no longer disabled, pressing it ends
+ * the re-speak exactly like the chip's own button does. That much is
+ * confirmed by reading, not by a test. */
+const respeakInterim = (transcript) => ({
+  resultIndex: 0,
+  results: [Object.assign([{ transcript }], { isFinal: false })],
+});
+const respeakFinal = (transcript) => ({
+  resultIndex: 0,
+  results: [Object.assign([{ transcript }], { isFinal: true })],
+});
+
+test('the big mic stays pressable while a re-speak is actively listening', () => {
+  resetDom();
+  rec.calls = [];
+  const btn = document.createElement('button');
+  const result = document.createElement('p');
+
+  session.startRespeak('Hello there.', result, btn);
+  rec.onstart();
+  // A live interim result is what actually re-syncs the controls once
+  // `activeRespeak` is set (see setInterimHandler in session.js) -- the same
+  // moment a real re-speak visibly starts streaming text into the chip.
+  rec.onresult(respeakInterim('Hel'));
+
+  assert.equal($('btn-mic').disabled, false,
+    '재발화가 듣는 동안 큰 마이크를 눌러 끝낼 수 있어야 한다 (지금까지는 죽어 있었다)');
+  assert.equal($('btn-mic').classList.contains('listening'), true, '펄스는 원래도 돌고 있었다');
+
+  // Let this re-speak finish so it does not bleed into the next test.
+  rec.onresult(respeakFinal('Hello there.'));
+  rec.onend();
+});
+
+test('once Whisper is transcribing the re-speak, the big mic goes dead again', async () => {
+  resetDom();
+  rec.calls = [];
+  const btn = document.createElement('button');
+  const result = document.createElement('p');
+
+  session.startRespeak('Hello there.', result, btn);
+  rec.onstart();
+  rec.onresult(respeakFinal('Hello there.'));
+  // onend runs the re-speak handler synchronously up to its first await --
+  // by the time control returns here, `transcribingRespeak` is set,
+  // `activeRespeak` is already cleared, and syncControls has already run
+  // reflecting both.
+  rec.onend();
+
+  assert.equal($('btn-mic').disabled, true,
+    '받아쓰는 동안에는 끝낼 대상이 없으니 다시 죽어 있어야 한다');
+
+  // Let the pending transcript resolve before the next test reuses `rec`.
+  await new Promise((r) => setTimeout(r, 0));
 });

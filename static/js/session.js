@@ -73,12 +73,24 @@ function syncControls() {
   // Live while listening too -- pressing the mic again is what ends a turn
   // now, so the button must not go dead the moment a recognition session
   // starts. Checked against `listening` directly, not canDo('stop'): `stop`
-  // is also true during `respeaking` (a re-speak needs the same "press again
-  // to end" ability -- see turnstate.js), but that stop belongs exclusively
-  // to the chip's own button (startRespeak's `activeRespeak` check) -- the
-  // main mic button must stay dead through a re-speak the same as it always
-  // has, not become a second, unlabelled way to end someone else's session.
-  $('btn-mic').disabled = !(canDo('mic') || turnState === 'listening');
+  // is also true during `respeaking` too, handled by the `activeRespeak`
+  // check below.
+  //
+  // A re-speak in progress pulses the big mic exactly like an ordinary
+  // listen (the `listening` class below is shared by both), so it must be
+  // just as pressable -- a button that visibly pulses but does nothing when
+  // pressed is the bug this replaced. Only one re-speak can ever be active
+  // at a time (startRespeak's own `activeRespeak.btn === btn` guard), so
+  // there is no ambiguity about whose session the big mic would be ending;
+  // main.js's mic handler already calls recognition.stop() whenever
+  // canDo('stop') is true, which ends this chip's session the same way its
+  // own `그만 말하기` button would. `activeRespeak` (not `turnState ===
+  // 'respeaking'` alone) is what gates this: once its recognition ends and
+  // Whisper starts transcribing, `activeRespeak` is cleared but `turnState`
+  // stays `respeaking` until the result comes back -- the big mic must go
+  // dead again there, the same as at `transcribing` for an ordinary turn,
+  // since there is nothing left for it to stop.
+  $('btn-mic').disabled = !(canDo('mic') || turnState === 'listening' || activeRespeak);
   $('btn-send').disabled = !canDo('send');
   $('btn-next').disabled = !canDo('next');
   $('btn-end').disabled = !canDo('end');
