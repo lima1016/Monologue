@@ -87,7 +87,7 @@ def _prepare_audio(lines, language):
         try:
             _speak(line["text"], language)
         except Exception:
-            pass
+            log.warning("could not prepare audio for a picked script line", exc_info=True)
 
 
 @router.post("/library/pick")

@@ -88,3 +88,15 @@ def test_background_audio_failure_is_swallowed(client, monkeypatch):
     monkeypatch.setattr(tts, "synthesize", dead)
     r = client.post("/api/library/pick", json={"language": "en", "mode": "script", "theme_id": "hotel"})
     assert r.status_code == 200
+
+
+def test_background_audio_failure_is_logged(client, monkeypatch, caplog):
+    _script(1)
+    monkeypatch.setattr(api, "_audio_executor", ImmediateExecutor())
+    def dead(*args):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(api, "_speak", dead)
+    with caplog.at_level("WARNING", logger="app.api"):
+        r = client.post("/api/library/pick", json={"language": "en", "mode": "script", "theme_id": "hotel"})
+    assert r.status_code == 200
+    assert any(rec.levelname == "WARNING" for rec in caplog.records)
