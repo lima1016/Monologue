@@ -98,8 +98,18 @@ const RESPEAK_STOP_LABEL = '🎤 그만 말하기';
 let transcribingRespeak = null;
 
 function clearActiveRespeak() {
-  if (activeRespeak) activeRespeak.btn.textContent = RESPEAK_LABEL;
+  // The button's own label, not the chip's: my page's 🎤 말해보기 runs the
+  // same re-speak and must not come back reading 고쳐서 다시 말해보기.
+  if (activeRespeak && activeRespeak.btn) activeRespeak.btn.textContent = activeRespeak.label || RESPEAK_LABEL;
   activeRespeak = null;
+}
+
+/* A result line is either the chip's (comes and goes with `hidden`) or one
+   that holds its row while empty (`data-hold`, my page's review card, spec
+   R5), which comes and goes by class. */
+function showRespeakResult(el, on) {
+  if (el.dataset.hold) setShown(el, on);
+  else el.hidden = !on;
 }
 
 /* The one place that knows what is in flight. Callers ask it rather than
@@ -288,7 +298,7 @@ export function handleCancelled() {
   transcribingRespeak = null;
   if (respeak) {
     respeak.resultEl.textContent = '';
-    respeak.resultEl.hidden = true;
+    showRespeakResult(respeak.resultEl, false);
   }
   liveHeard = '';
   setTurnState('CANCEL');
@@ -468,8 +478,12 @@ export function addChip(bubble, fb) {
    The chip's re-speak buttons are not wired into syncControls (they belong to
    whichever turn produced them, not to "the current turn"), so this guard is
    the only thing standing between a stray click and two recognitions
-   overlapping. */
-export function startRespeak(target, resultEl, btn) {
+   overlapping.
+
+   `onResult` is optional: once the attempt is judged it gets (true|false,
+   spoken), and (null, null) when nothing was heard. A cancel or a start that
+   throws never calls it -- nothing was attempted. The chip passes none. */
+export function startRespeak(target, resultEl, btn, onResult = null) {
   // Mirrors main.js's mic handler: this button owns the active re-speak, so
   // a second click on it ends the session instead of trying to start a new
   // one. recognition.stop() lets Chrome flush a last final result, then
@@ -494,7 +508,7 @@ export function startRespeak(target, resultEl, btn) {
   }
   if (!recognition) { notify('이 브라우저는 음성 인식을 지원하지 않습니다.'); return; }
   setTurnState('RESPEAK');
-  activeRespeak = { btn, resultEl };
+  activeRespeak = { btn, resultEl, label: btn ? btn.textContent : RESPEAK_LABEL };
   // setTurnState above already ran syncControls, but before `activeRespeak`
   // existed -- syncControls reads it to decide whether the big mic may end
   // this re-speak (see its own comment), so without a second call here the
@@ -504,8 +518,10 @@ export function startRespeak(target, resultEl, btn) {
   // who wants to stop immediately, or during silence, would press it.
   syncControls();
   if (btn) btn.textContent = RESPEAK_STOP_LABEL;
-  resultEl.hidden = false;
-  resultEl.className = 'respeak-result';
+  showRespeakResult(resultEl, true);
+  // Classes, not className: a caller's own class (review-result) stays on.
+  resultEl.classList.remove('good', 'bad');
+  resultEl.classList.add('respeak-result');
   resultEl.textContent = '듣는 중...';
 
   setRespeakHandler(async (browserSpoken, audioPromise) => {
@@ -527,12 +543,14 @@ export function startRespeak(target, resultEl, btn) {
     if (spoken === null) {
       setTurnState('HEARD_NOTHING');
       resultEl.textContent = '못 알아들었습니다. 다시 해보세요.';
+      if (onResult) onResult(null, null);
       return;
     }
     setTurnState('HEARD');
     const good = matches(spoken, target, state.language);
     resultEl.classList.add(good ? 'good' : 'bad');
     resultEl.textContent = good ? `좋습니다 — "${spoken}"` : `"${spoken}" — 조금 다릅니다. 다시 해보세요.`;
+    if (onResult) onResult(good, spoken);
   });
   recognition.lang = BCP47[state.language];
   // Mirrors main.js's mic handler. Without its own recording, the re-speak's
@@ -832,6 +850,8 @@ export async function endSession() {
   try {
     const data = await postJSON(`/sessions/${state.sessionId}/end`);
     router.show('report');
+    // Only a report opened from my page has a way back there.
+    $('btn-report-back').hidden = true;
     renderReport(data);
     notify(''); // clear any stale notice ("전송 실패", "대본이 끝났습니다") left over from the session
   } catch (err) {

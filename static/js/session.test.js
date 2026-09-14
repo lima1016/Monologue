@@ -786,3 +786,58 @@ test('a session that could not be created says so in the same voice as the pick 
   await startSession({ language: 'en', mode: 'free', scenarioId: 'x' });
   assert.match($('notice-text').textContent, /^세션을 시작하지 못했어요: /);
 });
+
+/* my page's 🎤 말해보기 runs the same re-speak and needs its verdict: the chip
+ * path never passed a callback and still does not. */
+async function respeakOnce(target, heard) {
+  resetDom();
+  state.language = 'en';
+  stubFetch(async () => jsonResponse({}));
+  const results = [];
+  const btn = document.createElement('button');
+  btn.textContent = '🎤 말해보기';
+  const resultEl = document.createElement('p');
+  session.startRespeak(target, resultEl, btn, (good, spoken) => results.push([good, spoken]));
+  rec.onstart();
+  if (heard) rec.onresult(respeakFinal(heard));
+  rec.onend();
+  await new Promise((r) => setTimeout(r, 20));
+  return { results, btn, resultEl };
+}
+
+test('startRespeak reports the verdict to an onResult callback', async () => {
+  // No recording in node, so Whisper is not asked: the browser's words are the verdict's.
+  const { results } = await respeakOnce('I went there.', 'I went there');
+  assert.deepEqual(results, [[true, 'I went there']]);
+});
+
+test('startRespeak reports a different sentence as false', async () => {
+  const { results } = await respeakOnce('I went there.', 'I go there');
+  assert.deepEqual(results, [[false, 'I go there']]);
+});
+
+test('startRespeak reports hearing nothing as null, null', async () => {
+  const { results } = await respeakOnce('I went there.', null);
+  assert.deepEqual(results, [[null, null]]);
+});
+
+test("a re-speak gives its button back its own label, not the chip's", async () => {
+  const { btn } = await respeakOnce('I went there.', 'I went there');
+  assert.equal(btn.textContent, '🎤 말해보기');
+});
+
+test('a result line that holds its place is shown and hidden by class, not hidden', async () => {
+  resetDom();
+  const btn = document.createElement('button');
+  const resultEl = document.createElement('p');
+  resultEl.dataset.hold = '1';
+  resultEl.className = 'review-result is-invisible';
+  session.startRespeak('Hello.', resultEl, btn, () => {});
+  rec.onstart();
+  assert.equal(resultEl.classList.contains('is-invisible'), false);
+  assert.ok(resultEl.classList.contains('review-result'), 'the caller\'s own class survives');
+  session.cancelTurn();
+  rec.onend();
+  assert.equal(resultEl.hidden, false);
+  assert.ok(resultEl.classList.contains('is-invisible'));
+});

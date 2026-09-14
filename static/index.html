@@ -31,6 +31,7 @@
   <div class="status">
     <span id="status-ollama" class="dot" title="Ollama"></span>
     <span id="status-voicevox" class="dot" title="VOICEVOX"></span>
+    <button id="btn-mypage" class="ghost" type="button">마이페이지</button>
     <button id="btn-settings" class="ghost">설정</button>
   </div>
 </header>
@@ -138,6 +139,37 @@
     </div>
   </section>
 
+  <!-- 마이페이지: 돌아보는 곳. mypage.js fills every section; each one holds a
+       skeleton of its own size while it loads and dims in place on a reload. -->
+  <section id="mypage" hidden>
+    <div class="mypage-head">
+      <button id="btn-mypage-home" class="ghost" type="button">← 홈</button>
+      <h2>마이페이지</h2>
+      <span class="seg" id="mypage-language-seg">
+        <button type="button" data-language="en">English</button>
+        <button type="button" data-language="ja">日本語</button>
+      </span>
+    </div>
+    <div id="level-card" class="panel">
+      <p class="label">레벨</p>
+      <div id="level-body"></div>
+    </div>
+    <div id="review-section" class="panel">
+      <div class="review-head"><p id="review-count" class="label"></p><span id="review-mastered" class="hint"></span></div>
+      <div id="review-list"></div>
+    </div>
+    <div id="weak-section" class="panel">
+      <p class="label">자주 걸리는 것</p>
+      <p id="accuracy-line" class="hint is-invisible" aria-hidden="true"></p>
+      <div id="tag-bars"></div>
+    </div>
+    <div id="history-section" class="panel">
+      <p class="label">지난 기록</p>
+      <ul id="history-list"></ul>
+      <button id="btn-history-more" class="ghost btn-stable is-invisible" type="button" aria-hidden="true">더 보기</button>
+    </div>
+  </section>
+
   <section id="session" hidden>
     <div class="session-grid">
       <div class="conversation-col">
@@ -181,6 +213,7 @@
       <h2 id="report-headline"></h2>
       <p id="report-counts" class="hint"></p>
       <div id="report-body"></div>
+      <button id="btn-report-back" class="ghost" type="button" hidden>← 마이페이지</button>
       <button id="btn-restart" class="primary">새 세션</button>
     </div>
     <aside class="report-aside">
