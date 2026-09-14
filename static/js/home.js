@@ -58,8 +58,10 @@ export async function loadHome() {
   // would paint its (now wrong) language's data over the newer, correct one.
   const lang = state.language;
   const homeEl = $('home');
+  // Nothing drawn yet: whatever this load reveals appears, it does not move in.
+  const firstPaint = homeEl.dataset.painted !== '1';
 
-  if (homeEl.dataset.painted === '1') {
+  if (!firstPaint) {
     // Already drawn (a language switch, or ← 홈): nothing is hidden before the
     // request. Hiding the cards and showing them again moved the week card
     // 85px on every switch. They stay where they are and dim until the answer
@@ -91,7 +93,7 @@ export async function loadHome() {
 
     if (state.language !== lang) return; // a newer switch already won
 
-    setResumeShown(Boolean(session));
+    setResumeShown(Boolean(session), { instant: firstPaint });
     resumeTarget = session || null;
     if (session) {
       $('resume-title').textContent = `이어서 하기 — ${session.title}`;
@@ -191,10 +193,21 @@ function resumeCollapsed(card = $('resume-card')) {
   return card.id === 'resume-card' && card.classList.contains('is-collapsed');
 }
 
-function setResumeShown(on) {
+/* `instant`: the first paint's reveal. The card starts collapsed in the
+   markup, so without it every fresh page load with a session would slide the
+   card open after the round trip -- new motion on first load. .no-motion
+   turns the transition off, the offsetHeight read makes the browser apply the
+   open state under it, and taking the class off afterwards leaves later
+   language switches sliding as before. */
+function setResumeShown(on, { instant = false } = {}) {
   const card = $('resume-card');
   card.hidden = false;
+  if (instant) card.classList.add('no-motion');
   card.classList.toggle('is-collapsed', !on);
+  if (instant) {
+    void card.offsetHeight;
+    card.classList.remove('no-motion');
+  }
   card.setAttribute('aria-hidden', String(!on));
   card.inert = !on || card.classList.contains('is-refreshing');
 }

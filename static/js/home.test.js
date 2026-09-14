@@ -199,6 +199,31 @@ test('the resume card collapses by class when there is no session, and expands w
   assert.equal(card.inert, false);
 });
 
+/* A fresh page load that finds a session must not slide the card open -- it
+   would be new motion on first paint. The first reveal goes through
+   .no-motion with a style flush while that class is on; later reloads (a
+   language switch) slide as before. The flush is spied through offsetHeight,
+   which is what makes the browser apply the class before it comes off. */
+test('the resume card appears without motion on first load and slides only on later reloads', async () => {
+  const card = $('resume-card');
+  const flushes = [];
+  Object.defineProperty(card, 'offsetHeight', { get() {
+    flushes.push({ noMotion: card.classList.contains('no-motion'), open: !card.classList.contains('is-collapsed') });
+    return 0;
+  } });
+  await armResumeCard();
+  assert.deepEqual(flushes, [{ noMotion: true, open: true }],
+    'the first reveal was not flushed with .no-motion on, after opening');
+  assert.equal(card.classList.contains('no-motion'), false, '.no-motion stayed on, so switches would not slide');
+
+  flushes.length = 0;
+  homeRoutes(PAYLOAD());                  // a reload: the card shuts
+  await home.loadHome();
+  await armResumeCard();                  // and opens again
+  assert.deepEqual(flushes, [], 'a later reload skipped the slide');
+  assert.equal(card.classList.contains('no-motion'), false);
+});
+
 test('a failed reload for another language shuts the resume card and puts it to sleep', async () => {
   state.language = 'en';
   await armResumeCard();

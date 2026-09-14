@@ -239,3 +239,8 @@ def test_replayed_bubbles_do_not_animate():
     """resumeSession marks the bubbles it replays; they appear at once."""
     body = _rule_body(_all_css(), ".msg.replayed {")
     assert "animation: none" in body
+
+
+def test_resume_card_first_reveal_can_skip_the_slide():
+    """home.js puts .no-motion on for the first paint's reveal only."""
+    assert "transition: none" in _rule_body(_all_css(), "#resume-card.no-motion {")
