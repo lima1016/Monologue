@@ -465,9 +465,7 @@ function historyRow(item) {
   head.setAttribute('aria-expanded', 'false');
   head.append(
     el('span', 'main', `${date} · ${item.title} · ${MODE_NAMES[item.mode] || item.mode}`),
-    el('span', 'sub', item.mode === 'script'
-      ? `말한 문장 ${item.turns} · 대본`
-      : `말한 문장 ${item.turns} · 고친 곳 ${item.wrong}`),
+    el('span', 'sub', historySub(item)),
   );
   const row = el('div', 'history-buttons');
   row.append(button('report', '리포트 보기'), button('transcript', '대화 보기'));
@@ -478,6 +476,14 @@ function historyRow(item) {
   slot.append(el('div', 'fold-inner'));
   li.append(head, fold('history-actions', row, slot));
   return li;
+}
+
+/* A session none of whose turns was graded (an old one, or grading was down
+   throughout) has no 고친 곳 to count: 0 would read as a flawless session. */
+function historySub(item) {
+  if (item.mode === 'script') return `말한 문장 ${item.turns} · 대본`;
+  if (item.graded === 0) return `말한 문장 ${item.turns}`;
+  return `말한 문장 ${item.turns} · 고친 곳 ${item.wrong}`;
 }
 
 export function toggleHistoryRow(row) {

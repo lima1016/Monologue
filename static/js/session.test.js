@@ -317,6 +317,18 @@ test('자유 세션의 헤드라인', () => {
   assert.equal($('rep-wrong').textContent, '5');
 });
 
+/* An old prose report (graded: false from /sessions/{id}/report) predates
+ * grading: its turns are ungraded because nothing graded them then, not
+ * because grading failed. */
+test('an old report that was never graded does not count its turns as ungraded', () => {
+  resetDom();
+  state.mode = 'free';
+  session.renderReport({ summary: 'x', graded: false, stats: { turns: 3, wrong: 0, ungraded: 3, minutes: 2 } });
+  assert.equal($('report-counts').textContent, '말한 횟수 3 · 고칠 곳이 있던 횟수 0');
+  session.renderReport({ summary: 'x', stats: { turns: 3, wrong: 0, ungraded: 3, minutes: 2 } });
+  assert.match($('report-counts').textContent, /교정을 받지 못한 발화 3회/);
+});
+
 test('an English bot bubble carries a meaning toggle; a learner bubble does not', () => {
   resetDom();
   state.language = 'en';

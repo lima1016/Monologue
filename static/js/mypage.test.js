@@ -215,6 +215,17 @@ test('history rows, 더 보기 appends, and the button hides when there is no mo
   assert.equal($('btn-history-more').classList.contains('is-invisible'), true);
 });
 
+test('a history row with no graded turns does not claim 고친 곳 0', async () => {
+  routes({ history: () => ({ items: [
+    { id: 1, ended_at: '2026-09-13T05:00:00+00:00', title: 'a', mode: 'free', turns: 4, wrong: 0, graded: 0 },
+    { id: 2, ended_at: '2026-09-13T05:00:00+00:00', title: 'b', mode: 'free', turns: 4, wrong: 0, graded: 3 },
+  ], more: false }) });
+  await mypage.openMypage();
+  const [ungraded, graded] = $('history-list').children;
+  assert.equal(findByClass(ungraded, 'sub').textContent, '말한 문장 4');
+  assert.equal(findByClass(graded, 'sub').textContent, '말한 문장 4 · 고친 곳 0');
+});
+
 test('더 보기 says it is loading while the next page comes', async () => {
   let release;
   const held = new Promise((r) => { release = r; });
