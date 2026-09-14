@@ -535,7 +535,7 @@ SCENARIO_SYSTEM_SCRIPT = """당신은 한국인 학습자를 위한 {lang} 회�
 학습자가 연습하고 싶은 상황을 한 줄로 말했습니다. 그 상황의 짧은 대본을 만드세요.
 
 - title: 학습자가 목록에서 알아볼 수 있는 짧은 한국어 제목
-- lines: 대사 8줄. speaker는 "bot"과 "user"가 번갈아 나오고 **bot으로 시작합니다.**
+- lines: 대사 16줄. speaker는 "bot"과 "user"가 번갈아 나오고 **bot으로 시작합니다.**
         text는 {lang}으로, 실제 대화에서 쓰는 짧은 구어체로 씁니다.
         교과서 문장이 아니라 사람이 실제로 하는 말이어야 합니다"""
 
@@ -556,6 +556,24 @@ def build_scenario_messages(language, kind, wish) -> list[dict]:
         {"role": "system", "content": system},
         {"role": "user", "content": f"학습자가 연습하고 싶다고 한 것: {wish}"},
     ]
+
+
+_LIBRARY_PREVIOUS = 10
+
+
+def build_library_script_messages(language, theme_title, situation, previous) -> list[dict]:
+    """라이브러리용 대본 한 편. 같은 테마에서 30편을 만들면 서로 닮아가므로, 최근에
+    만든 것의 제목과 첫 대사를 보여주고 다르게 쓰라고 한다."""
+    system = SCENARIO_SYSTEM_SCRIPT.format(lang=KOREAN_LANGUAGE_NAMES[language])
+    system += "\n초보 학습자가 소리 내어 따라 읽을 대본입니다. 한 줄은 짧게 씁니다."
+    if language == "ja":
+        system += "\n" + JAPANESE_SCRIPT_ONLY_RULE
+    user = f"테마: {theme_title}\n세부 상황: {situation}"
+    recent = list(previous)[-_LIBRARY_PREVIOUS:]
+    if recent:
+        listed = "\n".join(f"- 제목: {p['title']} / 첫 대사: {p['opening']}" for p in recent)
+        user += f"\n\n이미 만든 대본입니다. 제목, 첫 대사, 흐름이 이것들과 다르게 쓰세요.\n{listed}"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
 _TRANSLATE_SOURCE = {"ja": "일본어", "en": "영어"}

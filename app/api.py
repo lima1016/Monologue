@@ -11,7 +11,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Response, Uploa
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from app import config, db, llm, prompts, reading, scenarios, stt, text_cleanup, tts
+from app import config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, tts
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
@@ -75,13 +75,27 @@ def generate_scenario(payload: ScenarioWish):
     if not wish:
         raise HTTPException(422, "wish is empty")
 
-    try:
-        result = llm.chat_json(
-            prompts.build_scenario_messages(payload.language, payload.mode, wish),
-            prompts.scenario_schema(payload.mode),
-        )
-    except Exception:
-        raise HTTPException(503, "상황을 만들지 못했습니다. 잠시 뒤에 다시 시도해 주세요.")
+    # Script mode gets one retry: a local 14b sometimes returns the wrong
+    # number of lines or a bad shape (library.check_script catches both), and
+    # a fresh sample often fixes it. Free mode stays a single call -- there is
+    # nothing structural to check_script there.
+    attempts = 2 if payload.mode == "script" else 1
+    reason = None
+    for attempt in range(attempts):
+        try:
+            result = llm.chat_json(
+                prompts.build_scenario_messages(payload.language, payload.mode, wish),
+                prompts.scenario_schema(payload.mode),
+            )
+        except Exception:
+            raise HTTPException(503, "상황을 만들지 못했습니다. 잠시 뒤에 다시 시도해 주세요.")
+        if payload.mode != "script":
+            break
+        reason = library.check_script(result.get("lines"), payload.language, check_duplicates=False)
+        if reason is None:
+            break
+    else:
+        raise HTTPException(422, f"만들어진 대본이 올바르지 않습니다: {reason}")
 
     item = {
         "id": f"user-{uuid.uuid4().hex[:12]}",

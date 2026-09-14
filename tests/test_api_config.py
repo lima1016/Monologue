@@ -109,6 +109,25 @@ def test_lesson_mode_cannot_generate_a_scenario(client):
     assert r.status_code == 422
 
 
+def test_generate_retries_a_script_that_fails_the_check_once(client, monkeypatch):
+    good = [{"speaker": "bot" if i % 2 == 0 else "user", "text": f"Line {i} okay."} for i in range(16)]
+    answers = iter([{"title": "t", "lines": good[:15]}, {"title": "t", "lines": good}])
+    calls = []
+    def fake(messages, schema, **kw):
+        calls.append(1)
+        return next(answers)
+    monkeypatch.setattr("app.api.llm.chat_json", fake)
+    r = client.post("/api/scenarios/generate", json={"language": "en", "mode": "script", "wish": "cafe"})
+    assert r.status_code == 200 and len(calls) == 2
+
+
+def test_generate_gives_up_after_the_second_bad_script(client, monkeypatch):
+    bad = [{"speaker": "bot" if i % 2 == 0 else "user", "text": f"Line {i}."} for i in range(15)]
+    monkeypatch.setattr("app.api.llm.chat_json", lambda m, s, **kw: {"title": "t", "lines": bad})
+    r = client.post("/api/scenarios/generate", json={"language": "en", "mode": "script", "wish": "cafe"})
+    assert r.status_code == 422
+
+
 def test_home_stats_route_returns_the_computed_counters(client):
     sid = db.create_session("en", "free")
     db.add_message(sid, "user", "hello")
