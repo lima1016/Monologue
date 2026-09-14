@@ -148,3 +148,33 @@ def test_report_wait_fades_in_with_opacity_only():
     name = _animation_name(_rule_body(css, ".report-wait {"))
     frames = _keyframes_body(css, name)
     assert "opacity" in frames and "transform" not in frames
+
+
+REFRESHED_CARDS = ("#today-card", "#today-alt", "#recommend", "#resume-card",
+                   "#week-card", "#recent-themes-wrap", "#library-progress")
+
+
+def test_refreshed_cards_ease_both_ways_and_only_dim_on_a_slow_reload():
+    """The opacity transition sits on the cards themselves, so un-dimming eases
+    back as well as dimming; the dim side waits 200ms so a fast local reload
+    never visibly dims at all. The base rule is `:where(...)` (no specificity)
+    so `.is-refreshing`'s transition-delay is not overruled by an id rule."""
+    css = _all_css()
+    marker = ":where(" + ", ".join(REFRESHED_CARDS) + ") {"
+    assert "transition: opacity var(--dur-fast) ease" in _rule_body(css, marker)
+    dim = _rule_body(css, ".is-refreshing {")
+    assert "opacity: .55" in dim
+    assert "transition-delay: 200ms" in dim
+    assert "transition:" not in dim, "a shorthand here would reset the base rule's easing"
+
+
+def test_dimmed_cards_do_not_take_clicks():
+    """home.js sets `inert` on the dimmed cards; this is the belt."""
+    assert "pointer-events: none" in _rule_body(_all_css(), ".is-refreshing {")
+
+
+def test_refreshed_cards_do_not_transition_under_reduced_motion():
+    block = "\n".join(_reduced_motion_blocks(_all_css()))
+    marker = ".is-refreshing, :where(" + ", ".join(REFRESHED_CARDS) + ") {"
+    body = _rule_body(block, marker)
+    assert "transition: none" in body and "transition-delay: 0s" in body

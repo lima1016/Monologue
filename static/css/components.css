@@ -137,8 +137,18 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .fade { transition: opacity var(--dur-fast) ease, visibility var(--dur-fast); }
 
 /* Content already on screen dims instead of disappearing while a refresh is
-   in flight (spec R2) -- the old data stays legible and nothing collapses. */
-.is-refreshing { opacity: .55; transition: opacity var(--dur-fast) ease; }
+   in flight (spec R2) -- the old data stays legible and nothing collapses.
+   The easing lives on the cards home.js dims (its REFRESHED list), not on
+   .is-refreshing: on the class alone, removing it dropped the transition in
+   the same frame and the cards snapped back to full strength. `:where` keeps
+   that base rule at zero specificity so the delay below is not overruled by
+   an id. The dim side waits 200ms, so a fast local reload never visibly dims.
+   pointer-events is the belt to home.js's `inert` braces: a dimmed card may
+   be showing the previous language. */
+:where(#today-card, #today-alt, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
+  transition: opacity var(--dur-fast) ease;
+}
+.is-refreshing { opacity: .55; transition-delay: 200ms; pointer-events: none; }
 
 /* A placeholder sized like the real content it stands in for (spec R3), so
    nothing resizes once the content it was standing in for arrives. */
@@ -153,7 +163,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 
 @media (prefers-reduced-motion: reduce) {
   .screen-enter, .toast, .skeleton { animation: none; }
-  .fade, .is-refreshing { transition: none; }
+  .fade { transition: none; }
+  .is-refreshing, :where(#today-card, #today-alt, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
+    transition: none; transition-delay: 0s;
+  }
 }
 
 .chip-row { max-width: 78%; margin: calc(var(--space-1) * -1) 0 var(--space-3) auto; }
