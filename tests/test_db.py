@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -777,3 +777,58 @@ def test_last_started_reports_the_latest_session_per_scenario(store, monkeypatch
     assert store.last_started(["a", "b", "c"]) == {"a": "2026-09-03T00:00:00+00:00",
                                                    "b": "2026-09-02T00:00:00+00:00"}
     assert store.last_started([]) == {}
+
+
+def _utc_iso(local_dt):
+    """A naive local datetime written the way _now() writes (UTC ISO)."""
+    return local_dt.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+def test_practice_days_are_local_dates_of_learner_messages(store, monkeypatch):
+    sid = store.create_session("en", "free")
+    other = store.create_session("ja", "free")
+    stamps = iter([_utc_iso(datetime(2026, 9, 14, 0, 30)), _utc_iso(datetime(2026, 9, 13, 23, 50)),
+                   _utc_iso(datetime(2026, 9, 10, 12, 0)), _utc_iso(datetime(2026, 9, 12, 12, 0))])
+    monkeypatch.setattr(store, "_now", lambda: next(stamps))
+    store.add_message(sid, "user", "a")
+    store.add_message(sid, "user", "b")
+    store.add_message(sid, "bot", "c")              # bot lines do not count
+    store.add_message(other, "user", "d")           # other language
+    assert store.practice_days("en", date(2026, 9, 11), date(2026, 9, 14)) == {"2026-09-14", "2026-09-13"}
+
+
+def test_sessions_completed_since_counts_reported_sessions_from_that_local_midnight(store, monkeypatch):
+    ids = [store.create_session("en", "free") for _ in range(3)] + [store.create_session("ja", "free")]
+    stamps = iter([_utc_iso(datetime(2026, 9, 14, 0, 5)), _utc_iso(datetime(2026, 9, 13, 23, 55)),
+                   _utc_iso(datetime(2026, 9, 15, 9, 0)), _utc_iso(datetime(2026, 9, 15, 9, 0)),
+                   _utc_iso(datetime(2026, 9, 15, 9, 0))])
+    monkeypatch.setattr(store, "_now", lambda: next(stamps))
+    for sid in ids:
+        store.end_session(sid, "{}", "beginner")
+    abandoned = store.create_session("en", "free")   # no report -- also consumes the 5th stamp above
+    with store.connect() as conn:
+        conn.execute("UPDATE sessions SET ended_at = ? WHERE id = ?", (_utc_iso(datetime(2026, 9, 15, 10, 0)), abandoned))
+    assert store.sessions_completed_since("en", date(2026, 9, 14)) == 2
+
+
+def test_library_sessions_recent_first_and_only_library_ids(store, monkeypatch):
+    stamps = iter(["2026-09-10T00:00:00+00:00", "2026-09-12T00:00:00+00:00", "2026-09-11T00:00:00+00:00"])
+    monkeypatch.setattr(store, "_now", lambda: next(stamps))
+    store.create_session("en", "script", scenario_id="lib-hotel-en-01")
+    store.create_session("en", "free", scenario_id="lib-cafe-restaurant-en-free")
+    store.create_session("en", "free", scenario_id="restaurant-seating-en")
+    rows = store.library_sessions("en")
+    assert [r["scenario_id"] for r in rows] == ["lib-cafe-restaurant-en-free", "lib-hotel-en-01"]
+    assert rows[0]["mode"] == "free"
+
+
+def test_library_script_count_and_has_sessions(store):
+    assert store.library_script_count("en") == 0 and store.has_sessions("en") is False
+    store.add_library_scenario({"id": "lib-hotel-en-01", "theme_id": "hotel", "situation": "s", "language": "en",
+                                "type": "script", "title": "t",
+                                "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
+    store.add_library_scenario({"id": "lib-hotel-en-free", "theme_id": "hotel", "situation": None, "language": "en",
+                                "type": "free", "title": "t", "goal": "g", "persona_prompt": "p", "max_turns": 16})
+    store.create_session("ja", "lesson")
+    assert store.library_script_count("en") == 1
+    assert store.has_sessions("en") is False and store.has_sessions("ja") is True

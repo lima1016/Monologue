@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from app import config, library
@@ -184,3 +186,99 @@ def test_korean_title_is_capped():
     long = "아주 긴 제목 " * 10
     got = library.korean_title(long, "상황")
     assert len(got) <= 40 and got.startswith("아주 긴 제목") and got == got.strip()
+
+
+def test_theme_of():
+    assert library.theme_of("lib-cafe-restaurant-ja-07") == "cafe-restaurant"
+    assert library.theme_of("lib-hotel-en-free") == "hotel"
+    assert library.theme_of("restaurant-seating-en") is None
+    assert library.theme_of("user-abc123") is None
+    assert library.theme_of(None) is None
+
+
+def test_reason_for():
+    today = date(2026, 9, 14)
+    assert library.reason_for(None, today) == "아직 안 해본 테마예요"
+    assert library.reason_for(date(2026, 9, 14), today) == "오늘도 한 번 더 해볼까요?"
+    assert library.reason_for(date(2026, 9, 13), today) == "어제 연습했어요"
+    assert library.reason_for(date(2026, 9, 9), today) == "5일 전에 마지막으로 했어요"
+
+
+def _ready(store, theme, language="en", scripts=1, free=False):
+    for n in range(1, scripts + 1):
+        store.add_library_scenario({"id": f"lib-{theme}-{language}-{n:02d}", "theme_id": theme, "situation": "s",
+                                    "language": language, "type": "script", "title": "t",
+                                    "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
+    if free:
+        store.add_library_scenario({"id": f"lib-{theme}-{language}-free", "theme_id": theme, "situation": None,
+                                    "language": language, "type": "free", "title": "t", "goal": "g",
+                                    "persona_prompt": "p", "max_turns": 16})
+
+
+def _played(store, monkeypatch, scenario_id, stamp, mode="script"):
+    monkeypatch.setattr(db, "_now", lambda: stamp)
+    store.create_session(scenario_id.split("-")[-2], mode, scenario_id=scenario_id)
+
+
+def test_recommend_empty_library_is_empty(store):
+    assert library.recommend("en", date(2026, 9, 14)) == []
+
+
+def test_recommend_only_ready_themes_and_carries_theme_fields(store):
+    _ready(store, "hotel", scripts=2, free=True)
+    recs = library.recommend("en", date(2026, 9, 14))
+    assert len(recs) == 1
+    r = recs[0]
+    assert (r["theme_id"], r["title"], r["category"]) == ("hotel", "호텔", "travel")
+    assert r["situations"][0] == "체크인"
+    assert r["ready"] == {"free": True, "script": 2}
+    assert r["reason"] == "아직 안 해본 테마예요"
+
+
+def test_recommend_prefers_themes_never_played(store, monkeypatch):
+    for theme in ("hotel", "cafe-restaurant", "meetings"):
+        _ready(store, theme)
+    _played(store, monkeypatch, "lib-hotel-en-01", "2026-09-01T03:00:00+00:00")
+    _played(store, monkeypatch, "lib-meetings-en-01", "2026-09-02T03:00:00+00:00")
+    assert library.recommend("en", date(2026, 9, 14))[0]["theme_id"] == "cafe-restaurant"
+
+
+def test_when_everything_was_played_recommend_the_older_half(store, monkeypatch):
+    for theme in ("hotel", "shopping", "meetings", "interview"):
+        _ready(store, theme)
+    _played(store, monkeypatch, "lib-hotel-en-01", "2026-09-01T03:00:00+00:00")
+    _played(store, monkeypatch, "lib-shopping-en-01", "2026-09-02T03:00:00+00:00")
+    _played(store, monkeypatch, "lib-meetings-en-01", "2026-09-12T03:00:00+00:00")
+    _played(store, monkeypatch, "lib-interview-en-01", "2026-09-13T03:00:00+00:00")
+    first = library.recommend("en", date(2026, 9, 14))[0]
+    assert first["theme_id"] in {"hotel", "shopping"}
+    assert first["reason"].endswith("일 전에 마지막으로 했어요")
+
+
+def test_recommend_avoids_the_category_just_practised_when_it_can(store, monkeypatch):
+    for theme in ("meetings", "interview", "hotel"):
+        _ready(store, theme)
+    _played(store, monkeypatch, "lib-standup-en-01", "2026-09-13T03:00:00+00:00")   # business, not ready but played
+    for seed_day in range(1, 20):
+        first = library.recommend("en", date(2026, 9, seed_day))[0]
+        assert first["category"] == "travel", seed_day
+
+
+def test_recommend_is_stable_within_a_day(store):
+    for theme in ("hotel", "shopping", "meetings", "interview", "hobbies", "first-meeting"):
+        _ready(store, theme)
+    day = date(2026, 9, 14)
+    assert library.recommend("en", day) == library.recommend("en", day)
+    days = {library.recommend("en", date(2026, 9, d))[0]["theme_id"] for d in range(1, 29)}
+    assert len(days) > 1, "the pick should vary across days"
+
+
+def test_the_alternative_comes_from_another_category_when_possible(store):
+    for theme in ("hotel", "airport-flight", "meetings"):
+        _ready(store, theme)
+    for d in range(1, 15):
+        recs = library.recommend("en", date(2026, 9, d))
+        assert len(recs) == 2
+        assert recs[0]["theme_id"] != recs[1]["theme_id"]
+        if recs[0]["category"] == "travel":
+            assert recs[1]["category"] == "business"

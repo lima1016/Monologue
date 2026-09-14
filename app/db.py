@@ -765,3 +765,45 @@ def last_started(scenario_ids) -> dict:
             f"SELECT scenario_id, MAX(started_at) AS last FROM sessions"
             f" WHERE scenario_id IN ({marks}) GROUP BY scenario_id", ids).fetchall()
     return {r["scenario_id"]: r["last"] for r in rows}
+
+
+def practice_days(language, start, end) -> set:
+    """Local dates (YYYY-MM-DD) in [start, end] on which the learner spoke.
+    Local time for the same reason home_stats uses it (see its docstring)."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT substr(datetime(m.created_at, 'localtime'), 1, 10) d"
+            " FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user'"
+            "   AND substr(datetime(m.created_at, 'localtime'), 1, 10) BETWEEN ? AND ?",
+            (language, start.isoformat(), end.isoformat())).fetchall()
+    return {r[0] for r in rows}
+
+
+def sessions_completed_since(language, start) -> int:
+    """Sessions finished with a report on or after local midnight of `start`."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM sessions WHERE language = ? AND report IS NOT NULL"
+            " AND ended_at IS NOT NULL AND datetime(ended_at, 'localtime') >= ?",
+            (language, f"{start.isoformat()} 00:00:00")).fetchone()[0]
+
+
+def library_sessions(language, limit=50) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT scenario_id, mode, started_at FROM sessions"
+            " WHERE language = ? AND scenario_id LIKE 'lib-%'"
+            " ORDER BY started_at DESC, id DESC LIMIT ?", (language, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def library_script_count(language) -> int:
+    with connect() as conn:
+        return conn.execute("SELECT COUNT(*) FROM library_scenarios WHERE language = ? AND type = 'script'",
+                            (language,)).fetchone()[0]
+
+
+def has_sessions(language) -> bool:
+    with connect() as conn:
+        return conn.execute("SELECT 1 FROM sessions WHERE language = ? LIMIT 1", (language,)).fetchone() is not None
