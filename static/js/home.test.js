@@ -130,17 +130,22 @@ test('the resume card says 대화 불러오는 중... while the conversation loa
     return jsonResponse({});
   });
 
+  // The line's row is held inside the card either way (setShown), so the
+  // card does not grow a line when 계속 is pressed and shrink when it ends.
+  const status = $('resume-status');
+  const shown = () => !status.hidden && !status.classList.contains('is-invisible');
+  const heldInvisible = () => !status.hidden && status.classList.contains('is-invisible');
   const resuming = home.resumeSession();
-  assert.equal($('resume-status').hidden, false, 'nothing said the resume was loading');
+  assert.ok(shown(), 'nothing said the resume was loading');
   release();
   await resuming;
-  assert.equal($('resume-status').hidden, true);
+  assert.ok(heldInvisible(), 'the loading line collapsed its row or stayed up');
 
   failNext = true;
   const failing = home.resumeSession();
-  assert.equal($('resume-status').hidden, false);
+  assert.ok(shown());
   await failing;
-  assert.equal($('resume-status').hidden, true, 'a failed resume left the loading line up');
+  assert.ok(heldInvisible(), 'a failed resume left the loading line up, or collapsed its row');
 });
 
 /* The right-hand column (이어서 하기 / 이번 주) collapses when there is nothing

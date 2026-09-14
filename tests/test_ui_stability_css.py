@@ -203,3 +203,11 @@ def test_toast_fades_out_when_leaving():
     assert "transition: opacity var(--dur-fast)" in _rule_body(css, ".toast {")
     block = "\n".join(_reduced_motion_blocks(css))
     assert re.search(r"\.toast\s*\{[^}]*transition: none", block)
+
+
+def test_resume_status_line_is_held_in_the_markup():
+    """#resume-status starts invisible but in the layout (home.js setShown),
+    not `hidden`, so the resume card is one height from its first paint."""
+    html = (CSS.parent / "index.html").read_text(encoding="utf-8")
+    tag = re.search(r'<p id="resume-status"[^>]*>', html).group(0)
+    assert "is-invisible" in tag and " hidden" not in tag, tag

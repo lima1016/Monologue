@@ -486,7 +486,9 @@ export async function resumeSession() {
     // says what it is doing until the conversation is painted or the attempt
     // fails. Inside the try so no throw can land between `busy = true` and the
     // `finally` that clears it.
-    $('resume-status').hidden = false;
+    // Its row is held inside the card (setShown), so the card does not grow
+    // a line when 계속 is pressed and shrink again when the attempt ends.
+    setShown($('resume-status'), true);
     const { session, messages } = await getJSON(`/sessions/${resumeTarget.id}`);
     state.sessionId = resumeTarget.id;
     state.mode = resumeTarget.mode;
@@ -521,6 +523,6 @@ export async function resumeSession() {
     notify(`이어서 하지 못했습니다: ${err.message}`);
   } finally {
     busy = false;
-    $('resume-status').hidden = true;
+    setShown($('resume-status'), false);
   }
 }
