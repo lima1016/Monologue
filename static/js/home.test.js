@@ -323,7 +323,7 @@ test('the goal changes at once, is saved, stops at the bounds, and rolls back on
   await home.loadHome();
   await home.changeGoal(-1);
   assert.equal($('goal-value').textContent, '5');
-  assert.match($('notice').textContent, /목표를 저장하지 못했어요/);
+  assert.match($('notice-text').textContent, /목표를 저장하지 못했어요/);
 });
 
 test('while the goal saves both buttons are off, and the new value is already on screen', async () => {

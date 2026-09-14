@@ -28,5 +28,15 @@ export function show(name) {
     if (!el) throw new Error(`screen ${screen} (#${id}) is not in the document`);
     el.hidden = screen !== name;
   }
+  // The entering screen eases in (spec R1); the ones being left are hidden
+  // outright in the same pass above, so nothing overlaps mid-transition.
+  // Re-showing the screen that is already active (e.g. a re-render that
+  // calls show() again) must not replay the animation.
+  if (active !== name) {
+    const enteringId = screens.get(name);
+    const entering = $(enteringId);
+    entering.classList.add('screen-enter');
+    setTimeout(() => entering.classList.remove('screen-enter'), 150);
+  }
   active = name;
 }

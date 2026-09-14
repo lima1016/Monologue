@@ -3,6 +3,12 @@
 [hidden] { display: none !important; }
 * { box-sizing: border-box; }
 
+/* Reserves the scrollbar's width whether or not one is currently drawn, so a
+   screen whose content grows past viewport height (a longer report, a longer
+   theme grid) doesn't narrow by the scrollbar's width the instant it appears
+   -- spec R9. */
+html { scrollbar-gutter: stable; }
+
 body {
   margin: 0;
   padding: 0 var(--space-6) var(--space-8);

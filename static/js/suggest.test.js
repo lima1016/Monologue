@@ -110,7 +110,7 @@ test('a failure takes the card down, says so, and can be asked again', async () 
   stubFetch(async () => jsonResponse({ detail: '지금은 추천을 만들 수 없어요' }, { ok: false, status: 503 }));
   await suggest.suggestForLatest();
   assert.equal($('conversation').children.filter((n) => n.className === 'suggest-card').length, 0);
-  assert.match($('notice').textContent, /지금은 추천을 만들 수 없어요/);
+  assert.match($('notice-text').textContent, /지금은 추천을 만들 수 없어요/);
 
   stubFetch(async () => jsonResponse({ replies: REPLIES }));
   await suggest.suggestForLatest();
@@ -131,7 +131,7 @@ test('a failure that arrives after the learner moved to another session stays qu
 
   assert.equal($('conversation').children.filter((n) => n.className === 'suggest-card').length, 0,
     '카드는 여전히 치운다');
-  assert.equal($('notice').textContent, '', '다른 세션으로 넘어간 뒤에는 실패를 알리지 않는다');
+  assert.equal($('notice-text').textContent, '', '다른 세션으로 넘어간 뒤에는 실패를 알리지 않는다');
 
   // The WeakMap entry for the original bubble was cleared too -- asking again
   // (conceptually, back on the original session) would hit the server again

@@ -180,7 +180,7 @@ test('a failed generation clears the status and says what failed', async () => {
   $('wish').value = 'x';
   await pick.startFromPick();
   assert.equal($('start-status').hidden, true);
-  assert.match($('notice').textContent, /대본을 만들지 못했어요/);
+  assert.match($('notice-text').textContent, /대본을 만들지 못했어요/);
   assert.equal($('btn-start').disabled, false);
 });
 
@@ -485,7 +485,7 @@ test('a held pick that fails during a waiting start is reported once, by the sta
   routes({ pick: async () => { await held; return jsonResponse({ detail: '이 테마는 아직 준비되지 않았어요' }, { ok: false, status: 409 }); } });
   await pick.openPick('script');
   const notices = [];
-  const el = $('notice');
+  const el = $('notice-text');
   let text = el.textContent;
   Object.defineProperty(el, 'textContent', { get: () => text, set: (v) => { text = v; if (v) notices.push(v); } });
   const choosing = pick.selectTheme('cafe-restaurant');
@@ -500,7 +500,7 @@ test('a pick that fails with no start waiting still says why', async () => {
   routes({ pick: async () => jsonResponse({ detail: '이 테마는 아직 준비되지 않았어요' }, { ok: false, status: 409 }) });
   await pick.openPick('script');
   await pick.selectTheme('cafe-restaurant');
-  assert.equal($('notice').textContent, '이 테마는 아직 준비되지 않았어요');
+  assert.equal($('notice-text').textContent, '이 테마는 아직 준비되지 않았어요');
 });
 
 /* ---------- starting a theme straight from home ---------- */
@@ -532,7 +532,7 @@ test('startTheme does nothing while a start is already running', async () => {
   await pick.startTheme('script', 'hotel');
   home.setBusy(false);
   assert.equal(seen.picks.length, 0);
-  assert.equal($('notice').textContent, '');
+  assert.equal($('notice-text').textContent, '');
 });
 
 test('← 홈 while startTheme waits for the themes cancels the start', async () => {
@@ -558,7 +558,7 @@ test('startTheme on a theme that is not ready says so and stays on the pick scre
   const seen = routes();
   await pick.startTheme('script', 'shopping');
   assert.equal(seen.sessions.length, 0);
-  assert.match($('notice').textContent, /이 테마는 아직 준비되지 않았어요/);
+  assert.match($('notice-text').textContent, /이 테마는 아직 준비되지 않았어요/);
   assert.equal(router.current(), 'pick');
 });
 
@@ -567,7 +567,7 @@ test('startTheme whose pick fails does not start a different theme from the tab'
   await pick.startTheme('script', 'hotel');
   assert.equal(seen.picks.length, 1);
   assert.equal(seen.sessions.length, 0);
-  assert.equal($('notice').textContent, '대본이 없어요');
+  assert.equal($('notice-text').textContent, '대본이 없어요');
 });
 
 /* ---------- while the themes load ---------- */
@@ -603,7 +603,7 @@ test('시작 (or Enter) while the themes load does not claim there is no theme',
   const opening = pick.openPick('script');
   await new Promise((r) => setTimeout(r, 0));
   await pick.startFromPick();
-  assert.equal($('notice').textContent, '', 'said there was nothing to choose while the list was still coming');
+  assert.equal($('notice-text').textContent, '', 'said there was nothing to choose while the list was still coming');
   release();
   await opening;
   await pick.startFromPick();

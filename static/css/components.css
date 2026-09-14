@@ -74,6 +74,68 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   font-size: var(--text-sm);
 }
 
+/* --- floating notice, screen-enter, and layout-preserving utilities ---
+
+   spec R1 (screens ease in), R4 (the notice floats, doesn't push the page),
+   R5 (state lines keep their place instead of collapsing the layout), R9
+   (the scrollbar's width is reserved, see base.css). */
+
+/* #notice is `position: fixed`, so it never pushes the page below it --
+   `.notice` above still carries its background/colour/shape. */
+.toast {
+  position: fixed; top: var(--space-4); left: 50%; transform: translateX(-50%);
+  z-index: 30; display: flex; align-items: center; gap: var(--space-2);
+  max-width: min(560px, calc(100vw - 2 * var(--space-4)));
+  box-shadow: var(--shadow-lift);
+  animation-name: toast-in; animation-duration: var(--dur-fast); animation-timing-function: ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* The × is drawn with CSS, not typed into the button, so `#notice-close`
+   never adds a text node inside `#notice` -- `#notice`'s own textContent
+   stays exactly `#notice-text`'s message (`aria-label` still names the
+   button for assistive tech). */
+#notice-close { padding: 0 var(--space-2); line-height: 1; }
+#notice-close::before { content: '×'; }
+
+/* A screen entering through router.show() (spec R1). The screen being left
+   is hidden outright in the same pass, so the two never overlap mid-fade. */
+.screen-enter { animation: fade-down var(--dur-fast) ease-out; }
+@keyframes fade-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Keeps an element in the layout while hiding it, instead of `hidden`
+   collapsing its space and shifting everything below it (spec R5): a status
+   line, a secondary button, or anything else that comes and goes while the
+   rest of the screen holds still. */
+.is-invisible { visibility: hidden; opacity: 0; }
+.fade { transition: opacity var(--dur-fast) ease, visibility var(--dur-fast); }
+
+/* Content already on screen dims instead of disappearing while a refresh is
+   in flight (spec R2) -- the old data stays legible and nothing collapses. */
+.is-refreshing { opacity: .55; transition: opacity var(--dur-fast) ease; }
+
+/* A placeholder sized like the real content it stands in for (spec R3), so
+   nothing resizes once the content it was standing in for arrives. */
+.skeleton {
+  background: var(--surface-sunken); border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.2s ease-in-out infinite;
+}
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: .6; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen-enter, .toast, .skeleton { animation: none; }
+  .fade, .is-refreshing { transition: none; }
+}
+
 .chip-row { max-width: 78%; margin: calc(var(--space-1) * -1) 0 var(--space-3) auto; }
 
 .chip {

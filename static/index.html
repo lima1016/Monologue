@@ -36,7 +36,10 @@
 </header>
 
 <main>
-  <p id="notice" class="notice" hidden></p>
+  <div id="notice" class="notice toast" role="status" aria-live="polite" hidden>
+    <span id="notice-text"></span>
+    <button id="notice-close" class="ghost" type="button" aria-label="알림 닫기"></button>
+  </div>
 
   <section id="home">
     <div class="home-main">

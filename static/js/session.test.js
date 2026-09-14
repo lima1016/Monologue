@@ -567,7 +567,7 @@ test('a failed report takes the waiting card down and says so', async () => {
   await ending;
   assert.equal($('report-wait').hidden, true, '실패하면 표시를 내리고 다시 누를 수 있어야 한다');
   assert.equal($('btn-end').textContent, '세션 끝내기');
-  assert.match($('notice').textContent, /리포트 생성 실패/);
+  assert.match($('notice-text').textContent, /리포트 생성 실패/);
 });
 
 /* The pulsing-mic-does-nothing bug: syncControls disabled #btn-mic through
@@ -649,5 +649,5 @@ test('a session that could not be created says so in the same voice as the pick 
     return jsonResponse({});
   });
   await startSession({ language: 'en', mode: 'free', scenarioId: 'x' });
-  assert.match($('notice').textContent, /^세션을 시작하지 못했어요: /);
+  assert.match($('notice-text').textContent, /^세션을 시작하지 못했어요: /);
 });
