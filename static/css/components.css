@@ -694,6 +694,7 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    shown -- there is no goal to step yet. */
 .week-days .day.skeleton .dot { visibility: hidden; }
 #week-progress.skeleton { width: 60%; }
+#week-streak.skeleton { width: 30%; }
 #week-card.is-skeleton .goal { visibility: hidden; }
 .goal { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
         font-size: var(--text-sm); color: var(--text-dim); }

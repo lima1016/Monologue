@@ -214,7 +214,12 @@ function weekSkeleton() {
     cell.append(el('span', 'dl', NBSP), el('i', 'dot'));
     days.append(cell);
   }
-  $('week-streak').hidden = true;
+  // The streak line's row is held as well: it comes and goes with the data,
+  // and a row that only appears once a streak exists grew the card.
+  const streakLine = $('week-streak');
+  setShown(streakLine, true);
+  streakLine.textContent = NBSP;
+  streakLine.classList.add('skeleton');
   $('week-progress').textContent = NBSP;
   $('week-progress').classList.add('skeleton');
   $('week-bar').style.width = '0%';
@@ -226,6 +231,8 @@ function clearWeekSkeleton() {
   card.classList.remove('is-skeleton');
   card.removeAttribute('aria-busy');
   $('week-days').replaceChildren();
+  $('week-streak').classList.remove('skeleton');
+  $('week-streak').textContent = '';
   $('week-progress').classList.remove('skeleton');
   $('week-progress').textContent = '';
 }
@@ -343,8 +350,11 @@ function paintWeek() {
     cell.append(el('span', 'dl', d.label), el('i', 'dot'));
     days.append(cell);
   }
-  $('week-streak').hidden = !streak;
-  $('week-streak').textContent = streak ? `연속 ${streak}일` : '';
+  // Kept in place with no streak (R5): the progress line below must not move
+  // up and down as a streak starts and breaks. NBSP so the empty row is still
+  // one line tall.
+  setShown($('week-streak'), Boolean(streak));
+  $('week-streak').textContent = streak ? `연속 ${streak}일` : NBSP;
   const { sessions: n, goal } = week;
   $('week-progress').textContent = `이번 주 ${n}/${goal} 세션${n >= goal ? ' · 목표 달성!' : ''}`;
   $('week-bar').style.width = `${Math.min(n / goal, 1) * 100}%`;

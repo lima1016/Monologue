@@ -373,8 +373,15 @@ test('the first load shows skeletons where the cards will be', async () => {
   assert.equal($('week-card').hidden, false, 'the week card holds its place on the first load');
   assert.ok($('week-card').classList.contains('is-skeleton'));
   assert.equal($('week-days').children.filter((c) => c.classList.contains('skeleton')).length, 7);
+  // The streak line's row is held too, so a streak arriving does not grow the card.
+  assert.equal($('week-streak').hidden, false, 'the streak row is not held on the first load');
+  assert.ok($('week-streak').classList.contains('skeleton'));
+  assert.equal($('week-streak').textContent, String.fromCharCode(0xa0));
   release();
   await loading;
+  assert.equal($('week-streak').classList.contains('skeleton'), false);
+  assert.equal($('week-streak').classList.contains('is-invisible'), false);
+  assert.equal($('week-streak').textContent, '연속 2일');
   assert.equal(hasClass($('today-body'), 'skeleton'), false);
   assert.equal($('week-card').classList.contains('is-skeleton'), false);
   assert.equal(hasClass($('week-days'), 'skeleton'), false);
@@ -461,14 +468,16 @@ test('the week card: seven days, streak, progress and bar', async () => {
   assert.equal($('week-bar').style.width, '60%');
 });
 
-test('reaching the goal says so, and a zero streak hides its line', async () => {
+test('reaching the goal says so, and a zero streak keeps its line in place, invisible', async () => {
   const p = PAYLOAD({ streak: 0 });
   p.week.sessions = 6;
   homeRoutes(p);
   await home.loadHome();
   assert.equal($('week-progress').textContent, '이번 주 6/5 세션 · 목표 달성!');
   assert.equal($('week-bar').style.width, '100%');
-  assert.equal($('week-streak').hidden, true);
+  assert.equal($('week-streak').hidden, false, 'a zero streak collapsed its row and moved the progress line');
+  assert.ok($('week-streak').classList.contains('is-invisible'));
+  assert.equal($('week-streak').getAttribute('aria-hidden'), 'true');
 });
 
 test('the goal changes at once, is saved, stops at the bounds, and rolls back on failure', async () => {
