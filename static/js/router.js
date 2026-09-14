@@ -5,6 +5,8 @@ import { $ } from './api.js';
    editing this file. */
 const screens = new Map();
 let active = null;
+let generation = 0;
+const ENTER_FALLBACK_MS = 200;   // --dur-fast (150ms) plus a frame or three
 
 export function register(name, elementId) {
   screens.set(name, elementId);
@@ -27,6 +29,9 @@ export function show(name) {
     // visible, at load, in a test.
     if (!el) throw new Error(`screen ${screen} (#${id}) is not in the document`);
     el.hidden = screen !== name;
+    // A screen left mid-fade drops its class, so it cannot carry a stale one
+    // into its next entry.
+    if (screen !== name) el.classList.remove('screen-enter');
   }
   // The entering screen eases in (spec R1); the ones being left are hidden
   // outright in the same pass above, so nothing overlaps mid-transition.
@@ -35,8 +40,20 @@ export function show(name) {
   if (active !== name) {
     const enteringId = screens.get(name);
     const entering = $(enteringId);
+    // The class comes off when the fade actually ends: the screen's own
+    // animationend (a bubble or chip fading in inside it bubbles one up too,
+    // hence the target check), or a fallback a little past --dur-fast for when
+    // no animation runs (reduced motion). Each entry has a generation, so on a
+    // fast A -> B -> A the first entry's timer cannot end the latest fade.
+    const gen = ++generation;
+    const end = (e) => {
+      if (e && e.target !== entering) return;
+      entering.removeEventListener('animationend', end);
+      if (gen === generation) entering.classList.remove('screen-enter');
+    };
     entering.classList.add('screen-enter');
-    setTimeout(() => entering.classList.remove('screen-enter'), 150);
+    entering.addEventListener('animationend', end);
+    setTimeout(end, ENTER_FALLBACK_MS);
   }
   active = name;
 }
