@@ -93,7 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_library_theme ON library_scenarios(language, type
 앱 밖에서 한 번 돌리는 운영 도구.
 
 ```
-venv/Scripts/python.exe scripts/build_library.py [--language en|ja] [--theme ID ...] [--per-theme 30] [--dry-run]
+venv/Scripts/python.exe scripts/build_library.py [--language en|ja] [--theme ID ...] [--per-theme 30]
 ```
 
 - 테마 × 언어마다: 자유 대화 설정 1개(없을 때만) + 대본을 `--per-theme`편이 될 때까지.
