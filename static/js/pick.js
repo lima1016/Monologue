@@ -262,6 +262,8 @@ export async function startTheme(mode, themeId) {
   if (isBusy()) return;
   const language = state.language;
   await openPick(mode);
+  // ← 홈 while the list loaded: the learner backed out, so nothing starts.
+  if (router.current() !== 'pick') return;
   if (state.language !== language || state.mode !== mode) return;
   if (!themes.length) return;              // the list failed to load, and loadThemes said so
   const theme = themes.find((t) => t.id === themeId);
@@ -271,6 +273,7 @@ export async function startTheme(mode, themeId) {
     return;
   }
   await selectTheme(themeId);
+  if (router.current() !== 'pick') return;
   if (state.language !== language || state.mode !== mode) return;
   if (selected?.kind !== 'theme' || selected.id !== themeId) return;
   await startFromPick();

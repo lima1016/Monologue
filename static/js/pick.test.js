@@ -523,16 +523,35 @@ test('startTheme in free mode starts the theme it was given, not one drawn from 
 
 test('startTheme does nothing while a start is already running', async () => {
   const seen = routes();
-  // The list is already loaded from an earlier visit, so a refused openPick
-  // alone would not stop the rest: without its own guard startTheme would
-  // flip the tab and send a pick in the middle of the other start.
+  // The list is already loaded and #pick is on screen (a start in flight
+  // shows it), so a refused openPick alone would not stop the rest: without
+  // its own guard startTheme would flip the tab and send a pick in the middle
+  // of the other start.
   await pick.openPick('script');
-  router.show('home');
   home.setBusy(true);
   await pick.startTheme('script', 'hotel');
   home.setBusy(false);
   assert.equal(seen.picks.length, 0);
   assert.equal($('notice').textContent, '');
+});
+
+test('← 홈 while startTheme waits for the themes cancels the start', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const seen = routes();
+  const base = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (url.startsWith('/api/themes')) await held;
+    return base(url, options);
+  };
+  const starting = pick.startTheme('script', 'hotel');
+  await new Promise((r) => setTimeout(r, 0));
+  router.show('home');                   // the learner backs out
+  release();
+  await starting;
+  assert.equal(seen.picks.length, 0);
+  assert.equal(seen.sessions.length, 0);
+  assert.equal(router.current(), 'home');
 });
 
 test('startTheme on a theme that is not ready says so and stays on the pick screen', async () => {

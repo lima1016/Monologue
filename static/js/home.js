@@ -96,7 +96,9 @@ export async function loadHome() {
         `요즘 ${worst.tag}에서 자주 걸립니다. 오늘은 그쪽을 노려볼까요?`;
     }
 
-    if (stats.has_history && stats.week) {
+    // No numeric goal means the payload is not the one this card is drawn
+    // from -- hide the card rather than invent a goal the learner never set.
+    if (stats.has_history && stats.week && typeof stats.week.goal === 'number') {
       renderWeek(stats.week, stats.streak);
       renderRecentThemes(stats.recent_themes);
     } else {
@@ -193,7 +195,7 @@ function paintToday() {
   body.replaceChildren(
     el('p', 'today-title', current.title),
     el('p', 'today-situations', (current.situations || []).slice(0, 3).join(' · ')),
-    el('p', 'today-reason', current.reason || ''),
+    ...(current.reason ? [el('p', 'today-reason', current.reason)] : []),
     actions,
   );
   alt.hidden = !other;
@@ -209,7 +211,7 @@ function paintToday() {
 /* ---------- 이번 주 ---------- */
 
 export function renderWeek(data, streakDays) {
-  week = { days: data.days || [], sessions: data.sessions || 0, goal: data.goal || 5 };
+  week = { days: data.days || [], sessions: data.sessions || 0, goal: data.goal };
   streak = streakDays || 0;
   paintWeek();
 }
