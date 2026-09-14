@@ -769,14 +769,29 @@ def last_started(scenario_ids) -> dict:
 
 def practice_days(language, start, end) -> set:
     """Local dates (YYYY-MM-DD) in [start, end] on which the learner spoke.
-    Local time for the same reason home_stats uses it (see its docstring)."""
+    Local time for the same reason home_stats uses it (see its docstring).
+
+    `m.created_at >= cutoff` runs before the localtime conversion so SQLite
+    can rule most rows out with a plain string compare, rather than computing
+    datetime(m.created_at, 'localtime') for every row in the table just to
+    throw most of them away on the BETWEEN below. `cutoff` is local midnight
+    of `start` *minus one day*, converted to UTC -- one exact day short of
+    `start` would clip a message on `start`'s own local morning whenever the
+    local zone runs ahead of UTC (as this app's Korea does): local
+    00:05 on `start` is stored as roughly 15:05 UTC the day *before* `start`,
+    which a same-day cutoff would exclude before the BETWEEN ever saw it.
+    The BETWEEN clause is still what actually decides membership; this bound
+    only narrows what reaches it, so results are unchanged."""
+    local_tz = datetime.now().astimezone().tzinfo
+    cutoff_local = datetime.combine(start - timedelta(days=1), datetime.min.time(), tzinfo=local_tz)
+    cutoff = cutoff_local.astimezone(timezone.utc).isoformat(timespec="seconds")
     with connect() as conn:
         rows = conn.execute(
             "SELECT DISTINCT substr(datetime(m.created_at, 'localtime'), 1, 10) d"
             " FROM messages m JOIN sessions s ON s.id = m.session_id"
-            " WHERE s.language = ? AND m.speaker = 'user'"
+            " WHERE s.language = ? AND m.speaker = 'user' AND m.created_at >= ?"
             "   AND substr(datetime(m.created_at, 'localtime'), 1, 10) BETWEEN ? AND ?",
-            (language, start.isoformat(), end.isoformat())).fetchall()
+            (language, cutoff, start.isoformat(), end.isoformat())).fetchall()
     return {r[0] for r in rows}
 
 

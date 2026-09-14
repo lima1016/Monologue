@@ -797,6 +797,23 @@ def test_practice_days_are_local_dates_of_learner_messages(store, monkeypatch):
     assert store.practice_days("en", date(2026, 9, 11), date(2026, 9, 14)) == {"2026-09-14", "2026-09-13"}
 
 
+def test_practice_days_excludes_a_message_far_outside_the_range(store, monkeypatch):
+    """Pins the query's shape, not a behavior change: a message this old was
+    never in range before either (the BETWEEN clause alone already excludes
+    it). The point is the new `m.created_at >= <cutoff>` bound added ahead of
+    the localtime conversion -- this also exercises the boundary it must not
+    clip: a message right at local midnight of `start` itself (whose UTC
+    created_at falls on the day *before* `start` whenever the local zone
+    runs ahead of UTC, as Korea's does), which is exactly why the cutoff
+    sits one day before local `start`, not on it."""
+    sid = store.create_session("en", "free")
+    stamps = iter([_local_stamp(date(2026, 7, 1), 12, 0), _local_stamp(date(2026, 9, 11), 0, 5)])
+    monkeypatch.setattr(store, "_now", lambda: next(stamps))
+    store.add_message(sid, "user", "far too old")
+    store.add_message(sid, "user", "right at the start of the range")
+    assert store.practice_days("en", date(2026, 9, 11), date(2026, 9, 14)) == {"2026-09-11"}
+
+
 def test_sessions_completed_since_counts_reported_sessions_from_that_local_midnight(store, monkeypatch):
     ids = [store.create_session("en", "free") for _ in range(3)] + [store.create_session("ja", "free")]
     stamps = iter([_utc_iso(datetime(2026, 9, 14, 0, 5)), _utc_iso(datetime(2026, 9, 13, 23, 55)),
