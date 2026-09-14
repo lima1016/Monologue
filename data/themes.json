@@ -1,0 +1,22 @@
+[
+  {"id": "cafe-restaurant", "category": "daily", "title": "카페·음식점 주문", "situations": ["메뉴 추천 묻기", "주문이 잘못 나옴", "포장 주문", "알레르기 확인"]},
+  {"id": "shopping", "category": "daily", "title": "쇼핑·계산", "situations": ["사이즈 찾기", "교환·환불", "할인 묻기", "카드 결제 오류"]},
+  {"id": "clinic-pharmacy", "category": "daily", "title": "병원·약국", "situations": ["접수하기", "증상 설명하기", "처방약 복용법 묻기"]},
+  {"id": "bank-post-office", "category": "daily", "title": "은행·우체국·관공서", "situations": ["계좌 개설", "택배 보내기", "서류 발급"]},
+  {"id": "home-neighbors", "category": "daily", "title": "이웃·집 문제", "situations": ["소음 이야기", "수리 기사 부르기", "택배 대신 받아주기"]},
+  {"id": "airport-flight", "category": "travel", "title": "공항·기내", "situations": ["체크인", "좌석 변경", "짐 분실", "기내 요청"]},
+  {"id": "hotel", "category": "travel", "title": "호텔", "situations": ["체크인", "방 문제 알리기", "짐 맡기기", "체크아웃 연장"]},
+  {"id": "directions-transit", "category": "travel", "title": "길 찾기·대중교통", "situations": ["길 묻기", "표 사기", "환승", "택시 목적지 설명"]},
+  {"id": "sightseeing", "category": "travel", "title": "관광·예약", "situations": ["투어 예약", "입장권 사기", "사진 부탁", "추천 장소 묻기"]},
+  {"id": "travel-trouble", "category": "travel", "title": "여행 중 문제", "situations": ["분실물 신고", "몸이 아플 때", "예약 착오"]},
+  {"id": "first-meeting", "category": "smalltalk", "title": "처음 만난 사람과 인사", "situations": ["자기소개", "출신 이야기", "하는 일"]},
+  {"id": "weekend-vacation", "category": "smalltalk", "title": "주말·휴가 이야기", "situations": ["주말에 한 일", "휴가 계획", "추천하기"]},
+  {"id": "hobbies", "category": "smalltalk", "title": "취미·관심사", "situations": ["운동", "영화·드라마", "음식", "게임"]},
+  {"id": "weather-life", "category": "smalltalk", "title": "날씨·요즘 일상", "situations": ["날씨 이야기", "바쁜 근황", "가벼운 고민"]},
+  {"id": "invitations", "category": "smalltalk", "title": "초대·약속 잡기", "situations": ["식사 제안", "일정 조율", "정중하게 거절하기"]},
+  {"id": "standup", "category": "business", "title": "사무실 아침 대화·스탠드업", "situations": ["진행 상황 공유", "막힌 부분 말하기", "도움 요청"]},
+  {"id": "meetings", "category": "business", "title": "회의", "situations": ["의견 말하기", "반대 의견 내기", "일정 변경"]},
+  {"id": "phone-email", "category": "business", "title": "전화·이메일 응대", "situations": ["전화 받기", "메시지 남기기", "담당자 연결 요청"]},
+  {"id": "clients", "category": "business", "title": "거래처·손님 응대", "situations": ["회사 소개", "요구사항 확인", "가격 협의"]},
+  {"id": "interview", "category": "business", "title": "면접·자기소개", "situations": ["경력 설명", "강점 말하기", "면접관에게 질문하기"]}
+]
