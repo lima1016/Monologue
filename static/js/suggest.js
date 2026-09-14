@@ -85,6 +85,14 @@ export function renderReplies(card, replies, language) {
       row.appendChild(meaning);
     } else if (language === 'en') {
       attachMeaning(line, 'en', reply.text);
+    } else if (language === 'ja') {
+      // annotate() may fail (network, or a bad /reading response) and never
+      // touch this line -- without a fallback button, a null-meaning
+      // Japanese reply would then have no way to reach its meaning at all.
+      // When annotate does succeed, it replaces the whole line via
+      // innerHTML, which drops this button; renderTokens draws its own in
+      // its place, so there is never a duplicate.
+      attachMeaning(line, 'ja', reply.text);
     }
     if (language === 'ja') japanese.push({ el: line, text: reply.text });
     card.appendChild(row);

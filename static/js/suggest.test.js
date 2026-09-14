@@ -151,6 +151,24 @@ test('with no bot line there is nothing to ask', async () => {
   assert.equal(calls, 0);
 });
 
+test('a Japanese reply with no meaning still gets a ▸ 뜻 button when /reading fails', async () => {
+  setup();
+  state.language = 'ja';
+  stubFetch(async (url) => {
+    if (url === '/api/reading') return jsonResponse({ detail: 'down' }, { ok: false, status: 503 });
+    return jsonResponse({ replies: [{ text: '窓側で。', meaning: null, audio_key: null }] });
+  });
+  bubble('bot', '窓側と通路側、どちらがいいですか。');
+  await suggest.suggestForLatest();
+  await new Promise((r) => setTimeout(r, 0)); // let annotate's failed fetch settle
+
+  const card = $('conversation').children.find((n) => n.className === 'suggest-card');
+  const row = card.children.find((n) => n.className === 'suggest-row');
+  const line = row.children[0];
+  assert.ok(line.children.some((n) => n.className === 'meaning'),
+    '읽기 보조가 실패해도 뜻 버튼은 있어야 한다');
+});
+
 test('Japanese reply lines get reading aids', async () => {
   setup();
   state.language = 'ja';
