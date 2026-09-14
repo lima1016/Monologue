@@ -814,10 +814,13 @@ def chat_turn(payload: ChatTurn):
         bot_last=_last_bot_message(payload.session_id),
         topic=session["topic"] if session["mode"] == "lesson" else None,
     )
-    db.add_message(payload.session_id, "user", text,
+    message_id = db.add_message(payload.session_id, "user", text,
                    correction=feedback["correction"],
                    suggestion=feedback["suggestion"],
                    ok=feedback["ok"], fixed=feedback["fixed"], tag=feedback["tag"])
+    if feedback["ok"] is False and feedback["fixed"]:
+        # Tomorrow, not today: the learner just saw the fix. Spec: mypage design.
+        db.enqueue_review(message_id, language, _today() + timedelta(days=1))
 
     system = prompts.build_system_prompt(
         session["mode"], language, scenario=scenario, topic=session["topic"],

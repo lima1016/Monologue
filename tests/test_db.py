@@ -870,3 +870,108 @@ def test_library_readiness_counts_in_one_query(store):
         "hotel": {"free": True, "script": 2},
         "cafe-restaurant": {"free": False, "script": 1},
     }
+
+
+def _wrong_turn(store, language="en", mode="free", text="I go there", fixed="I went there."):
+    sid = store.create_session(language, mode)
+    return store.add_message(sid, "user", text, correction="c", ok=0, fixed=fixed, tag="시제")
+
+
+def test_v6_creates_review_queue_and_backfills_past_corrections(tmp_path, monkeypatch):
+    from app import config
+    import sqlite3
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "old.db")
+    store = __import__("app.db", fromlist=["db"])
+    store.init_db()
+    with store.connect() as conn:            # simulate a v5 database with history
+        conn.execute("DROP TABLE review_queue")
+        conn.execute("PRAGMA user_version = 5")
+    wrong = _wrong_turn(store)
+    _wrong_turn(store, mode="script")                         # script sessions are skipped
+    sid = store.create_session("en", "free")
+    store.add_message(sid, "user", "fine", ok=1, fixed="fine")  # correct turns are skipped
+    store.add_message(sid, "user", "no fix", ok=0, fixed=None)  # nothing to practise
+    store.init_db()
+    store.init_db()                                            # idempotent
+    with store.connect() as conn:
+        rows = conn.execute("SELECT message_id, language, due_date FROM review_queue").fetchall()
+    assert [(r["message_id"], r["language"]) for r in rows] == [(wrong, "en")]
+    assert rows[0]["due_date"] == date.today().isoformat()
+
+
+def test_enqueue_is_idempotent_and_due_reviews_filter(store):
+    a = _wrong_turn(store)
+    b = _wrong_turn(store, text="She have", fixed="She has.")
+    c = _wrong_turn(store, language="ja", text="行きます", fixed="行きました。")
+    store.enqueue_review(a, "en", date(2026, 9, 13))
+    store.enqueue_review(a, "en", date(2026, 9, 20))          # ignored
+    store.enqueue_review(b, "en", date(2026, 9, 15))          # future
+    store.enqueue_review(c, "ja", date(2026, 9, 1))
+    due = store.due_reviews("en", date(2026, 9, 14))
+    assert [d["message_id"] for d in due] == [a]
+    assert due[0]["text"] == "I go there" and due[0]["fixed"] == "I went there." and due[0]["tag"] == "시제"
+    assert store.review_counts("en", date(2026, 9, 14)) == {"due": 1, "mastered": 0}
+
+
+def test_due_reviews_oldest_first_and_capped(store):
+    ids = []
+    for n in range(25):
+        m = _wrong_turn(store, text=f"t{n}", fixed=f"f{n}.")
+        store.enqueue_review(m, "en", date(2026, 9, 1 + (n % 5)))
+        ids.append(m)
+    due = store.due_reviews("en", date(2026, 9, 14))
+    assert len(due) == 20
+    assert [d["created_at"] <= e["created_at"] or d["id"] < e["id"] for d, e in zip(due, due[1:])]
+    dates = [store.get_review(d["id"])["due_date"] for d in due]
+    assert dates == sorted(dates)
+
+
+def test_record_review_follows_the_interval_table(store):
+    m = _wrong_turn(store)
+    store.enqueue_review(m, "en", date(2026, 9, 14))
+    rid = store.due_reviews("en", date(2026, 9, 14))[0]["id"]
+    today = date(2026, 9, 14)
+    r = store.record_review(rid, "pass", today)
+    assert (r["passes"], r["interval_d"], r["due_date"], r["mastered"]) == (1, 3, "2026-09-17", False)
+    r = store.record_review(rid, "fail", today)
+    assert (r["passes"], r["interval_d"], r["due_date"]) == (0, 1, "2026-09-15")
+    r = store.record_review(rid, "skip", today)
+    assert (r["passes"], r["interval_d"], r["due_date"]) == (0, 1, "2026-09-15")
+    store.record_review(rid, "pass", today)                   # 1 -> interval 3
+    r = store.record_review(rid, "pass", today)               # 2 -> interval 7
+    assert (r["passes"], r["interval_d"]) == (2, 7)
+    r = store.record_review(rid, "pass", today)               # 3 -> mastered
+    assert r["mastered"] is True and r["passes"] == 3
+    assert store.review_counts("en", date(2026, 9, 30)) == {"due": 0, "mastered": 1}
+    with pytest.raises(ValueError):
+        store.record_review(rid, "pass", today)
+    with pytest.raises(KeyError):
+        store.record_review(99999, "pass", today)
+    other = _wrong_turn(store, text="x", fixed="y.")
+    store.enqueue_review(other, "en", today)
+    with pytest.raises(ValueError):
+        store.record_review(store.due_reviews("en", today)[0]["id"], "maybe", today)
+
+
+def test_interval_stops_at_fourteen(store, monkeypatch):
+    monkeypatch.setattr(store, "REVIEW_PASSES_TO_MASTER", 10)
+    m = _wrong_turn(store)
+    store.enqueue_review(m, "en", date(2026, 9, 14))
+    rid = store.due_reviews("en", date(2026, 9, 14))[0]["id"]
+    intervals = [store.record_review(rid, "pass", date(2026, 9, 14))["interval_d"] for _ in range(5)]
+    assert intervals == [3, 7, 14, 14, 14]
+
+
+def test_undo_removes_the_review_of_the_undone_turn(store):
+    sid = store.create_session("en", "free")
+    m = store.add_message(sid, "user", "I go", ok=0, fixed="I went.")
+    store.add_message(sid, "bot", "ok")
+    store.enqueue_review(m, "en", date(2026, 9, 14))
+    store.delete_last_turn(sid)
+    assert store.due_reviews("en", date(2026, 9, 30)) == []
+    # due_reviews INNER JOINs messages, so it alone would not catch a
+    # review_queue row orphaned by a deleted message (review_counts, which
+    # queries review_queue directly, would still overcount it) -- check the
+    # table itself is actually empty, not just invisible through the join.
+    with store.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM review_queue").fetchone()[0] == 0
