@@ -969,13 +969,29 @@ def level_sample(language) -> dict:
 
 
 def accuracy_since(language, since) -> dict:
+    """Accuracy over graded, non-script learner turns from local `since` onward.
+
+    Same bound as practice_days (see its docstring): `m.created_at >= cutoff`
+    runs before the localtime conversion so SQLite can rule out most rows with
+    a plain string compare instead of computing datetime(m.created_at,
+    'localtime') for every message in the table just to throw most of them
+    away on the date compare below. `cutoff` is local midnight of `since`
+    *minus one day*, converted to UTC -- one exact day short of `since` would
+    clip a message on `since`'s own local morning whenever the local zone runs
+    ahead of UTC (as this app's Korea does). The date compare is still what
+    actually decides membership; this bound only narrows what reaches it, so
+    results are unchanged."""
+    local_tz = datetime.now().astimezone().tzinfo
+    cutoff_local = datetime.combine(since - timedelta(days=1), datetime.min.time(), tzinfo=local_tz)
+    cutoff = cutoff_local.astimezone(timezone.utc).isoformat(timespec="seconds")
     with connect() as conn:
         row = conn.execute(
             "SELECT COALESCE(SUM(m.ok = 1), 0) correct, COUNT(*) graded"
             " FROM messages m JOIN sessions s ON s.id = m.session_id"
             " WHERE s.language = ? AND s.mode <> 'script' AND m.speaker = 'user' AND m.ok IS NOT NULL"
+            "   AND m.created_at >= ?"
             "   AND substr(datetime(m.created_at, 'localtime'), 1, 10) >= ?",
-            (language, since.isoformat())).fetchone()
+            (language, cutoff, since.isoformat())).fetchone()
     return {"correct": row["correct"], "graded": row["graded"]}
 
 

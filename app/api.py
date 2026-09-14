@@ -1400,6 +1400,8 @@ def session_history_page(language: Language, offset: int = Query(default=0, ge=0
     rows = db.history(language, offset, _HISTORY_PAGE + 1)
     items = []
     for row in rows[:_HISTORY_PAGE]:
+        # _recent_row only reads "fixed" to pass it through unused here (we only
+        # want its "title"); reusing it for the wrong count is harmless stand-in data.
         titled = _recent_row({**row, "fixed": row["wrong"]})
         items.append({"id": row["id"], "ended_at": row["ended_at"], "title": titled["title"],
                       "mode": row["mode"], "turns": row["turns"], "wrong": row["wrong"]})

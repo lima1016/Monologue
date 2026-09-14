@@ -814,6 +814,21 @@ def test_practice_days_excludes_a_message_far_outside_the_range(store, monkeypat
     assert store.practice_days("en", date(2026, 9, 11), date(2026, 9, 14)) == {"2026-09-11"}
 
 
+def test_accuracy_since_bounds_the_scan_before_the_localtime_conversion(store, monkeypatch):
+    """Same shape as practice_days' own boundary test (see its docstring):
+    accuracy_since's `m.created_at >= cutoff` bound must not clip a message on
+    `since`'s own local morning, whose UTC created_at falls on the day
+    *before* `since` whenever the local zone runs ahead of UTC (as Korea's
+    does) -- which is exactly why the cutoff sits one day before local
+    `since`, not on it (and not on `since` itself expressed in UTC)."""
+    sid = store.create_session("en", "free")
+    stamps = iter([_local_stamp(date(2026, 9, 10), 23, 59), _local_stamp(date(2026, 9, 11), 0, 1)])
+    monkeypatch.setattr(store, "_now", lambda: next(stamps))
+    store.add_message(sid, "user", "just before local midnight of since", ok=1)
+    store.add_message(sid, "user", "just after local midnight of since", ok=1)
+    assert store.accuracy_since("en", date(2026, 9, 11)) == {"correct": 1, "graded": 1}
+
+
 def test_sessions_completed_since_counts_reported_sessions_from_that_local_midnight(store, monkeypatch):
     ids = [store.create_session("en", "free") for _ in range(3)] + [store.create_session("ja", "free")]
     stamps = iter([_utc_iso(datetime(2026, 9, 14, 0, 5)), _utc_iso(datetime(2026, 9, 13, 23, 55)),
