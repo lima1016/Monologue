@@ -1,15 +1,19 @@
-/* The home screen: the three mode cards, 이어서 하기, and the counters. Named
-   in the Phase 2 design
+/* The home screen: today's recommended theme, the three mode cards, 이어서 하기,
+   this week's practice, and the recent themes. Named in the Phase 2 design
    (docs/superpowers/specs/2026-08-29-monologue-phase2-design.md:325) as its own
-   module and split out of session.js, which had grown to four screens. What to
-   practise -- the wish, the themes, 시작 -- lives on the pick screen (pick.js).
+   module and split out of session.js, which had grown to four screens. The
+   dashboard itself is docs/superpowers/specs/2026-09-14-monologue-home-dashboard-design.md.
+   What to practise in a mode -- the wish, the themes, 시작 -- lives on the pick
+   screen (pick.js); a start button here only names a theme, and main.js hands
+   it to pick.startTheme.
 
    The dependency runs one way only: home.js imports addMessage from session.js,
    because resuming hands off to the session screen, and pick.js imports the
    start/resume guard from here. session.js must never import from either --
    the moment it does, they are one module again with an import statement
-   between them. */
-import { $, getJSON, state, notify } from './api.js';
+   between them. home.js must not import pick.js either (that would close a
+   cycle), which is why the start buttons are wired in main.js. */
+import { $, getJSON, postJSON, state, notify } from './api.js';
 import * as router from './router.js';
 import { addMessage } from './session.js';
 import { setSuggestVisible } from './suggest.js';
@@ -20,8 +24,19 @@ import { setSuggestVisible } from './suggest.js';
 // the other half hasn't declared yet.
 let resumeTarget = null;
 
+const GOAL_MIN = 1;
+const GOAL_MAX = 14;
+const START_LABELS = { script: '스크립트로 시작', free: '자유 대화로 시작' };
+const MODE_NAMES = { script: '스크립트', free: '자유 상황극' };
+
+let today = [];            // [current, alternative?] -- swapToday trades them
+let week = null;           // { days, sessions, goal } as last painted, or null
+let streak = 0;
+let savingGoal = false;    // POST /settings/weekly-goal is out
+
 /* Everything on the home screen that depends on history. Fails quietly: a
-   learner who wants to practise should never be stopped by a counter.
+   learner who wants to practise should never be stopped by a counter -- the
+   mode cards are never hidden by anything here.
 
    `session.turns` here comes from GET /sessions/resumable, which counts
    *every* message in the session (bot and learner) -- not the same "turns"
@@ -39,10 +54,12 @@ export async function loadHome() {
   // request must never leave the previous language's card/counters on screen
   // under the newly selected language button. A missing card is honest; a
   // stale one silently lies, and the learner has no way to tell the two apart.
-  $('resume-card').hidden = true;
-  $('home-stats').hidden = true;
-  $('home-recent').hidden = true;
-  $('recommend').hidden = true;
+  hideHistory();
+
+  // The recommendation is what the screen leads with, so its slot says it is
+  // coming rather than sitting empty (the user's rule: a wait shows what it is).
+  $('today-card').hidden = false;
+  $('today-body').replaceChildren(loadingNote());
 
   $('home-date').textContent = new Intl.DateTimeFormat('ko-KR', {
     month: 'long', day: 'numeric', weekday: 'long',
@@ -67,12 +84,10 @@ export async function loadHome() {
       $('resume-sub').textContent = `대화 ${session.turns}턴에서 멈췄습니다`;
     }
 
-    $('stat-streak').textContent = stats.streak;
-    $('stat-week').textContent = stats.week_turns;
-    $('stat-fixed').textContent = stats.fixed_total;
-    $('home-stats').hidden = !(stats.streak || stats.week_turns || stats.fixed_total);
+    $('home-greeting').textContent = stats.has_history
+      ? '오늘은 뭘 연습할까요?' : '첫 연습을 시작해 보세요';
 
-    renderRecent(stats.recent || []);
+    renderToday(stats.recommend);
 
     const worst = stats.top_tags && stats.top_tags[0];
     $('recommend').hidden = !worst;
@@ -80,16 +95,28 @@ export async function loadHome() {
       $('recommend').textContent =
         `요즘 ${worst.tag}에서 자주 걸립니다. 오늘은 그쪽을 노려볼까요?`;
     }
+
+    // No numeric goal means the payload is not the one this card is drawn
+    // from -- hide the card rather than invent a goal the learner never set.
+    if (stats.has_history && stats.week && typeof stats.week.goal === 'number') {
+      renderWeek(stats.week, stats.streak);
+      renderRecentThemes(stats.recent_themes);
+    } else {
+      week = null;
+      $('week-card').hidden = true;
+      $('recent-themes-wrap').hidden = true;
+    }
+
+    renderLibraryProgress(stats.library);
   } catch {
-    // history is a nicety -- never block the learner from starting. But the
-    // three elements above (plus #home-recent) must stay hidden on this path
-    // too: a later refactor that moves the initial hide out of this function
-    // must not be able to silently reopen the stale-data bug this guards
-    // against.
-    $('resume-card').hidden = true;
-    $('home-stats').hidden = true;
-    $('home-recent').hidden = true;
-    $('recommend').hidden = true;
+    // history is a nicety -- never block the learner from starting. But
+    // everything above must stay hidden on this path too: a later refactor
+    // that moves the initial hide out of this function must not be able to
+    // silently reopen the stale-data bug this guards against. Only a newer
+    // load may overrule this one, same as on the success path.
+    if (state.language !== lang) return;
+    hideHistory();
+    $('today-card').hidden = true;
   } finally {
     // 성공·실패 두 경로 모두에서 마지막에 한 번. 오른쪽에 보이는 것이 하나도
     // 없는데 트랙만 남으면 화면이 왼쪽으로 쏠린 채 330px 가 빈다.
@@ -97,46 +124,187 @@ export async function loadHome() {
   }
 }
 
+function hideHistory() {
+  $('resume-card').hidden = true;
+  $('today-alt').hidden = true;
+  $('recommend').hidden = true;
+  $('week-card').hidden = true;
+  $('recent-themes-wrap').hidden = true;
+  $('library-progress').hidden = true;
+}
+
+function loadingNote() {
+  const wrap = el('div', 'today-loading');
+  const dots = el('div', 'thinking');
+  dots.append(el('i'), el('i'), el('i'));
+  wrap.append(dots, el('span', '', '오늘의 추천 불러오는 중...'));
+  return wrap;
+}
+
+function el(tag, className = '', text = '') {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+
 /* 오른쪽 칸에 보이는 패널이 하나도 없으면 한 칸으로 접는다.
    querySelector 를 쓰지 않는 것은 취향이 아니다 -- dom-shim.js 는 CSS 선택자를
    구현하지 않고 항상 null 을 돌려주므로, 선택자로 쓰면 이 함수는 테스트에서
    조용히 아무것도 안 하게 된다. */
 function syncAside() {
-  const empty = $('resume-card').hidden && $('home-stats').hidden
-             && $('home-recent').hidden;
+  const empty = $('resume-card').hidden && $('week-card').hidden;
   $('home').classList.toggle('no-aside', empty);
 }
 
-function renderRecent(rows) {
-  const list = $('recent-list');
-  list.replaceChildren();
-  for (const row of rows) {
-    const li = document.createElement('li');
-    const when = document.createElement('span');
-    when.className = 'when';
-    when.textContent = relativeDay(row.ended_at);
-    const what = document.createElement('span');
-    what.className = 'what';
-    what.textContent = row.title;
-    const fixed = document.createElement('span');
-    fixed.className = 'fixed';
-    fixed.textContent = row.fixed ? `${row.fixed}개 고침` : '';
-    li.append(when, what, fixed);
-    list.append(li);
-  }
-  $('home-recent').hidden = rows.length === 0;
+/* ---------- 오늘의 추천 ---------- */
+
+export function renderToday(recs) {
+  today = (recs || []).slice(0, 2);
+  paintToday();
 }
 
-/* ended_at 은 UTC 오프셋이 붙은 ISO 문자열이다(db._now 의 형식,
-   `...+00:00`, 끝에 `Z`가 붙지 않는다). 날짜 경계는 로컬 기준으로 잡는다 --
-   home_stats 의 streak 가 같은 이유로 로컬 시간을 쓴다. */
-export function relativeDay(iso) {
-  const days = Math.round(
-    (new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0))
-    / 86400000);
-  if (days <= 0) return '오늘';
-  if (days === 1) return '어제';
-  return `${days}일 전`;
+/* 또는: -- trades the big card and the alternative. No request, no start.
+   paintToday rebuilds #today-alt's button as a new node, so the one the
+   learner just pressed is gone from the tree and focus would otherwise fall
+   back to <body>. The only way in is that button, so the replacement is
+   always the right thing to focus next. */
+export function swapToday() {
+  if (today.length < 2) return;
+  today = [today[1], today[0]];
+  paintToday();
+  $('today-alt').children[0]?.focus();
+}
+
+function paintToday() {
+  const body = $('today-body');
+  const alt = $('today-alt');
+  const [current, other] = today;
+  if (!current) {
+    body.replaceChildren(el('p', 'today-empty',
+      '새 대본을 준비하고 있어요. 그동안 직접 만들기나 수업으로 연습해 보세요.'));
+    alt.hidden = true;
+    return;
+  }
+  const actions = el('div', 'today-actions');
+  for (const mode of ['script', 'free']) {
+    const ready = mode === 'script' ? (current.ready?.script || 0) > 0 : Boolean(current.ready?.free);
+    const button = el('button', mode === 'script' ? 'primary' : '', START_LABELS[mode]);
+    button.type = 'button';
+    button.dataset.mode = mode;
+    button.dataset.theme = current.theme_id;
+    button.disabled = !ready;
+    actions.append(button);
+    if (!ready) actions.append(el('span', 'today-note', '대본 준비 중'));
+  }
+  body.replaceChildren(
+    el('p', 'today-title', current.title),
+    el('p', 'today-situations', (current.situations || []).slice(0, 3).join(' · ')),
+    ...(current.reason ? [el('p', 'today-reason', current.reason)] : []),
+    actions,
+  );
+  alt.hidden = !other;
+  if (other) {
+    const swap = el('button', 'ghost', `또는: ${other.title} →`);
+    swap.type = 'button';
+    alt.replaceChildren(swap);
+  } else {
+    alt.replaceChildren();
+  }
+}
+
+/* ---------- 이번 주 ---------- */
+
+export function renderWeek(data, streakDays) {
+  week = { days: data.days || [], sessions: data.sessions || 0, goal: data.goal };
+  streak = streakDays || 0;
+  paintWeek();
+}
+
+function paintWeek() {
+  $('week-card').hidden = false;
+  const days = $('week-days');
+  days.replaceChildren();
+  for (const d of week.days) {
+    const cell = el('span', 'day');
+    cell.classList.toggle('practiced', Boolean(d.practiced));
+    cell.classList.toggle('today', Boolean(d.today));
+    cell.classList.toggle('future', Boolean(d.future));
+    cell.setAttribute('title', d.date);
+    cell.append(el('span', 'dl', d.label), el('i', 'dot'));
+    days.append(cell);
+  }
+  $('week-streak').hidden = !streak;
+  $('week-streak').textContent = streak ? `연속 ${streak}일` : '';
+  const { sessions: n, goal } = week;
+  $('week-progress').textContent = `이번 주 ${n}/${goal} 세션${n >= goal ? ' · 목표 달성!' : ''}`;
+  $('week-bar').style.width = `${Math.min(n / goal, 1) * 100}%`;
+  $('goal-value').textContent = String(goal);
+  paintGoalButtons();
+}
+
+function paintGoalButtons() {
+  const goal = week ? week.goal : GOAL_MIN;
+  $('goal-minus').disabled = savingGoal || goal <= GOAL_MIN;
+  $('goal-plus').disabled = savingGoal || goal >= GOAL_MAX;
+}
+
+/* − / +: the screen moves first, the save follows, and a failed save puts the
+   old value back. Only a goal on the card this call changed is rolled back --
+   a loadHome that landed meanwhile painted the server's answer, which wins.
+
+   paintWeek disables both buttons for as long as the save is out, which (a
+   real browser, unlike this app's own state) drops focus off the one the
+   learner just pressed. `pressed` is the button's own id, not read from an
+   event -- delta's sign already says which of the two fixed goal-minus/
+   goal-plus buttons this call is for, and both callers are exactly those two
+   clicks (see main.js). Refocusing them is safe whether or not a newer
+   loadHome landed meanwhile: they are static elements paintWeek only
+   enables/disables, never replaces. */
+export async function changeGoal(delta) {
+  if (!week || savingGoal) return;
+  const shown = week;
+  const before = shown.goal;
+  const next = Math.min(GOAL_MAX, Math.max(GOAL_MIN, before + delta));
+  if (next === before) return;
+  const pressed = delta < 0 ? 'goal-minus' : 'goal-plus';
+  shown.goal = next;
+  savingGoal = true;
+  paintWeek();
+  try {
+    await postJSON('/settings/weekly-goal', { goal: next });
+  } catch {
+    if (week === shown) shown.goal = before;
+    notify('목표를 저장하지 못했어요');
+  } finally {
+    savingGoal = false;
+    if (week === shown) paintWeek();
+    else paintGoalButtons();
+    $(pressed).focus();
+  }
+}
+
+/* ---------- 최근 테마, 대본 준비 상태 ---------- */
+
+export function renderRecentThemes(items) {
+  const list = $('recent-themes');
+  list.replaceChildren();
+  for (const item of (items || []).slice(0, 4)) {
+    const card = el('button', 'recent-theme');
+    card.type = 'button';
+    card.dataset.theme = item.theme_id;
+    card.dataset.mode = item.mode;
+    card.append(el('span', 't', item.title), el('span', 'm', MODE_NAMES[item.mode] || item.mode));
+    list.append(card);
+  }
+  $('recent-themes-wrap').hidden = list.children.length === 0;
+}
+
+export function renderLibraryProgress(library) {
+  const line = $('library-progress');
+  const incomplete = Boolean(library) && library.scripts < library.target;
+  line.hidden = !incomplete;
+  line.textContent = incomplete ? `새 대본 준비 중 · ${library.scripts}/${library.target}편` : '';
 }
 
 /* The one thing that knows a session is already being opened -- by either door.

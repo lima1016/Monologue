@@ -245,6 +245,40 @@ export async function startFromPick() {
   }
 }
 
+/* Home's 오늘의 추천 and 최근 테마: one press opens the mode, turns to the theme's
+   own tab, chooses it and starts -- the same path a learner walks by hand, so
+   #start-status says each step here too.
+
+   Its own isBusy check comes first: openPick refuses during a start or a
+   resume but returns normally, and the list from an earlier visit is still
+   here -- without this the rest would flip the tab and send a pick in the
+   middle of the other start or resume.
+
+   Every step after an await re-checks that nothing overtook it -- a language
+   or mode switch while the list loads, or a pick that failed. A failed pick has
+   already said why (selectTheme notifies) and cleared the choice; starting
+   then would draw some *other* theme from the tab. */
+export async function startTheme(mode, themeId) {
+  if (isBusy()) return;
+  const language = state.language;
+  await openPick(mode);
+  // ← 홈 while the list loaded: the learner backed out, so nothing starts.
+  if (router.current() !== 'pick') return;
+  if (state.language !== language || state.mode !== mode) return;
+  if (!themes.length) return;              // the list failed to load, and loadThemes said so
+  const theme = themes.find((t) => t.id === themeId);
+  if (theme) selectCategory(theme.category);
+  if (!theme || !isReady(theme, mode)) {
+    notify('이 테마는 아직 준비되지 않았어요');
+    return;
+  }
+  await selectTheme(themeId);
+  if (router.current() !== 'pick') return;
+  if (state.language !== language || state.mode !== mode) return;
+  if (selected?.kind !== 'theme' || selected.id !== themeId) return;
+  await startFromPick();
+}
+
 /* Nothing chosen: a ready theme from the tab the learner is looking at (or one
    of their own, on 내가 만든 것). "고르세요" is what this screen exists to avoid. */
 function drawFromTab(mode) {

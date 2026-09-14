@@ -503,6 +503,73 @@ test('a pick that fails with no start waiting still says why', async () => {
   assert.equal($('notice').textContent, '이 테마는 아직 준비되지 않았어요');
 });
 
+/* ---------- starting a theme straight from home ---------- */
+
+test('startTheme opens the mode, selects the theme in its own tab, and starts with visible steps', async () => {
+  const seen = routes();
+  await pick.startTheme('script', 'hotel');
+  assert.equal(state.mode, 'script');
+  assert.equal(seen.picks[0].theme_id, 'hotel');
+  assert.equal(seen.sessions[0].scenario_id, 'lib-hotel-en-07');
+  assert.deepEqual(seen.statuses, ['음성 준비 중...']);
+});
+
+test('startTheme in free mode starts the theme it was given, not one drawn from the tab', async () => {
+  const seen = routes();
+  await pick.startTheme('free', 'hotel');
+  assert.deepEqual(seen.picks.map((p) => [p.mode, p.theme_id]), [['free', 'hotel']]);
+  assert.deepEqual(seen.statuses, ['첫 대사 만드는 중...']);
+});
+
+test('startTheme does nothing while a start is already running', async () => {
+  const seen = routes();
+  // The list is already loaded and #pick is on screen (a start in flight
+  // shows it), so a refused openPick alone would not stop the rest: without
+  // its own guard startTheme would flip the tab and send a pick in the middle
+  // of the other start.
+  await pick.openPick('script');
+  home.setBusy(true);
+  await pick.startTheme('script', 'hotel');
+  home.setBusy(false);
+  assert.equal(seen.picks.length, 0);
+  assert.equal($('notice').textContent, '');
+});
+
+test('← 홈 while startTheme waits for the themes cancels the start', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const seen = routes();
+  const base = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (url.startsWith('/api/themes')) await held;
+    return base(url, options);
+  };
+  const starting = pick.startTheme('script', 'hotel');
+  await new Promise((r) => setTimeout(r, 0));
+  router.show('home');                   // the learner backs out
+  release();
+  await starting;
+  assert.equal(seen.picks.length, 0);
+  assert.equal(seen.sessions.length, 0);
+  assert.equal(router.current(), 'home');
+});
+
+test('startTheme on a theme that is not ready says so and stays on the pick screen', async () => {
+  const seen = routes();
+  await pick.startTheme('script', 'shopping');
+  assert.equal(seen.sessions.length, 0);
+  assert.match($('notice').textContent, /이 테마는 아직 준비되지 않았어요/);
+  assert.equal(router.current(), 'pick');
+});
+
+test('startTheme whose pick fails does not start a different theme from the tab', async () => {
+  const seen = routes({ pick: async () => jsonResponse({ detail: '대본이 없어요' }, { ok: false, status: 409 }) });
+  await pick.startTheme('script', 'hotel');
+  assert.equal(seen.picks.length, 1);
+  assert.equal(seen.sessions.length, 0);
+  assert.equal($('notice').textContent, '대본이 없어요');
+});
+
 /* ---------- while the themes load ---------- */
 
 function holdThemes() {

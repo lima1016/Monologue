@@ -765,3 +765,76 @@ def last_started(scenario_ids) -> dict:
             f"SELECT scenario_id, MAX(started_at) AS last FROM sessions"
             f" WHERE scenario_id IN ({marks}) GROUP BY scenario_id", ids).fetchall()
     return {r["scenario_id"]: r["last"] for r in rows}
+
+
+def practice_days(language, start, end) -> set:
+    """Local dates (YYYY-MM-DD) in [start, end] on which the learner spoke.
+    Local time for the same reason home_stats uses it (see its docstring).
+
+    `m.created_at >= cutoff` runs before the localtime conversion so SQLite
+    can rule most rows out with a plain string compare, rather than computing
+    datetime(m.created_at, 'localtime') for every row in the table just to
+    throw most of them away on the BETWEEN below. `cutoff` is local midnight
+    of `start` *minus one day*, converted to UTC -- one exact day short of
+    `start` would clip a message on `start`'s own local morning whenever the
+    local zone runs ahead of UTC (as this app's Korea does): local
+    00:05 on `start` is stored as roughly 15:05 UTC the day *before* `start`,
+    which a same-day cutoff would exclude before the BETWEEN ever saw it.
+    The BETWEEN clause is still what actually decides membership; this bound
+    only narrows what reaches it, so results are unchanged."""
+    local_tz = datetime.now().astimezone().tzinfo
+    cutoff_local = datetime.combine(start - timedelta(days=1), datetime.min.time(), tzinfo=local_tz)
+    cutoff = cutoff_local.astimezone(timezone.utc).isoformat(timespec="seconds")
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT substr(datetime(m.created_at, 'localtime'), 1, 10) d"
+            " FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user' AND m.created_at >= ?"
+            "   AND substr(datetime(m.created_at, 'localtime'), 1, 10) BETWEEN ? AND ?",
+            (language, cutoff, start.isoformat(), end.isoformat())).fetchall()
+    return {r[0] for r in rows}
+
+
+def sessions_completed_since(language, start) -> int:
+    """Sessions finished with a report on or after local midnight of `start`."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM sessions WHERE language = ? AND report IS NOT NULL"
+            " AND ended_at IS NOT NULL AND datetime(ended_at, 'localtime') >= ?",
+            (language, f"{start.isoformat()} 00:00:00")).fetchone()[0]
+
+
+def library_sessions(language, limit=50) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT scenario_id, mode, started_at FROM sessions"
+            " WHERE language = ? AND scenario_id LIKE 'lib-%'"
+            " ORDER BY started_at DESC, id DESC LIMIT ?", (language, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def library_script_count(language) -> int:
+    with connect() as conn:
+        return conn.execute("SELECT COUNT(*) FROM library_scenarios WHERE language = ? AND type = 'script'",
+                            (language,)).fetchone()[0]
+
+
+def has_sessions(language) -> bool:
+    with connect() as conn:
+        return conn.execute("SELECT 1 FROM sessions WHERE language = ? LIMIT 1", (language,)).fetchone() is not None
+
+
+def library_readiness(language) -> dict:
+    """theme_id -> {'free': bool, 'script': count} for every theme with at least
+    one row in this language, in one query. recommend() used to call
+    library_scenarios (SELECT * + json.loads of every script's lines) and
+    free_setup once per theme just to count rows -- up to ~40 queries
+    hydrating full scenario bodies on every home load just to answer "is this
+    theme ready, and with how many scripts". A theme absent here has no rows
+    at all in this language."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT theme_id, SUM(type = 'script') AS scripts, MAX(type = 'free') AS free"
+            " FROM library_scenarios WHERE language = ? GROUP BY theme_id",
+            (language,)).fetchall()
+    return {r["theme_id"]: {"free": bool(r["free"]), "script": r["scripts"]} for r in rows}

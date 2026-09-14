@@ -2,9 +2,9 @@ import { $, postJSON, notify, state } from './api.js';
 import { play, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
 import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
-import { loadHome, resumeSession } from './home.js';
+import { loadHome, resumeSession, swapToday, changeGoal } from './home.js';
 import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
-         startFromPick, syncLanguageButtons } from './pick.js';
+         startFromPick, startTheme, syncLanguageButtons } from './pick.js';
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
@@ -41,6 +41,20 @@ $('modes').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-mode]');
   if (btn) openPick(btn.dataset.mode);
 });
+
+/* 오늘의 추천 and 최근 테마 both start a theme in one press. Wired here, not in
+   home.js: home.js importing pick.js would close an import cycle. */
+function startThemeButton(e) {
+  const btn = e.target.closest('button[data-mode][data-theme]');
+  if (btn && !btn.disabled) startTheme(btn.dataset.mode, btn.dataset.theme);
+}
+$('today-body').addEventListener('click', startThemeButton);
+$('recent-themes').addEventListener('click', startThemeButton);
+$('today-alt').addEventListener('click', (e) => {
+  if (e.target.closest('button')) swapToday();
+});
+$('goal-minus').addEventListener('click', () => changeGoal(-1));
+$('goal-plus').addEventListener('click', () => changeGoal(+1));
 
 $('btn-home').addEventListener('click', () => {
   router.show('home');

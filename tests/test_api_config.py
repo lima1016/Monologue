@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -171,8 +173,11 @@ def test_home_stats_route_returns_the_computed_counters(client):
     sid = db.create_session("en", "free")
     db.add_message(sid, "user", "hello")
     body = client.get("/api/stats/home", params={"language": "en"}).json()
-    assert body == {"streak": 1, "week_turns": 1, "fixed_total": 0, "top_tags": [],
-                     "recent": []}
+    assert body["streak"] == 1
+    assert body["week_turns"] == 1
+    assert body["fixed_total"] == 0
+    assert body["top_tags"] == []
+    assert body["recent"] == []
 
 
 def test_home_stats_recent_always_has_a_title(client):
@@ -187,3 +192,73 @@ def test_home_stats_recent_always_has_a_title(client):
 
     assert by_id[topical]["title"] == "과거형 연습"
     assert by_id[free]["title"] == "자유 대화"
+
+
+def test_home_stats_week_is_monday_to_sunday_with_today_marked(client, monkeypatch):
+    from app import api
+    monkeypatch.setattr(api, "_today", lambda: date(2026, 9, 16))   # Wednesday
+    week = client.get("/api/stats/home?language=en").json()["week"]
+    assert [d["label"] for d in week["days"]] == list("월화수목금토일")
+    assert week["days"][0]["date"] == "2026-09-14"
+    assert [d["today"] for d in week["days"]] == [False, False, True, False, False, False, False]
+    assert [d["future"] for d in week["days"]] == [False, False, False, True, True, True, True]
+    assert week["goal"] == 5 and week["sessions"] == 0
+
+
+def test_weekly_goal_is_saved_and_bounded(client):
+    assert client.post("/api/settings/weekly-goal", json={"goal": 7}).json() == {"goal": 7}
+    assert client.get("/api/stats/home?language=ja").json()["week"]["goal"] == 7
+    assert client.post("/api/settings/weekly-goal", json={"goal": 0}).status_code == 422
+    assert client.post("/api/settings/weekly-goal", json={"goal": 15}).status_code == 422
+
+
+@pytest.mark.parametrize("stored", ["banana", "999"])
+def test_a_corrupt_stored_weekly_goal_falls_back_to_the_default(client, stored):
+    """_weekly_goal() already guards both shapes of corruption (int() failing
+    outright, and a value outside 1-14) -- this pins that the fallback holds
+    end to end through the route, not just in the helper."""
+    db.set_setting("weekly_goal", stored)
+    assert client.get("/api/stats/home?language=en").json()["week"]["goal"] == 5
+
+
+def test_home_stats_recommend_recent_themes_library_and_history(client, monkeypatch):
+    from app import api, db
+    monkeypatch.setattr(api, "_today", lambda: date(2026, 9, 14))
+    body = client.get("/api/stats/home?language=en").json()
+    assert body["recommend"] == [] and body["recent_themes"] == []
+    assert body["library"] == {"scripts": 0, "target": 20 * 30}
+    assert body["has_history"] is False
+    for theme in ("hotel", "meetings", "cafe-restaurant", "shopping", "hobbies"):
+        db.add_library_scenario({"id": f"lib-{theme}-en-01", "theme_id": theme, "situation": "s", "language": "en",
+                                 "type": "script", "title": "t",
+                                 "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
+    for sid in ("lib-hotel-en-01", "lib-meetings-en-01", "lib-hotel-en-01", "lib-cafe-restaurant-en-01",
+                "lib-shopping-en-01", "lib-hobbies-en-01"):
+        db.create_session("en", "script", scenario_id=sid)
+    body = client.get("/api/stats/home?language=en").json()
+    assert body["has_history"] is True
+    assert body["library"]["scripts"] == 5
+    assert 1 <= len(body["recommend"]) <= 2
+    themes = [r["theme_id"] for r in body["recent_themes"]]
+    assert len(themes) == 4 and len(set(themes)) == 4
+    assert body["recent_themes"][0] == {"theme_id": "hobbies", "title": "취미·관심사", "mode": "script"}
+
+
+def test_recent_themes_lists_each_theme_once_with_its_latest_mode(client, monkeypatch):
+    """Pins the dedup this route depends on: the same theme practised twice
+    (script, then free) must appear once, carrying the mode of its most
+    recent session -- not once per session. Without the `theme_id in seen`
+    check, hotel would appear twice and this would fail."""
+    from app import api, db
+    monkeypatch.setattr(api, "_today", lambda: date(2026, 9, 14))
+    stamps = iter(["2026-09-14T00:00:00+00:00", "2026-09-14T00:00:01+00:00",
+                   "2026-09-14T00:00:02+00:00"])
+    monkeypatch.setattr(db, "_now", lambda: next(stamps))
+    db.create_session("en", "script", scenario_id="lib-meetings-en-01")  # oldest
+    db.create_session("en", "script", scenario_id="lib-hotel-en-01")     # middle
+    db.create_session("en", "free", scenario_id="lib-hotel-en-01")       # newest
+    body = client.get("/api/stats/home?language=en").json()
+    assert body["recent_themes"] == [
+        {"theme_id": "hotel", "title": "호텔", "mode": "free"},
+        {"theme_id": "meetings", "title": "회의", "mode": "script"},
+    ]

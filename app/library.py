@@ -8,6 +8,7 @@ import difflib
 import json
 import random
 import re
+from datetime import datetime
 from functools import lru_cache
 
 from app import config, db, scenarios
@@ -117,3 +118,81 @@ def pick_script(language, theme_id, rng=random):
 def free_setup(language, theme_id):
     items = db.library_scenarios(language, theme_id, "free")
     return items[0] if items else None
+
+
+def theme_of(scenario_id):
+    """`lib-<theme>-<language>-<nn|free>` -> theme. Theme ids contain dashes, so
+    cut the last two pieces off rather than splitting from the left."""
+    if not isinstance(scenario_id, str) or not scenario_id.startswith("lib-"):
+        return None
+    parts = scenario_id[4:].rsplit("-", 2)
+    return parts[0] if len(parts) == 3 else None
+
+
+def reason_for(last_day, today) -> str:
+    if last_day is None:
+        return "아직 안 해본 테마예요"
+    days = (today - last_day).days
+    if days <= 0:
+        return "오늘도 한 번 더 해볼까요?"
+    if days == 1:
+        return "어제 연습했어요"
+    return f"{days}일 전에 마지막으로 했어요"
+
+
+def _local_day(iso):
+    return datetime.fromisoformat(iso).astimezone().date()
+
+
+def recommend(language, today) -> list:
+    """오늘의 추천: 준비된 테마 중 안 해본 것, 없으면 오래된 앞쪽 절반. 방금 한
+    분류는 다른 후보가 있으면 피한다. 같은 날에는 같은 결과 -- 새로고침마다
+    바뀌면 '아까 그거'를 다시 찾을 수 없다.
+
+    "같은 날에는 같은 결과"는 시드(오늘 날짜)가 고정이라는 뜻이지, 입력이
+    고정이라는 뜻은 아니다. 같은 날 안에서도 새 대본이 만들어져 준비 상태가
+    바뀌거나(`library_readiness`) 그 사이에 연습을 해서 이력이 바뀌면
+    (`library_sessions`), 다음 호출은 다른 후보 풀에서 고르므로 결과가
+    달라질 수 있다."""
+    readiness = db.library_readiness(language)
+    ready = [(theme, readiness[theme["id"]]) for theme in load_themes() if theme["id"] in readiness]
+    if not ready:
+        return []
+    last = {}
+    recent_category = None
+    # limit=500: only the learner's 500 most recent library sessions inform "last
+    # played" and which category to avoid. A session older than that falls out of
+    # the window and its theme is treated as never played again -- for one learner
+    # this is far more sessions than the library will ever accumulate, so it is not
+    # expected to bite, but if it ever does, an old theme quietly looks fresh again
+    # rather than merely stale.
+    for row in db.library_sessions(language, limit=500):
+        theme_id = theme_of(row["scenario_id"])
+        if theme_id is None:
+            continue
+        if recent_category is None:
+            t = get_theme(theme_id)
+            recent_category = t["category"] if t else None
+        last.setdefault(theme_id, _local_day(row["started_at"]))
+    rng = random.Random(f"{today.isoformat()}:{language}")
+
+    def pool(items):
+        fresh = [x for x in items if x[0]["id"] not in last]
+        if fresh:
+            return fresh
+        ordered = sorted(items, key=lambda x: (last[x[0]["id"]], x[0]["id"]))
+        return ordered[:max(1, len(ordered) // 2)]
+
+    def pick(items, avoid):
+        base = pool(items)
+        preferred = [x for x in base if x[0]["category"] != avoid]
+        return rng.choice(sorted(preferred or base, key=lambda x: x[0]["id"]))
+
+    first = pick(ready, recent_category)
+    rest = [x for x in ready if x[0]["id"] != first[0]["id"]]
+    out = [first]
+    if rest:
+        out.append(pick(rest, first[0]["category"]))
+    return [{"theme_id": t["id"], "title": t["title"], "category": t["category"],
+             "situations": list(t["situations"]), "reason": reason_for(last.get(t["id"]), today),
+             "ready": r} for t, r in out]

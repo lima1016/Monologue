@@ -45,6 +45,36 @@ def _root_block(text, marker):
     return text[start:i - 1]
 
 
+def _media_blocks(text):
+    """(max-width px, block body) for every `@media (max-width: Npx) { ... }`
+    rule, body found by brace counting so nested `{ }` inside it don't end
+    the match early (the same technique as `_root_block` above)."""
+    blocks = []
+    for m in re.finditer(r"@media \(max-width: (\d+)px\) \{", text):
+        depth, i = 1, m.end()
+        while depth:
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+            i += 1
+        blocks.append((int(m.group(1)), text[m.end():i - 1]))
+    return blocks
+
+
+def test_phone_order_shares_the_grid_collapse_breakpoint():
+    """#home drops to one column at 880px (test_pick_css.py owns the rest of
+    the responsive checks); the DOM-order fix-up (display: contents + order)
+    that reorders resume/week above recent themes on a phone must kick in at
+    the same width, or 721-880px shows the two-column DOM order instead."""
+    text = (CSS_DIR / "components.css").read_text(encoding="utf-8")
+    blocks = _media_blocks(text)
+    order_widths = {w for w, body in blocks if "#home-date { order: 1; }" in body}
+    collapse_widths = {w for w, body in blocks if "#home { grid-template-columns: 1fr;" in body}
+    assert order_widths and collapse_widths, "expected both rules to still exist"
+    assert order_widths == collapse_widths
+
+
 def test_dark_defines_nothing_light_does_not():
     """다크 블록에만 있는 토큰이 없어야 한다.
 
