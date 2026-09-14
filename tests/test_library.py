@@ -235,6 +235,20 @@ def test_recommend_only_ready_themes_and_carries_theme_fields(store):
     assert r["reason"] == "아직 안 해본 테마예요"
 
 
+def test_recommend_does_not_hydrate_full_scenario_rows(store, monkeypatch):
+    """Pins the perf fix: recommend() must answer readiness from
+    db.library_readiness's single grouped query, never by hydrating every
+    script's full row (lines_json included) through library_scenarios."""
+    _ready(store, "hotel", scripts=2, free=True)
+
+    def _boom(*a, **k):
+        raise AssertionError("recommend must not call db.library_scenarios")
+
+    monkeypatch.setattr(db, "library_scenarios", _boom)
+    recs = library.recommend("en", date(2026, 9, 14))
+    assert recs[0]["ready"] == {"free": True, "script": 2}
+
+
 def test_recommend_prefers_themes_never_played(store, monkeypatch):
     for theme in ("hotel", "cafe-restaurant", "meetings"):
         _ready(store, theme)

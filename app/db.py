@@ -807,3 +807,19 @@ def library_script_count(language) -> int:
 def has_sessions(language) -> bool:
     with connect() as conn:
         return conn.execute("SELECT 1 FROM sessions WHERE language = ? LIMIT 1", (language,)).fetchone() is not None
+
+
+def library_readiness(language) -> dict:
+    """theme_id -> {'free': bool, 'script': count} for every theme with at least
+    one row in this language, in one query. recommend() used to call
+    library_scenarios (SELECT * + json.loads of every script's lines) and
+    free_setup once per theme just to count rows -- up to ~40 queries
+    hydrating full scenario bodies on every home load just to answer "is this
+    theme ready, and with how many scripts". A theme absent here has no rows
+    at all in this language."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT theme_id, SUM(type = 'script') AS scripts, MAX(type = 'free') AS free"
+            " FROM library_scenarios WHERE language = ? GROUP BY theme_id",
+            (language,)).fetchall()
+    return {r["theme_id"]: {"free": bool(r["free"]), "script": r["scripts"]} for r in rows}

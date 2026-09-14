@@ -8,7 +8,7 @@ import difflib
 import json
 import random
 import re
-from datetime import date, datetime
+from datetime import datetime
 from functools import lru_cache
 
 from app import config, db, scenarios
@@ -148,16 +148,18 @@ def recommend(language, today) -> list:
     """오늘의 추천: 준비된 테마 중 안 해본 것, 없으면 오래된 앞쪽 절반. 방금 한
     분류는 다른 후보가 있으면 피한다. 같은 날에는 같은 결과 -- 새로고침마다
     바뀌면 '아까 그거'를 다시 찾을 수 없다."""
-    ready = []
-    for theme in load_themes():
-        scripts = len(db.library_scenarios(language, theme["id"], "script"))
-        free = free_setup(language, theme["id"]) is not None
-        if scripts or free:
-            ready.append((theme, {"free": free, "script": scripts}))
+    readiness = db.library_readiness(language)
+    ready = [(theme, readiness[theme["id"]]) for theme in load_themes() if theme["id"] in readiness]
     if not ready:
         return []
     last = {}
     recent_category = None
+    # limit=500: only the learner's 500 most recent library sessions inform "last
+    # played" and which category to avoid. A session older than that falls out of
+    # the window and its theme is treated as never played again -- for one learner
+    # this is far more sessions than the library will ever accumulate, so it is not
+    # expected to bite, but if it ever does, an old theme quietly looks fresh again
+    # rather than merely stale.
     for row in db.library_sessions(language, limit=500):
         theme_id = theme_of(row["scenario_id"])
         if theme_id is None:

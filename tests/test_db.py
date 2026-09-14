@@ -832,3 +832,24 @@ def test_library_script_count_and_has_sessions(store):
     store.create_session("ja", "lesson")
     assert store.library_script_count("en") == 1
     assert store.has_sessions("en") is False and store.has_sessions("ja") is True
+
+
+def test_library_readiness_counts_in_one_query(store):
+    store.add_library_scenario({"id": "lib-hotel-en-01", "theme_id": "hotel", "situation": "s", "language": "en",
+                                "type": "script", "title": "t",
+                                "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
+    store.add_library_scenario({"id": "lib-hotel-en-02", "theme_id": "hotel", "situation": "s", "language": "en",
+                                "type": "script", "title": "t",
+                                "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
+    store.add_library_scenario({"id": "lib-hotel-en-free", "theme_id": "hotel", "situation": None, "language": "en",
+                                "type": "free", "title": "t", "goal": "g", "persona_prompt": "p", "max_turns": 16})
+    store.add_library_scenario({"id": "lib-cafe-restaurant-en-01", "theme_id": "cafe-restaurant", "situation": "s",
+                                "language": "en", "type": "script", "title": "t",
+                                "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
+    store.add_library_scenario({"id": "lib-hotel-ja-01", "theme_id": "hotel", "situation": "s", "language": "ja",
+                                "type": "script", "title": "t",
+                                "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
+    assert store.library_readiness("en") == {
+        "hotel": {"free": True, "script": 2},
+        "cafe-restaurant": {"free": False, "script": 1},
+    }
