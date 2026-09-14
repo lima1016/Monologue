@@ -26,6 +26,11 @@ def test_valid_replies_keeps_good_lines_in_order():
     ("ja", "あ" * 31),                   # 31 chars
     ("en", ""),
     ("en", "   "),
+    ("en", "Sure, 没问题!"),              # CJK ideograph leaking into an English reply
+    ("en", "こんにちは, sure!"),           # kana leaking into an English reply
+    ("ja", "はい (hai)"),                 # romaji gloss in parentheses -- forbidden
+    ("ja", "OKです"),                     # Latin letters in a Japanese reply
+    ("ja", "（はい）"),                   # full-width brackets are still brackets
 ])
 def test_valid_replies_drops_a_line_that_cannot_be_said(language, text):
     assert api._valid_replies([_r(text)], language, "bot line") == []

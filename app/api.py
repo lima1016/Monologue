@@ -358,6 +358,10 @@ _KANA = re.compile(r"[぀-ヿ]")
 _SUGGEST_MAX_WORDS_EN = 12
 _SUGGEST_MAX_CHARS_JA = 30
 _SUGGEST_MAX_REPLIES = 3
+# 일본어 답장에는 금지된 것: 로마자 표기와 괄호(둘 다 반각/전각). 프롬프트가 이미
+# 로마자와 괄호를 쓰지 말라고 하므로, 여기서는 그 규칙을 어긴 답을 거른다 --
+# 가끔 "OK" 한 줄을 잃는 대가는 감수할 만하다.
+_JA_FORBIDDEN = re.compile(r"[A-Za-z()（）]")
 
 
 def _sayable(text: str, language: str) -> bool:
@@ -366,12 +370,20 @@ def _sayable(text: str, language: str) -> bool:
     Any Hangul means the model answered in the wrong language. Japanese needs
     at least one kana: a kanji-only line is exactly what a Chinese leak looks
     like. Too long is refused rather than cut -- a truncated sentence is a
-    wrong sentence, and the learner would practise it.
+    wrong sentence, and the learner would practise it. An English reply with
+    any CJK ideograph or kana leaked the wrong language too, even though it
+    also has Latin letters. A Japanese reply may not carry Latin letters or
+    brackets -- those are exactly a romaji gloss or a parenthetical aside,
+    both of which the prompt forbids.
     """
     if _HANGUL.search(text):
         return False
     if language == "ja":
+        if _JA_FORBIDDEN.search(text):
+            return False
         return bool(_KANA.search(text)) and len(normalize(text).replace(" ", "")) <= _SUGGEST_MAX_CHARS_JA
+    if _CJK_IDEOGRAPH.search(text) or _KANA.search(text):
+        return False
     return bool(_LATIN_LETTER.search(text)) and len(text.split()) <= _SUGGEST_MAX_WORDS_EN
 
 
