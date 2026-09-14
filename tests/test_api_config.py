@@ -233,3 +233,23 @@ def test_home_stats_recommend_recent_themes_library_and_history(client, monkeypa
     themes = [r["theme_id"] for r in body["recent_themes"]]
     assert len(themes) == 4 and len(set(themes)) == 4
     assert body["recent_themes"][0] == {"theme_id": "hobbies", "title": "취미·관심사", "mode": "script"}
+
+
+def test_recent_themes_lists_each_theme_once_with_its_latest_mode(client, monkeypatch):
+    """Pins the dedup this route depends on: the same theme practised twice
+    (script, then free) must appear once, carrying the mode of its most
+    recent session -- not once per session. Without the `theme_id in seen`
+    check, hotel would appear twice and this would fail."""
+    from app import api, db
+    monkeypatch.setattr(api, "_today", lambda: date(2026, 9, 14))
+    stamps = iter(["2026-09-14T00:00:00+00:00", "2026-09-14T00:00:01+00:00",
+                   "2026-09-14T00:00:02+00:00"])
+    monkeypatch.setattr(db, "_now", lambda: next(stamps))
+    db.create_session("en", "script", scenario_id="lib-meetings-en-01")  # oldest
+    db.create_session("en", "script", scenario_id="lib-hotel-en-01")     # middle
+    db.create_session("en", "free", scenario_id="lib-hotel-en-01")       # newest
+    body = client.get("/api/stats/home?language=en").json()
+    assert body["recent_themes"] == [
+        {"theme_id": "hotel", "title": "호텔", "mode": "free"},
+        {"theme_id": "meetings", "title": "회의", "mode": "script"},
+    ]
