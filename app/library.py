@@ -15,7 +15,7 @@ from app.text_match import normalize
 _HANGUL = re.compile(r"[가-힣ㄱ-ㆎ]")
 _KANA = re.compile(r"[぀-ヿ]")
 _CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
-_LATIN = re.compile(r"[A-Za-z]")
+_LATIN = re.compile(r"[A-Za-zＡ-Ｚａ-ｚ]")
 _MAX_WORDS_EN = 20
 _MAX_CHARS_JA = 45
 _SIMILAR = 0.8

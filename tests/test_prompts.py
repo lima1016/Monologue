@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from app import prompts
+from app import config, prompts
 
 
 def test_every_mode_and_language_produces_a_prompt_with_spoken_style_rules():
@@ -48,6 +48,14 @@ def test_free_mode_asks_the_bot_to_wind_down_near_the_turn_limit():
     late = prompts.build_system_prompt("free", "en", scenario=scenario, turns_used=7)
     assert "wrap" in late.lower() or "wind" in late.lower()
     assert "wrap" not in early.lower()
+
+
+def test_lesson_mode_asks_the_bot_to_wind_down_at_the_configured_turn_limit():
+    boundary = config.DEFAULT_MAX_TURNS - 2
+    early = prompts.build_system_prompt("lesson", "en", turns_used=boundary - 1)
+    late = prompts.build_system_prompt("lesson", "en", turns_used=boundary)
+    assert "wrap" not in early.lower()
+    assert "wrap" in late.lower() or "wind" in late.lower()
 
 
 def test_lesson_mode_injects_the_estimated_level():

@@ -54,6 +54,7 @@ def test_structure_bot_first_and_alternating():
     ("en", 2, "1234 !!"),
     ("ja", 2, "はい、좋아요。"),
     ("ja", 2, "OKです。"),
+    ("ja", 2, "ＯＫです。"),
 ])
 def test_language_is_checked_per_line(language, index, text):
     lines = _script(EN16 if language == "en" else JA16)
