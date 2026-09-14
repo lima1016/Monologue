@@ -164,11 +164,16 @@ export function renderToday(recs) {
   paintToday();
 }
 
-/* 또는: -- trades the big card and the alternative. No request, no start. */
+/* 또는: -- trades the big card and the alternative. No request, no start.
+   paintToday rebuilds #today-alt's button as a new node, so the one the
+   learner just pressed is gone from the tree and focus would otherwise fall
+   back to <body>. The only way in is that button, so the replacement is
+   always the right thing to focus next. */
 export function swapToday() {
   if (today.length < 2) return;
   today = [today[1], today[0]];
   paintToday();
+  $('today-alt').children[0]?.focus();
 }
 
 function paintToday() {
@@ -246,13 +251,23 @@ function paintGoalButtons() {
 
 /* − / +: the screen moves first, the save follows, and a failed save puts the
    old value back. Only a goal on the card this call changed is rolled back --
-   a loadHome that landed meanwhile painted the server's answer, which wins. */
+   a loadHome that landed meanwhile painted the server's answer, which wins.
+
+   paintWeek disables both buttons for as long as the save is out, which (a
+   real browser, unlike this app's own state) drops focus off the one the
+   learner just pressed. `pressed` is the button's own id, not read from an
+   event -- delta's sign already says which of the two fixed goal-minus/
+   goal-plus buttons this call is for, and both callers are exactly those two
+   clicks (see main.js). Refocusing them is safe whether or not a newer
+   loadHome landed meanwhile: they are static elements paintWeek only
+   enables/disables, never replaces. */
 export async function changeGoal(delta) {
   if (!week || savingGoal) return;
   const shown = week;
   const before = shown.goal;
   const next = Math.min(GOAL_MAX, Math.max(GOAL_MIN, before + delta));
   if (next === before) return;
+  const pressed = delta < 0 ? 'goal-minus' : 'goal-plus';
   shown.goal = next;
   savingGoal = true;
   paintWeek();
@@ -265,6 +280,7 @@ export async function changeGoal(delta) {
     savingGoal = false;
     if (week === shown) paintWeek();
     else paintGoalButtons();
+    $(pressed).focus();
   }
 }
 

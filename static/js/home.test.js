@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { $, state } from './api.js';
 import * as router from './router.js';
-import { jsonResponse, resetDom, stubFetch } from './dom-shim.js';
+import { document, jsonResponse, resetDom, stubFetch } from './dom-shim.js';
 
 /* home.js keeps `busy` and `resumeTarget` as module globals and node evaluates
    this file's module graph once, so without a reset every test inherits the
@@ -249,6 +249,18 @@ test("today's card shows the reason, disables a mode that is not ready, and swap
   assert.equal(text($('today-alt')), '또는: 호텔 →', 'the card that was swapped out becomes the alternative');
 });
 
+test('swapToday refocuses the new 또는 button, not the one the re-render replaced', async () => {
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  const before = $('today-alt').children[0];
+  before.focus();
+  assert.equal(document.activeElement, before);
+  home.swapToday();
+  const after = $('today-alt').children[0];
+  assert.notEqual(after, before, 'paintToday rebuilds the button node');
+  assert.equal(document.activeElement, after);
+});
+
 test('an empty library says scripts are being prepared', async () => {
   homeRoutes(PAYLOAD({ recommend: [] }));
   await home.loadHome();
@@ -330,6 +342,27 @@ test('while the goal saves both buttons are off, and the new value is already on
   assert.deepEqual(seen.goals, [4]);
   assert.equal($('goal-minus').disabled, false);
   assert.equal($('goal-plus').disabled, false);
+});
+
+test('changeGoal restores focus to the pressed button once disabling it while saving dropped it', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(PAYLOAD(), { goal: async () => { await held; return jsonResponse({ goal: 4 }); } });
+  await home.loadHome();
+  $('goal-minus').focus();
+  const saving = home.changeGoal(-1);
+  assert.equal($('goal-minus').disabled, true, 'disabling it is what drops focus in a real browser');
+  release();
+  await saving;
+  assert.equal(document.activeElement, $('goal-minus'));
+});
+
+test('changeGoal restores focus to the pressed button on a rollback too', async () => {
+  homeRoutes(PAYLOAD(), { goal: () => jsonResponse({ detail: 'x' }, { ok: false, status: 500 }) });
+  await home.loadHome();
+  $('goal-plus').focus();
+  await home.changeGoal(+1);
+  assert.equal(document.activeElement, $('goal-plus'));
 });
 
 test('recent themes render up to four and library progress shows only while incomplete', async () => {

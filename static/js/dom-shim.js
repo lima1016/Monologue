@@ -58,7 +58,7 @@ class El {
     this.textContent = '';
     this.value = '';
     this.hidden = false;
-    this.disabled = false;
+    this._disabled = false;
     this.dataset = {};
     // A plain bag, not a CSSStyleDeclaration: the app only writes single
     // properties (the week bar's width) and tests read them back.
@@ -73,6 +73,17 @@ class El {
   get children() { return this.childNodes.filter((n) => n instanceof El); }
   get innerHTML() { return this._innerHTML || ''; }
   set innerHTML(html) { this._innerHTML = html; this.childNodes = []; }
+
+  // A real disabled element cannot hold focus -- the browser drops it to
+  // <body>. Modelled here (rather than left a plain field) because home.js's
+  // save-in-flight guard disables the pressed button while a request is out,
+  // and the focus it must restore afterwards only needs restoring because
+  // this happens.
+  get disabled() { return this._disabled; }
+  set disabled(v) {
+    this._disabled = Boolean(v);
+    if (this._disabled && activeElement === this) activeElement = null;
+  }
 
   get nextSibling() {
     if (!this.parentNode) return null;
@@ -114,7 +125,12 @@ class El {
   querySelectorAll() { return []; }
   closest() { return null; }
 
-  focus() {}
+  // Records `document.activeElement` only -- no focus/blur events, no
+  // tabindex/disabled rules. That is enough for a test to assert *which*
+  // element a re-render left focus on, which is the only thing the app's
+  // own focus-restoring code needs to prove.
+  focus() { activeElement = this; }
+  blur() { if (activeElement === this) activeElement = null; }
   scrollIntoView() {}
   showModal() { this.open = true; }
   close() { this.open = false; }
@@ -126,6 +142,7 @@ class TextNode {
 
 const elements = new Map();
 const ids = htmlIds();
+let activeElement = null;
 
 export const document = {
   /* null for anything index.html does not declare -- see htmlIds above. */
@@ -143,6 +160,7 @@ export const document = {
   // index.html has no id="body" for getElementById to find, so it needs its
   // own stub. Only classList is exercised -- nothing else about <body> is.
   body: new El('body'),
+  get activeElement() { return activeElement; },
 };
 
 /* No SpeechRecognition and no speechSynthesis: that is a real browser
@@ -176,4 +194,5 @@ stubFetch(async () => jsonResponse({}));
    through getElementById), so a test that wants a clean tree asks for one. */
 export function resetDom() {
   elements.clear();
+  activeElement = null;
 }
