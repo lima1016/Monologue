@@ -122,7 +122,8 @@ test('script start uses the id picked when the theme was chosen and says the aud
   assert.equal(seen.picks.length, 1);
   assert.equal(seen.sessions[0].scenario_id, 'lib-hotel-en-07');
   assert.deepEqual(seen.statuses, ['음성 준비 중...']);
-  assert.equal($('start-status').hidden, true, 'the status clears once the session is open');
+  assert.ok($('start-status').classList.contains('is-invisible'), 'the status clears once the session is open');
+  assert.equal($('start-status-text').textContent, '');
 });
 
 test('a pick still out when start is pressed shows 대본 고르는 중... first', async () => {
@@ -179,7 +180,7 @@ test('a failed generation clears the status and says what failed', async () => {
   await pick.openPick('script');
   $('wish').value = 'x';
   await pick.startFromPick();
-  assert.equal($('start-status').hidden, true);
+  assert.ok($('start-status').classList.contains('is-invisible'));
   assert.match($('notice-text').textContent, /대본을 만들지 못했어요/);
   assert.equal($('btn-start').disabled, false);
 });
@@ -433,7 +434,7 @@ test('going home and back during a held generation keeps the status, the lock an
   router.show('home');                 // ← 홈
   await pick.openPick('free');         // a different mode card on home
   assert.equal(router.current(), 'pick');
-  assert.equal($('start-status').hidden, false);
+  assert.equal($('start-status').classList.contains('is-invisible'), false);
   assert.equal($('start-status-text').textContent, '대본 만드는 중...');
   assert.equal($('btn-start').disabled, true);
   assert.equal($('wish').value, '이사 업체에 견적 묻기');
@@ -590,12 +591,36 @@ test('while the themes load the grid says so and 시작 is off', async () => {
   const { release } = holdThemes();
   const opening = pick.openPick('script');
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(cards().map((c) => c.textContent), ['테마 불러오는 중...']);
+  assert.deepEqual(cards().filter((c) => !c.classList.contains('skeleton')).map((c) => c.textContent),
+    ['테마 불러오는 중...']);
   assert.equal($('btn-start').disabled, true);
   release();
   await opening;
   assert.equal($('btn-start').disabled, false);
   assert.deepEqual(cards().map((c) => c.dataset.theme), ['cafe-restaurant', 'shopping']);
+});
+
+/* The grid holds card-sized placeholders while it waits (R3), so the list does
+   not grow out of nothing and push 직접 만들기 and 시작 down when it lands. */
+test('while themes load the grid holds theme-sized skeleton cards', async () => {
+  const { release } = holdThemes();
+  const opening = pick.openPick('script');
+  await new Promise((r) => setTimeout(r, 0));
+  const skeletons = cards().filter((c) => c.classList.contains('skeleton'));
+  assert.equal(skeletons.length, 5);
+  assert.ok(skeletons.every((c) => c.classList.contains('theme-card') && !c.dataset.theme),
+    'a placeholder must not be a theme a click could pick');
+  release();
+  await opening;
+  assert.equal(cards().filter((c) => c.classList.contains('skeleton')).length, 0);
+});
+
+test('the step line keeps its place when idle', async () => {
+  routes();
+  await pick.openPick('script');
+  assert.equal($('start-status').hidden, false);
+  assert.ok($('start-status').classList.contains('is-invisible'));
+  assert.equal($('start-status').getAttribute('aria-hidden'), 'true');
 });
 
 test('시작 (or Enter) while the themes load does not claim there is no theme', async () => {

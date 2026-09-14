@@ -55,9 +55,9 @@
       <!-- Filled by home.js renderToday: the theme, why, and one start button per mode. -->
       <div id="today-card" class="today-card">
         <p class="label">오늘의 추천</p>
-        <div id="today-body"></div>
+        <div id="today-body" class="fade"></div>
       </div>
-      <p id="today-alt" class="today-alt" hidden></p>
+      <p id="today-alt" class="today-alt is-invisible" aria-hidden="true"></p>
 
       <p id="recommend" class="recommend" hidden></p>
 
@@ -78,7 +78,7 @@
         <p class="label">최근 테마</p>
         <div id="recent-themes" class="recent-themes"></div>
       </div>
-      <p id="library-progress" class="hint" hidden></p>
+      <p id="library-progress" class="hint is-invisible" aria-hidden="true"></p>
     </div>
 
     <aside class="home-aside">
@@ -123,8 +123,8 @@
       <input id="wish" type="text" aria-label="직접 만들기">
       <p id="wish-hint" class="hint"></p>
     </div>
-    <button id="btn-start" class="primary">시작</button>
-    <div id="start-status" class="start-status" hidden>
+    <button id="btn-start" class="primary btn-stable">시작</button>
+    <div id="start-status" class="start-status is-invisible" aria-hidden="true">
       <div class="thinking"><i></i><i></i><i></i></div>
       <span id="start-status-text"></span>
     </div>

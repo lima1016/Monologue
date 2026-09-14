@@ -234,6 +234,108 @@ test('while home loads the recommendation slot says so', async () => {
   assert.match(text($('today-body')), /호텔/);
 });
 
+/* True if `node` or anything under it carries `cls`. dom-shim does not parse
+   index.html's children, so this only sees what the JS itself appended. */
+const hasClass = (node, cls) => node.classList.contains(cls)
+  || node.children.some((c) => hasClass(c, cls));
+
+/* Reloading (a language switch, or ← 홈) must not hide what is already on
+   screen: hiding the cards before the request and showing them after moved
+   the week card 85px on every switch. The cards stay and dim instead (R2). */
+test('reloading home keeps the painted cards in place and dims them while it waits', async () => {
+  let release;
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD()); } });
+  const reloading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal($('week-card').hidden, false, 'the week card must not collapse during a reload');
+  assert.equal($('today-card').hidden, false);
+  assert.equal($('recent-themes-wrap').hidden, false);
+  assert.match(text($('today-body')), /호텔/, 'the painted recommendation must stay while it reloads');
+  assert.ok($('today-card').classList.contains('is-refreshing'));
+  assert.ok($('week-card').classList.contains('is-refreshing'));
+  release();
+  await reloading;
+  assert.equal($('today-card').classList.contains('is-refreshing'), false);
+  assert.equal($('week-card').classList.contains('is-refreshing'), false);
+});
+
+/* A failed reload for the language already on screen keeps it (it is still
+   true); one for a different language hides it -- the old language's week and
+   themes must never sit under the new language's button. */
+test('a failed reload keeps the same language painted but hides another language', async () => {
+  state.language = 'en';
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  stubFetch(async () => { throw new Error('down'); });
+  await home.loadHome();
+  assert.equal($('today-card').hidden, false);
+  assert.equal($('week-card').hidden, false);
+  assert.equal($('today-card').classList.contains('is-refreshing'), false);
+
+  state.language = 'ja';
+  await home.loadHome();
+  assert.equal($('today-card').hidden, true);
+  assert.equal($('week-card').hidden, true);
+  assert.equal($('today-card').classList.contains('is-refreshing'), false);
+  state.language = 'en';
+});
+
+test('a newer switch that lands first clears the dimming even though the stale one lands later', async () => {
+  state.language = 'en';
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async (url) => {
+    if (url.includes('language=en')) { await held; return jsonResponse(PAYLOAD()); }
+    return jsonResponse(PAYLOAD());
+  } });
+  const stale = home.loadHome();
+  state.language = 'ja';
+  await home.loadHome();
+  assert.equal($('today-card').classList.contains('is-refreshing'), false);
+  release();
+  await stale;
+  assert.equal($('today-card').classList.contains('is-refreshing'), false);
+  state.language = 'en';
+});
+
+test('the first load shows skeletons where the cards will be', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD()); } });
+  const loading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(hasClass($('today-body'), 'skeleton'));
+  assert.equal($('week-card').hidden, false, 'the week card holds its place on the first load');
+  assert.ok($('week-card').classList.contains('is-skeleton'));
+  assert.equal($('week-days').children.filter((c) => c.classList.contains('skeleton')).length, 7);
+  release();
+  await loading;
+  assert.equal(hasClass($('today-body'), 'skeleton'), false);
+  assert.equal($('week-card').classList.contains('is-skeleton'), false);
+  assert.equal(hasClass($('week-days'), 'skeleton'), false);
+  assert.equal($('week-progress').classList.contains('skeleton'), false);
+});
+
+test('the alternative line keeps its place when there is no alternative', async () => {
+  homeRoutes(PAYLOAD({ recommend: [PAYLOAD().recommend[0]] }));
+  await home.loadHome();
+  assert.equal($('today-alt').hidden, false);
+  assert.ok($('today-alt').classList.contains('is-invisible'));
+});
+
+test('the start buttons on the recommendation keep one width whichever card is up', async () => {
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  const buttons = $('today-body').children.flatMap((c) => c.children || []).filter((b) => b.dataset.mode);
+  assert.equal(buttons.length, 2);
+  assert.ok(buttons.every((b) => b.classList.contains('btn-stable')));
+});
+
 test("today's card shows the reason, disables a mode that is not ready, and swaps with the alternative", async () => {
   homeRoutes(PAYLOAD());
   await home.loadHome();
@@ -265,7 +367,8 @@ test('an empty library says scripts are being prepared', async () => {
   homeRoutes(PAYLOAD({ recommend: [] }));
   await home.loadHome();
   assert.match(text($('today-body')), /새 대본을 준비하고 있어요/);
-  assert.equal($('today-alt').hidden, true);
+  assert.equal($('today-alt').hidden, false);
+  assert.ok($('today-alt').classList.contains('is-invisible'));
 });
 
 test('a first-time learner gets the welcome and no week or recent themes', async () => {
@@ -373,6 +476,11 @@ test('recent themes render up to four and library progress shows only while inco
   assert.deepEqual([card.dataset.theme, card.dataset.mode], ['cafe-restaurant', 'script']);
   assert.equal(text(card), '카페·음식점 주문스크립트');
   assert.equal($('library-progress').textContent, '새 대본 준비 중 · 312/600편');
+  assert.equal($('library-progress').classList.contains('is-invisible'), false);
+  homeRoutes(PAYLOAD({ library: null }));
+  await home.loadHome();
+  assert.equal($('library-progress').hidden, false, 'an unknown library keeps the line\'s place');
+  assert.ok($('library-progress').classList.contains('is-invisible'));
   homeRoutes(PAYLOAD({ library: { scripts: 600, target: 600 } }));
   await home.loadHome();
   assert.equal($('library-progress').hidden, true);

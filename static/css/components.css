@@ -489,7 +489,7 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .tabs button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 .tabs button:focus-visible { outline-offset: -2px; }
 
-.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2); }
+.theme-grid { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2); }
 /* A theme card is a mode card laid out as a tile: the same sunken-to-raised
    step marks the chosen one (.on), the same tint marks hover. */
 .theme-card { display: flex; flex-direction: column; gap: var(--space-1); text-align: left;
@@ -500,12 +500,27 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .theme-card:hover:not(:disabled):not(.on) { background: var(--accent-soft); }
 .theme-card.on { background: var(--surface); box-shadow: var(--shadow); }
 .theme-card:disabled { opacity: .45; }
-.theme-loading { grid-column: 1 / -1; margin: 0; padding: var(--space-3) 0;
+/* The wait's words sit over the first placeholder row rather than taking a
+   row of their own, so the grid is the same height loading and loaded. */
+.theme-loading { grid-column: 1 / -1; margin: 0; padding: var(--space-3);
+                 position: absolute; top: 0; left: 0; right: 0; z-index: 1;
+                 pointer-events: none;
                  color: var(--text-dim); font-size: var(--text-sm); }
+/* A placeholder card: the real card's padding and its two lines (.t, .s) as
+   blank text, so it is the loaded card's height. */
+.theme-card.skeleton { pointer-events: none; }   /* no hover tint, no pointer */
 
+/* One line tall even while empty: the row is held by .is-invisible (R5). */
 .start-status { display: flex; align-items: center; gap: var(--space-2);
+                min-height: calc(var(--text-sm) * 1.55);
                 color: var(--text-dim); font-size: var(--text-sm); }
 .start-status .thinking { padding: 0; }
+
+/* Buttons whose label or neighbours change keep one width (spec R7): the
+   longest label they carry, 자유 대화로 시작 -- eight syllables and a space at
+   ~1em each, plus the button's own padding and border (border-box). Screens
+   with a longer label override this with their own selector. */
+.btn-stable { min-width: calc(8.5em + var(--space-4) * 2 + 2px); }
 
 /* The destination. Full width because that is the plainest way to say "this is
    the thing you press" without adding a colour or a border the screen doesn't
@@ -560,10 +575,21 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
                  margin-top: var(--space-3); }
 .today-note { font-size: var(--text-xs); color: var(--text-faint); }
 .today-empty { font-size: var(--text-sm); color: var(--text-dim); }
+/* On the first load the wait's words stand where the title will be, and
+   are the title line's height; the placeholders below use the real lines'
+   own classes. */
 .today-loading { display: flex; align-items: center; gap: var(--space-2);
+                 min-height: calc(var(--text-xl) * 1.3);
                  color: var(--text-dim); font-size: var(--text-sm); }
+.today-situations.skeleton { width: 70%; }
+.today-reason.skeleton { width: 45%; }
+.today-skel-btn { display: inline-block; width: calc(8.5em + var(--space-4) * 2 + 2px);
+                  height: calc(1.55em + var(--space-2) * 2 + 2px); }
 .today-loading .thinking { padding: 0; }
-.today-alt { margin: calc(var(--space-2) * -1) 0 0; }
+/* Held one button tall even with no alternative (R5), so the lines below do
+   not move between a one-card and a two-card answer. */
+.today-alt { margin: calc(var(--space-2) * -1) 0 0;
+             min-height: calc(var(--text-sm) * 1.55 + var(--space-1) * 2); }
 .today-alt button { font-size: var(--text-sm); padding: var(--space-1) var(--space-2); border: 0; }
 .today-alt button:hover { color: var(--accent-ink); }
 
@@ -581,6 +607,12 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .week-days .day.future { opacity: .45; }
 .week-bar { height: 6px; background: var(--line); border-radius: var(--radius-pill); overflow: hidden; }
 #week-bar { height: 100%; width: 0; background: var(--accent); border-radius: var(--radius-pill); }
+/* The first load's placeholder (home.js weekSkeleton): real day cells with a
+   blank label, a one-line progress bar, and the stepper's space held but not
+   shown -- there is no goal to step yet. */
+.week-days .day.skeleton .dot { visibility: hidden; }
+#week-progress.skeleton { width: 60%; }
+#week-card.is-skeleton .goal { visibility: hidden; }
 .goal { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
         font-size: var(--text-sm); color: var(--text-dim); }
 .goal b { color: var(--text); }
@@ -596,6 +628,10 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .recent-theme .t { font-size: var(--text-base); font-weight: 650; }
 .recent-theme .m { font-size: var(--text-xs); color: var(--text-dim); }
 .recent-theme:hover:not(:disabled) { background: var(--accent-soft); }
+
+/* 준비 상태 줄: one line held while unknown or incomplete (R5); home.js sets
+   `hidden` once the library is complete, when the row is never coming back. */
+#library-progress { min-height: calc(var(--text-sm) * 1.55); }
 
 /* One column in the spec's order -- 추천, 이어서 하기, 이번 주, 약점 줄, 모드,
    최근 테마, 준비 상태 줄. Same breakpoint #home itself collapses to one
