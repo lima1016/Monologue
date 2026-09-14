@@ -67,7 +67,7 @@ beforeEach(() => {
   audio.setCancelHandler(() => { cancelled += 1; });
   state.recorder = null;
   state.chunks = [];
-  $('notice').textContent = '';
+  $('notice-text').textContent = '';
   rec.calls = [];
 });
 
@@ -86,7 +86,7 @@ test('the aborted error a cancel causes is not reported, and onend goes to the c
   rec.onresult(finalResult('I want to'));
   audio.cancelListening();
   rec.onerror({ error: 'aborted' });
-  assert.equal($('notice').textContent, '', '취소는 인식 실패가 아니다');
+  assert.equal($('notice-text').textContent, '', '취소는 인식 실패가 아니다');
   rec.onend();
   assert.equal(cancelled, 1);
   assert.deepEqual(heard, [], '취소한 말은 턴이 되지 않는다');
@@ -159,7 +159,7 @@ test('a cancel whose onend never arrives does not swallow the next listen', () =
   audio.beginListening();
   rec.onstart();
   rec.onerror({ error: 'network' });
-  assert.match($('notice').textContent, /network/, '다음 턴의 실패는 보여야 한다');
+  assert.match($('notice-text').textContent, /network/, '다음 턴의 실패는 보여야 한다');
 
   audio.beginListening();
   rec.onstart();

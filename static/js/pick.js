@@ -8,7 +8,7 @@
 
    Imports run one way: this module uses startSession from session.js and the
    start/resume guard from home.js. Neither of those imports this one. */
-import { $, getJSON, postJSON, state, notify } from './api.js';
+import { $, getJSON, postJSON, state, notify, setShown, syncLanguageButtons } from './api.js';
 import * as router from './router.js';
 import { startSession } from './session.js';
 import { isBusy, setBusy } from './home.js';
@@ -30,6 +30,9 @@ const THEME_CATEGORIES = ['daily', 'travel', 'smalltalk', 'business'];
 
 const MODE_LABELS = { free: '자유 상황극', script: '스크립트', lesson: '수업' };
 
+const SKELETON_CARDS = 5;                       // about one tab's worth of themes
+const NBSP = String.fromCharCode(0xa0);         // an empty span is zero tall
+
 let themes = [];          // GET /themes for the language this screen was loaded under
 let mine = [];            // the learner's own scenarios (ids starting `user-`)
 let category = THEME_CATEGORIES[0];
@@ -45,17 +48,18 @@ let loading = false;      // /themes is out: the grid says so and 시작 is off
 
 const isReady = (theme, mode) => (mode === 'script' ? theme.ready.script > 0 : Boolean(theme.ready.free));
 
+/* The step line keeps its row whether or not it has anything to say (spec R5):
+   it sits under 시작, and a line that appeared and vanished there made the
+   whole column below the button jump at every step. */
 export function setStatus(text) {
   $('start-status-text').textContent = text || '';
-  $('start-status').hidden = !text;
+  setShown($('start-status'), Boolean(text));
 }
 
 /* Both language segments (home's and this screen's) show the one state.language. */
-export function syncLanguageButtons() {
-  for (const seg of [$('language-seg'), $('pick-language-seg')]) {
-    for (const b of seg.children) b.classList.toggle('on', b.dataset.language === state.language);
-  }
-}
+// Moved to api.js so home.js's resumeSession can use it without a cycle;
+// re-exported here for the callers that already import it from pick.js.
+export { syncLanguageButtons };
 
 export async function openPick(mode) {
   // A start is in flight: ← 홈 and back (or any mode card) returns to that
@@ -308,10 +312,27 @@ function render() {
   const grid = $('theme-grid');
   grid.replaceChildren();
   if (loading) {
+    // Card-sized placeholders (spec R3), so the list does not grow out of
+    // nothing and push 직접 만들기 and 시작 down when it lands. The words sit
+    // over them (.theme-loading is positioned, not a grid row of its own) --
+    // a wait still says what it is, without adding a line the loaded grid
+    // then loses. Plain divs, not buttons: nothing here can be chosen.
     const note = document.createElement('p');
     note.className = 'theme-loading';
     note.textContent = '테마 불러오는 중...';
     grid.append(note);
+    for (let i = 0; i < SKELETON_CARDS; i += 1) {
+      const card = document.createElement('div');
+      card.className = 'theme-card skeleton';
+      card.setAttribute('aria-hidden', 'true');
+      for (const cls of ['t', 's']) {
+        const line = document.createElement('span');
+        line.className = cls;
+        line.textContent = NBSP;
+        card.append(line);
+      }
+      grid.append(card);
+    }
     return;
   }
   if (category === 'mine') {

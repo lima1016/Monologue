@@ -122,7 +122,8 @@ test('script start uses the id picked when the theme was chosen and says the aud
   assert.equal(seen.picks.length, 1);
   assert.equal(seen.sessions[0].scenario_id, 'lib-hotel-en-07');
   assert.deepEqual(seen.statuses, ['음성 준비 중...']);
-  assert.equal($('start-status').hidden, true, 'the status clears once the session is open');
+  assert.ok($('start-status').classList.contains('is-invisible'), 'the status clears once the session is open');
+  assert.equal($('start-status-text').textContent, '');
 });
 
 test('a pick still out when start is pressed shows 대본 고르는 중... first', async () => {
@@ -179,8 +180,8 @@ test('a failed generation clears the status and says what failed', async () => {
   await pick.openPick('script');
   $('wish').value = 'x';
   await pick.startFromPick();
-  assert.equal($('start-status').hidden, true);
-  assert.match($('notice').textContent, /대본을 만들지 못했어요/);
+  assert.ok($('start-status').classList.contains('is-invisible'));
+  assert.match($('notice-text').textContent, /대본을 만들지 못했어요/);
   assert.equal($('btn-start').disabled, false);
 });
 
@@ -433,7 +434,7 @@ test('going home and back during a held generation keeps the status, the lock an
   router.show('home');                 // ← 홈
   await pick.openPick('free');         // a different mode card on home
   assert.equal(router.current(), 'pick');
-  assert.equal($('start-status').hidden, false);
+  assert.equal($('start-status').classList.contains('is-invisible'), false);
   assert.equal($('start-status-text').textContent, '대본 만드는 중...');
   assert.equal($('btn-start').disabled, true);
   assert.equal($('wish').value, '이사 업체에 견적 묻기');
@@ -485,7 +486,7 @@ test('a held pick that fails during a waiting start is reported once, by the sta
   routes({ pick: async () => { await held; return jsonResponse({ detail: '이 테마는 아직 준비되지 않았어요' }, { ok: false, status: 409 }); } });
   await pick.openPick('script');
   const notices = [];
-  const el = $('notice');
+  const el = $('notice-text');
   let text = el.textContent;
   Object.defineProperty(el, 'textContent', { get: () => text, set: (v) => { text = v; if (v) notices.push(v); } });
   const choosing = pick.selectTheme('cafe-restaurant');
@@ -500,7 +501,7 @@ test('a pick that fails with no start waiting still says why', async () => {
   routes({ pick: async () => jsonResponse({ detail: '이 테마는 아직 준비되지 않았어요' }, { ok: false, status: 409 }) });
   await pick.openPick('script');
   await pick.selectTheme('cafe-restaurant');
-  assert.equal($('notice').textContent, '이 테마는 아직 준비되지 않았어요');
+  assert.equal($('notice-text').textContent, '이 테마는 아직 준비되지 않았어요');
 });
 
 /* ---------- starting a theme straight from home ---------- */
@@ -532,7 +533,7 @@ test('startTheme does nothing while a start is already running', async () => {
   await pick.startTheme('script', 'hotel');
   home.setBusy(false);
   assert.equal(seen.picks.length, 0);
-  assert.equal($('notice').textContent, '');
+  assert.equal($('notice-text').textContent, '');
 });
 
 test('← 홈 while startTheme waits for the themes cancels the start', async () => {
@@ -558,7 +559,7 @@ test('startTheme on a theme that is not ready says so and stays on the pick scre
   const seen = routes();
   await pick.startTheme('script', 'shopping');
   assert.equal(seen.sessions.length, 0);
-  assert.match($('notice').textContent, /이 테마는 아직 준비되지 않았어요/);
+  assert.match($('notice-text').textContent, /이 테마는 아직 준비되지 않았어요/);
   assert.equal(router.current(), 'pick');
 });
 
@@ -567,7 +568,7 @@ test('startTheme whose pick fails does not start a different theme from the tab'
   await pick.startTheme('script', 'hotel');
   assert.equal(seen.picks.length, 1);
   assert.equal(seen.sessions.length, 0);
-  assert.equal($('notice').textContent, '대본이 없어요');
+  assert.equal($('notice-text').textContent, '대본이 없어요');
 });
 
 /* ---------- while the themes load ---------- */
@@ -590,7 +591,8 @@ test('while the themes load the grid says so and 시작 is off', async () => {
   const { release } = holdThemes();
   const opening = pick.openPick('script');
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(cards().map((c) => c.textContent), ['테마 불러오는 중...']);
+  assert.deepEqual(cards().filter((c) => !c.classList.contains('skeleton')).map((c) => c.textContent),
+    ['테마 불러오는 중...']);
   assert.equal($('btn-start').disabled, true);
   release();
   await opening;
@@ -598,12 +600,35 @@ test('while the themes load the grid says so and 시작 is off', async () => {
   assert.deepEqual(cards().map((c) => c.dataset.theme), ['cafe-restaurant', 'shopping']);
 });
 
+/* The grid holds card-sized placeholders while it waits (R3), so the list does
+   not grow out of nothing and push 직접 만들기 and 시작 down when it lands. */
+test('while themes load the grid holds theme-sized skeleton cards', async () => {
+  const { release } = holdThemes();
+  const opening = pick.openPick('script');
+  await new Promise((r) => setTimeout(r, 0));
+  const skeletons = cards().filter((c) => c.classList.contains('skeleton'));
+  assert.equal(skeletons.length, 5);
+  assert.ok(skeletons.every((c) => c.classList.contains('theme-card') && !c.dataset.theme),
+    'a placeholder must not be a theme a click could pick');
+  release();
+  await opening;
+  assert.equal(cards().filter((c) => c.classList.contains('skeleton')).length, 0);
+});
+
+test('the step line keeps its place when idle', async () => {
+  routes();
+  await pick.openPick('script');
+  assert.equal($('start-status').hidden, false);
+  assert.ok($('start-status').classList.contains('is-invisible'));
+  assert.equal($('start-status').getAttribute('aria-hidden'), 'true');
+});
+
 test('시작 (or Enter) while the themes load does not claim there is no theme', async () => {
   const { seen, release } = holdThemes();
   const opening = pick.openPick('script');
   await new Promise((r) => setTimeout(r, 0));
   await pick.startFromPick();
-  assert.equal($('notice').textContent, '', 'said there was nothing to choose while the list was still coming');
+  assert.equal($('notice-text').textContent, '', 'said there was nothing to choose while the list was still coming');
   release();
   await opening;
   await pick.startFromPick();

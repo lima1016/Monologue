@@ -13,7 +13,7 @@
    the moment it does, they are one module again with an import statement
    between them. home.js must not import pick.js either (that would close a
    cycle), which is why the start buttons are wired in main.js. */
-import { $, getJSON, postJSON, state, notify } from './api.js';
+import { $, getJSON, postJSON, state, notify, setShown, syncLanguageButtons } from './api.js';
 import * as router from './router.js';
 import { addMessage } from './session.js';
 import { setSuggestVisible } from './suggest.js';
@@ -28,6 +28,9 @@ const GOAL_MIN = 1;
 const GOAL_MAX = 14;
 const START_LABELS = { script: '스크립트로 시작', free: '자유 대화로 시작' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극' };
+// A placeholder line needs a character to be a line at all: an empty or
+// space-only <p> is zero tall.
+const NBSP = String.fromCharCode(0xa0);   // a no-break space
 
 let today = [];            // [current, alternative?] -- swapToday trades them
 let week = null;           // { days, sessions, goal } as last painted, or null
@@ -50,25 +53,38 @@ let savingGoal = false;    // POST /settings/weekly-goal is out
    what the payload actually measures, rather than silently mislabelling it
    as effort. */
 export async function loadHome() {
-  // Hidden before the await, on every path (including catch below): a failed
-  // request must never leave the previous language's card/counters on screen
-  // under the newly selected language button. A missing card is honest; a
-  // stale one silently lies, and the learner has no way to tell the two apart.
-  hideHistory();
+  // Captured at call time: two quick language-switch clicks start two
+  // overlapping loads, and without this an older response that resolves last
+  // would paint its (now wrong) language's data over the newer, correct one.
+  const lang = state.language;
+  const homeEl = $('home');
+  // Nothing drawn yet: whatever this load reveals appears, it does not move in.
+  const firstPaint = homeEl.dataset.painted !== '1';
 
-  // The recommendation is what the screen leads with, so its slot says it is
-  // coming rather than sitting empty (the user's rule: a wait shows what it is).
-  $('today-card').hidden = false;
-  $('today-body').replaceChildren(loadingNote());
+  if (!firstPaint) {
+    // Already drawn (a language switch, or ← 홈): nothing is hidden before the
+    // request. Hiding the cards and showing them again moved the week card
+    // 85px on every switch. They stay where they are and dim until the answer
+    // is painted over them in place (spec R2).
+    setRefreshing(true);
+  } else {
+    // The first load: placeholders the size of what is coming (spec R3). The
+    // recommendation is what the screen leads with, so its slot also says it
+    // is coming (the user's rule: a wait shows what it is). The week card
+    // holds its place too; 이어서 하기 may or may not exist, so it stays
+    // hidden -- it sits at the top of the right column and pushes nothing on
+    // the left when it appears.
+    hideHistory();
+    setShown($('today-alt'), false);   // its row is held from the start (R5)
+    $('today-card').hidden = false;
+    $('today-body').replaceChildren(loadingNote(), ...todaySkeleton());
+    weekSkeleton();
+  }
 
   $('home-date').textContent = new Intl.DateTimeFormat('ko-KR', {
     month: 'long', day: 'numeric', weekday: 'long',
   }).format(new Date());
 
-  // Captured at call time: two quick language-switch clicks start two
-  // overlapping loads, and without this an older response that resolves last
-  // would paint its (now wrong) language's data over the newer, correct one.
-  const lang = state.language;
   try {
     const [{ session }, stats] = await Promise.all([
       getJSON(`/sessions/resumable?language=${lang}`),
@@ -77,9 +93,9 @@ export async function loadHome() {
 
     if (state.language !== lang) return; // a newer switch already won
 
-    $('resume-card').hidden = !session;
+    setResumeShown(Boolean(session), { instant: firstPaint });
+    resumeTarget = session || null;
     if (session) {
-      resumeTarget = session;
       $('resume-title').textContent = `이어서 하기 — ${session.title}`;
       $('resume-sub').textContent = `대화 ${session.turns}턴에서 멈췄습니다`;
     }
@@ -102,21 +118,33 @@ export async function loadHome() {
       renderWeek(stats.week, stats.streak);
       renderRecentThemes(stats.recent_themes);
     } else {
+      // The content itself changed (no history under this language), so this
+      // is the moment the card goes -- not before the request.
       week = null;
+      clearWeekSkeleton();
       $('week-card').hidden = true;
       $('recent-themes-wrap').hidden = true;
     }
 
     renderLibraryProgress(stats.library);
+    homeEl.dataset.painted = '1';
+    homeEl.dataset.paintedLanguage = lang;
+    setRefreshing(false);
   } catch {
-    // history is a nicety -- never block the learner from starting. But
-    // everything above must stay hidden on this path too: a later refactor
-    // that moves the initial hide out of this function must not be able to
-    // silently reopen the stale-data bug this guards against. Only a newer
-    // load may overrule this one, same as on the success path.
+    // history is a nicety -- never block the learner from starting. Only a
+    // newer load may overrule this one, same as on the success path.
     if (state.language !== lang) return;
+    setRefreshing(false);
+    // What is on screen for this same language is still true, so it stays.
+    // Anything else -- the first load's placeholders, or the previous
+    // language's card and counters under the newly selected language button --
+    // goes: a missing card is honest; a stale one silently lies, and the
+    // learner has no way to tell the two apart.
+    if (homeEl.dataset.painted === '1' && homeEl.dataset.paintedLanguage === lang) return;
     hideHistory();
     $('today-card').hidden = true;
+    delete homeEl.dataset.painted;
+    delete homeEl.dataset.paintedLanguage;
   } finally {
     // 성공·실패 두 경로 모두에서 마지막에 한 번. 오른쪽에 보이는 것이 하나도
     // 없는데 트랙만 남으면 화면이 왼쪽으로 쏠린 채 330px 가 빈다.
@@ -125,12 +153,118 @@ export async function loadHome() {
 }
 
 function hideHistory() {
-  $('resume-card').hidden = true;
+  setResumeShown(false);
   $('today-alt').hidden = true;
   $('recommend').hidden = true;
+  clearWeekSkeleton();
   $('week-card').hidden = true;
   $('recent-themes-wrap').hidden = true;
   $('library-progress').hidden = true;
+}
+
+/* Everything loadHome repaints from the response. Dimmed on the cards
+   themselves rather than on .home-main/.home-aside: under 880px those two
+   are `display: contents` (so the phone order can interleave their children),
+   and opacity on a box-less element does nothing. The mode cards are not
+   here -- they never depend on the request. */
+const REFRESHED = ['today-card', 'today-alt', 'recommend', 'resume-card',
+  'week-card', 'recent-themes-wrap', 'library-progress'];
+
+/* Dimmed also means asleep. After a language switch the cards still show the
+   previous language; 계속 on that resume card (or a start button on that
+   recommendation) would act on a language the buttons no longer show. `inert`
+   takes them out of clicks, focus and the accessibility tree until the answer
+   is painted; .is-refreshing's pointer-events: none is the belt for a browser
+   without inert. */
+function setRefreshing(on) {
+  for (const id of REFRESHED) {
+    const card = $(id);
+    card.classList.toggle('is-refreshing', on);
+    card.inert = on || resumeCollapsed(card);
+  }
+}
+
+/* 이어서 하기 opens and shuts by class, never `hidden`, so CSS can slide it
+   (see #resume-card.is-collapsed): a language with a session and one without
+   no longer jump the week card by the card's height. A collapsed card is
+   still in the tree, so it is also inert and aria-hidden -- its 계속 button
+   must not be reachable while it is shut. */
+function resumeCollapsed(card = $('resume-card')) {
+  return card.id === 'resume-card' && card.classList.contains('is-collapsed');
+}
+
+/* `instant`: the first paint's reveal. The card starts collapsed in the
+   markup, so without it every fresh page load with a session would slide the
+   card open after the round trip -- new motion on first load. .no-motion
+   turns the transition off, the offsetHeight read makes the browser apply the
+   open state under it, and taking the class off afterwards leaves later
+   language switches sliding as before. */
+function setResumeShown(on, { instant = false } = {}) {
+  const card = $('resume-card');
+  card.hidden = false;
+  if (instant) card.classList.add('no-motion');
+  card.classList.toggle('is-collapsed', !on);
+  if (instant) {
+    void card.offsetHeight;
+    card.classList.remove('no-motion');
+  }
+  card.setAttribute('aria-hidden', String(!on));
+  card.inert = !on || card.classList.contains('is-refreshing');
+}
+
+/* Shaped like paintToday's card -- title line (the wait's own words sit
+   there), situations, reason, the two start buttons -- using the same classes,
+   so the placeholder is the height of what replaces it. */
+function todaySkeleton() {
+  const line = (cls) => {
+    const p = el('p', `${cls} skeleton`);
+    p.textContent = NBSP;
+    return p;
+  };
+  const actions = el('div', 'today-actions');
+  actions.append(el('span', 'skeleton today-skel-btn'), el('span', 'skeleton today-skel-btn'));
+  actions.setAttribute('aria-hidden', 'true');
+  return [line('today-situations'), line('today-reason'), actions];
+}
+
+/* The week card on a first load: seven day cells built like paintWeek's (a
+   blank label and the dot) and a one-line progress bar, so the right column
+   is already its final height. The goal stepper keeps its space but is not
+   shown (see #week-card.is-skeleton in components.css) -- there is no goal
+   to step yet. */
+function weekSkeleton() {
+  const card = $('week-card');
+  card.hidden = false;
+  card.classList.add('is-skeleton');
+  card.setAttribute('aria-busy', 'true');
+  const days = $('week-days');
+  days.replaceChildren();
+  for (let i = 0; i < 7; i += 1) {
+    const cell = el('span', 'day skeleton');
+    cell.append(el('span', 'dl', NBSP), el('i', 'dot'));
+    days.append(cell);
+  }
+  // The streak line's row is held as well: it comes and goes with the data,
+  // and a row that only appears once a streak exists grew the card.
+  const streakLine = $('week-streak');
+  setShown(streakLine, true);
+  streakLine.textContent = NBSP;
+  streakLine.classList.add('skeleton');
+  $('week-progress').textContent = NBSP;
+  $('week-progress').classList.add('skeleton');
+  $('week-bar').style.width = '0%';
+}
+
+function clearWeekSkeleton() {
+  const card = $('week-card');
+  if (!card.classList.contains('is-skeleton')) return;
+  card.classList.remove('is-skeleton');
+  card.removeAttribute('aria-busy');
+  $('week-days').replaceChildren();
+  $('week-streak').classList.remove('skeleton');
+  $('week-streak').textContent = '';
+  $('week-progress').classList.remove('skeleton');
+  $('week-progress').textContent = '';
 }
 
 function loadingNote() {
@@ -153,7 +287,7 @@ function el(tag, className = '', text = '') {
    구현하지 않고 항상 null 을 돌려주므로, 선택자로 쓰면 이 함수는 테스트에서
    조용히 아무것도 안 하게 된다. */
 function syncAside() {
-  const empty = $('resume-card').hidden && $('week-card').hidden;
+  const empty = resumeCollapsed() && $('week-card').hidden;
   $('home').classList.toggle('no-aside', empty);
 }
 
@@ -172,7 +306,15 @@ export function renderToday(recs) {
 export function swapToday() {
   if (today.length < 2) return;
   today = [today[1], today[0]];
+  // Swapped at once (the refocus below and its tests need the new button now),
+  // then eased in: #today-body carries .fade, so dropping .is-invisible after
+  // a forced style flush fades the new card up over 150ms (spec R8) instead
+  // of the text snapping from one theme to the other.
+  const body = $('today-body');
   paintToday();
+  body.classList.add('is-invisible');
+  void body.offsetWidth;
+  body.classList.remove('is-invisible');
   $('today-alt').children[0]?.focus();
 }
 
@@ -183,13 +325,14 @@ function paintToday() {
   if (!current) {
     body.replaceChildren(el('p', 'today-empty',
       '새 대본을 준비하고 있어요. 그동안 직접 만들기나 수업으로 연습해 보세요.'));
-    alt.hidden = true;
+    alt.replaceChildren();
+    setShown(alt, false);
     return;
   }
   const actions = el('div', 'today-actions');
   for (const mode of ['script', 'free']) {
     const ready = mode === 'script' ? (current.ready?.script || 0) > 0 : Boolean(current.ready?.free);
-    const button = el('button', mode === 'script' ? 'primary' : '', START_LABELS[mode]);
+    const button = el('button', `btn-stable${mode === 'script' ? ' primary' : ''}`, START_LABELS[mode]);
     button.type = 'button';
     button.dataset.mode = mode;
     button.dataset.theme = current.theme_id;
@@ -203,7 +346,9 @@ function paintToday() {
     ...(current.reason ? [el('p', 'today-reason', current.reason)] : []),
     actions,
   );
-  alt.hidden = !other;
+  // Kept in place when there is no alternative (spec R5): the line below it
+  // (약점 줄, then the mode cards) must not move up and down between loads.
+  setShown(alt, Boolean(other));
   if (other) {
     const swap = el('button', 'ghost', `또는: ${other.title} →`);
     swap.type = 'button';
@@ -222,6 +367,7 @@ export function renderWeek(data, streakDays) {
 }
 
 function paintWeek() {
+  clearWeekSkeleton();
   $('week-card').hidden = false;
   const days = $('week-days');
   days.replaceChildren();
@@ -234,8 +380,11 @@ function paintWeek() {
     cell.append(el('span', 'dl', d.label), el('i', 'dot'));
     days.append(cell);
   }
-  $('week-streak').hidden = !streak;
-  $('week-streak').textContent = streak ? `연속 ${streak}일` : '';
+  // Kept in place with no streak (R5): the progress line below must not move
+  // up and down as a streak starts and breaks. NBSP so the empty row is still
+  // one line tall.
+  setShown($('week-streak'), Boolean(streak));
+  $('week-streak').textContent = streak ? `연속 ${streak}일` : NBSP;
   const { sessions: n, goal } = week;
   $('week-progress').textContent = `이번 주 ${n}/${goal} 세션${n >= goal ? ' · 목표 달성!' : ''}`;
   $('week-bar').style.width = `${Math.min(n / goal, 1) * 100}%`;
@@ -303,8 +452,16 @@ export function renderRecentThemes(items) {
 export function renderLibraryProgress(library) {
   const line = $('library-progress');
   const incomplete = Boolean(library) && library.scripts < library.target;
-  line.hidden = !incomplete;
   line.textContent = incomplete ? `새 대본 준비 중 · ${library.scripts}/${library.target}편` : '';
+  if (library && !incomplete) {
+    // The library is complete: the line is never coming back, so it gives its
+    // space up rather than holding an empty row forever.
+    line.hidden = true;
+    line.classList.remove('is-invisible');
+    line.removeAttribute('aria-hidden');
+  } else {
+    setShown(line, incomplete);      // unknown or incomplete: keep the row (R5)
+  }
 }
 
 /* The one thing that knows a session is already being opened -- by either door.
@@ -350,14 +507,20 @@ export function setBusy(value) { busy = Boolean(value); }
    GET /sessions/resumable itself); resumeSession does not need its own
    guard for it because resumeTarget can never hold a script session. */
 export async function resumeSession() {
-  if (!resumeTarget || busy) return;
+  // A dimmed card is one loadHome is about to repaint -- possibly for another
+  // language. inert already stops the click; this stops every other caller.
+  if (!resumeTarget || busy || $('resume-card').inert) return;
   busy = true;
   try {
     // A network round trip with nothing else on screen changing -- the card
     // says what it is doing until the conversation is painted or the attempt
     // fails. Inside the try so no throw can land between `busy = true` and the
     // `finally` that clears it.
-    $('resume-status').hidden = false;
+    // It takes the subtitle's place in the same line (.resume-line stacks
+    // both in one cell), so the card does not grow a line when 계속 is
+    // pressed and shrink again when the attempt ends.
+    setShown($('resume-status'), true);
+    setShown($('resume-sub'), false);
     const { session, messages } = await getJSON(`/sessions/${resumeTarget.id}`);
     state.sessionId = resumeTarget.id;
     state.mode = resumeTarget.mode;
@@ -370,6 +533,7 @@ export async function resumeSession() {
     // without this line a stray write to it between loadHome and this click
     // (or a future loosening of that scoping) would silently mis-render.
     state.language = session.language;
+    syncLanguageButtons();
     router.show('session');
     $('conversation').replaceChildren();
     // GET /sessions/{id} hands back a cache-only audio_key per bot message
@@ -378,7 +542,13 @@ export async function resumeSession() {
     // replayed bot bubble plays the real clip when it is still on disk,
     // rather than main.js's play() reporting a synthesis failure that never
     // happened.
-    for (const m of messages) addMessage(m.speaker, m.text, m.audio_key);
+    //
+    // Painted all at once, so the replayed bubbles skip their enter animation
+    // (.msg.replayed): a whole conversation easing in together reads as the
+    // screen flashing. Marked per bubble rather than with a class on
+    // #conversation removed afterwards -- removing that would switch their
+    // animation from none back on and start every one of them right then.
+    for (const m of messages) addMessage(m.speaker, m.text, m.audio_key).classList.add('replayed');
     // Same rule as startSession: the side panel holds only 목표 or 대본, so a
     // resumed session with no goal (lesson mode, or free mode with none set)
     // hides the panel rather than showing the "목표" heading over nothing.
@@ -391,6 +561,7 @@ export async function resumeSession() {
     notify(`이어서 하지 못했습니다: ${err.message}`);
   } finally {
     busy = false;
-    $('resume-status').hidden = true;
+    setShown($('resume-status'), false);
+    setShown($('resume-sub'), true);
   }
 }

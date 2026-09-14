@@ -79,6 +79,9 @@
      different column on a different screen and keeps its own value. */
   --aside-w: 330px;
   --panel-w: 300px;
+  /* The one duration every fade/enter/skeleton animation in this pass shares
+     -- see tests/test_ui_stability_css.py and the design spec's R1-R9. */
+  --dur-fast: 150ms;
 
   /* 마이크 글리프. 색은 mask 로 --on-accent 가 칠하므로 여기서는 모양만 정한다. */
   --mic-glyph: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>');

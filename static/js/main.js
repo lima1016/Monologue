@@ -56,6 +56,8 @@ $('today-alt').addEventListener('click', (e) => {
 $('goal-minus').addEventListener('click', () => changeGoal(-1));
 $('goal-plus').addEventListener('click', () => changeGoal(+1));
 
+$('notice-close').addEventListener('click', () => notify(''));
+
 $('btn-home').addEventListener('click', () => {
   router.show('home');
   loadHome();
