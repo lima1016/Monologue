@@ -1292,6 +1292,10 @@ def home_stats(language: Language):
     stats["recent_themes"] = _recent_themes(language)
     stats["library"] = {"scripts": db.library_script_count(language),
                         "target": len(library.load_themes()) * config.LIBRARY_PER_THEME}
+    counts = db.review_counts(language, today)
+    first = db.due_reviews(language, today, limit=1)
+    stats["review"] = {"due": counts["due"],
+                       "first": {"id": first[0]["id"], "fixed": first[0]["fixed"]} if first else None}
     return stats
 
 
@@ -1340,6 +1344,84 @@ def _resumable_audio_key(text: str, language: str, voice: str) -> str | None:
     """
     key = tts.cache_key(clean_for_tts(text), language, voice)
     return key if tts.cached_path(key).exists() else None
+
+
+_LEVEL_NEED_SESSIONS = 3
+_LEVEL_NEED_UTTERANCES = 15
+_ACCURACY_DAYS = 30
+_HISTORY_PAGE = 20
+
+
+@router.get("/stats/mypage")
+def mypage_stats(language: Language):
+    today = _today()
+    sample = db.level_sample(language)
+    enough = sample["sessions"] >= _LEVEL_NEED_SESSIONS and sample["utterances"] >= _LEVEL_NEED_UTTERANCES
+    return {
+        "level": {"value": db.stable_level(language) if enough else None, **sample,
+                  "need_sessions": _LEVEL_NEED_SESSIONS, "need_utterances": _LEVEL_NEED_UTTERANCES},
+        "accuracy": db.accuracy_since(language, today - timedelta(days=_ACCURACY_DAYS - 1)),
+        "tags": db.wrong_tag_counts(language),
+        "review": db.review_counts(language, today),
+    }
+
+
+@router.get("/review")
+def review_items(language: Language):
+    items = db.due_reviews(language, _today())
+    return {"items": [{k: i[k] for k in ("id", "text", "fixed", "correction", "tag", "created_at")} for i in items]}
+
+
+class ReviewResult(BaseModel):
+    result: Literal["pass", "fail", "skip"]
+
+
+@router.post("/review/{review_id}/result")
+def review_result(review_id: int, payload: ReviewResult):
+    try:
+        return db.record_review(review_id, payload.result, _today())
+    except KeyError:
+        raise HTTPException(404, "no such review")
+    except ValueError:
+        raise HTTPException(409, "already mastered")
+
+
+@router.post("/review/{review_id}/audio")
+def review_audio(review_id: int):
+    review = db.get_review(review_id)
+    if review is None:
+        raise HTTPException(404, "no such review")
+    message = db.get_message(review["message_id"])
+    return {"audio_key": _speak(message["fixed"], review["language"]) if message and message["fixed"] else None}
+
+
+@router.get("/sessions/history")
+def session_history_page(language: Language, offset: int = Query(default=0, ge=0)):
+    rows = db.history(language, offset, _HISTORY_PAGE + 1)
+    items = []
+    for row in rows[:_HISTORY_PAGE]:
+        titled = _recent_row({**row, "fixed": row["wrong"]})
+        items.append({"id": row["id"], "ended_at": row["ended_at"], "title": titled["title"],
+                      "mode": row["mode"], "turns": row["turns"], "wrong": row["wrong"]})
+    return {"items": items, "more": len(rows) > _HISTORY_PAGE}
+
+
+@router.get("/sessions/{session_id}/report")
+def session_report(session_id: int):
+    session = db.get_session(session_id)
+    if session is None or not session["report"]:
+        raise HTTPException(404, "no report for this session")
+    try:
+        report = json.loads(session["report"])
+        if not isinstance(report, dict):
+            raise ValueError
+    except ValueError:
+        report = {"summary": session["report"]}
+    stats = db.session_stats(session_id)
+    stats["minutes"] = db.active_minutes(session_id)
+    return {"summary": report.get("summary") or "", "weak_points": report.get("weak_points") or [],
+            "expressions": report.get("expressions") or [], "next_focus": report.get("next_focus") or "",
+            "level": session["level"], "stats": stats, "mode": session["mode"]}
 
 
 @router.get("/sessions/{session_id}")

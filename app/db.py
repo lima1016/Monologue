@@ -310,6 +310,12 @@ def get_messages(session_id) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_message(message_id):
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def delete_last_turn(session_id) -> tuple[int, list[str]]:
     """Drop the most recent learner turn and the bot reply that followed it.
 
@@ -950,3 +956,45 @@ def record_review(review_id, result, today) -> dict:
                      " WHERE id = ?", (passes, interval, due.isoformat(), mastered_at, review_id))
     return {"id": review_id, "passes": passes, "interval_d": interval, "due_date": due.isoformat(),
             "mastered": mastered_at is not None}
+
+
+def level_sample(language) -> dict:
+    with connect() as conn:
+        sessions = conn.execute("SELECT COUNT(*) FROM sessions WHERE language = ? AND report IS NOT NULL",
+                                (language,)).fetchone()[0]
+        utterances = conn.execute(
+            "SELECT COUNT(*) FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user'", (language,)).fetchone()[0]
+    return {"sessions": sessions, "utterances": utterances}
+
+
+def accuracy_since(language, since) -> dict:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(m.ok = 1), 0) correct, COUNT(*) graded"
+            " FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND s.mode <> 'script' AND m.speaker = 'user' AND m.ok IS NOT NULL"
+            "   AND substr(datetime(m.created_at, 'localtime'), 1, 10) >= ?",
+            (language, since.isoformat())).fetchone()
+    return {"correct": row["correct"], "graded": row["graded"]}
+
+
+def wrong_tag_counts(language) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT m.tag, COUNT(*) n FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0"
+            "   AND m.tag IS NOT NULL AND m.tag <> '없음'"
+            " GROUP BY m.tag ORDER BY n DESC, m.tag", (language,)).fetchall()
+    return [{"tag": r["tag"], "n": r["n"]} for r in rows]
+
+
+def history(language, offset, limit) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT s.id, s.scenario_id, s.topic, s.mode, s.ended_at,"
+            "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user') turns,"
+            "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok = 0) wrong"
+            " FROM sessions s WHERE s.language = ? AND s.report IS NOT NULL"
+            " ORDER BY s.ended_at DESC, s.id DESC LIMIT ? OFFSET ?", (language, limit, offset)).fetchall()
+    return [dict(r) for r in rows]
