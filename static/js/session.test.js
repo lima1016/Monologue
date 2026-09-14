@@ -841,3 +841,48 @@ test('a result line that holds its place is shown and hidden by class, not hidde
   assert.equal(resultEl.hidden, false);
   assert.ok(resultEl.classList.contains('is-invisible'));
 });
+
+/* The header's 마이페이지 is a way out of a live session that does not reload.
+ * my page shares this file's session.js (and its fake recognition), so it is
+ * imported here rather than in mypage.test.js. */
+const mypage = await import('./mypage.js');
+
+test('opening my page while listening throws the listen away instead of sending it', async () => {
+  resetDom();
+  ['home', 'session', 'report', 'mypage'].forEach((s) => router.register(s, s));
+  state.language = 'en';
+  state.mode = 'free';
+  const posted = [];
+  stubFetch(async (url) => {
+    if (url === '/api/chat') posted.push(url);
+    return jsonResponse({});
+  });
+  session.setTurnState('MIC');
+  rec.onstart();
+  rec.onresult(respeakFinal('I was saying'));
+  const opening = mypage.openMypage();
+  // abort() raises the onend that reports the cancel.
+  rec.onend();
+  await opening;
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(session.canDo('cancel'), false, 'the listen is still running on the hidden screen');
+  assert.equal(session.canDo('respeak'), true, 'the turn did not go back to idle');
+  assert.deepEqual(posted, []);
+  assert.ok(rec.calls.includes('abort'));
+});
+
+test("a review refused mid-turn says another practice is running; the chip's words stay", async () => {
+  resetDom();
+  state.language = 'en';
+  stubFetch(async () => jsonResponse({}));
+  mypage.renderReviewList([{ id: 11, text: 'I go', fixed: 'I went.', correction: '', tag: '' }], { due: 1, mastered: 0 });
+  session.setTurnState('SEND');
+  try {
+    mypage.speakReview({ id: 11, fixed: 'I went.' }, $('review-list').children[0]);
+    assert.equal($('notice-text').textContent, '지금은 다른 연습이 진행 중이에요');
+    session.startRespeak('I went.', document.createElement('p'), document.createElement('button'));
+    assert.match($('notice-text').textContent, /^봇이 말하는 동안에는/);
+  } finally {
+    session.setTurnState('SEND_FAILED');
+  }
+});

@@ -469,6 +469,8 @@ export function addChip(bubble, fb) {
   return wrap;
 }
 
+const RESPEAK_BUSY = '봇이 말하는 동안에는 다시 말할 수 없습니다. 끝날 때까지 기다려주세요.';
+
 /* Re-speaking is deliberately a different state from a normal turn: the
    recognised text is compared against `target` and never sent to the bot.
 
@@ -482,8 +484,12 @@ export function addChip(bubble, fb) {
 
    `onResult` is optional: once the attempt is judged it gets (true|false,
    spoken), and (null, null) when nothing was heard. A cancel or a start that
-   throws never calls it -- nothing was attempted. The chip passes none. */
-export function startRespeak(target, resultEl, btn, onResult = null) {
+   throws never calls it -- nothing was attempted. The chip passes none.
+
+   `busy` is what to say when a turn is already running. The chip's own words
+   are about the bot speaking, which is the only way a chip can be refused;
+   my page can be reached mid-turn, where that is not what is happening. */
+export function startRespeak(target, resultEl, btn, onResult = null, { busy = RESPEAK_BUSY } = {}) {
   // Mirrors main.js's mic handler: this button owns the active re-speak, so
   // a second click on it ends the session instead of trying to start a new
   // one. recognition.stop() lets Chrome flush a last final result, then
@@ -503,7 +509,7 @@ export function startRespeak(target, resultEl, btn, onResult = null) {
   // what is happening at all.
   if (transcribingRespeak && transcribingRespeak.btn === btn) return;
   if (!canDo('respeak')) {
-    notify('봇이 말하는 동안에는 다시 말할 수 없습니다. 끝날 때까지 기다려주세요.');
+    notify(busy);
     return;
   }
   if (!recognition) { notify('이 브라우저는 음성 인식을 지원하지 않습니다.'); return; }

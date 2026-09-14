@@ -18,7 +18,7 @@ import { $, getJSON, postJSON, state, notify, setShown, syncLanguageButtons,
          reducedMotion, LEAVE_MS } from './api.js';
 import { play } from './audio.js';
 import * as router from './router.js';
-import { startRespeak, renderReport } from './session.js';
+import { startRespeak, renderReport, canDo, cancelTurn } from './session.js';
 
 const LEVEL_NAMES = { beginner: '초급', intermediate: '중급', advanced: '고급' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극', lesson: '수업' };
@@ -33,6 +33,12 @@ const PASS_HOLD_MS = 1500;
 const NBSP = String.fromCharCode(0xa0);
 
 const SECTIONS = ['level-card', 'review-section', 'weak-section', 'history-section'];
+const BUSY = '지금은 다른 연습이 진행 중이에요';
+
+// Bumped by every openMypage. A language check alone cannot tell en -> ja ->
+// en apart, nor a 더 보기 still out when the page is opened again; an answer
+// from any load but the latest is not painted.
+let loadToken = 0;
 
 let reviewItems = new Map();     // id -> item, for main.js's delegated clicks
 let reviewCounts = null;         // { due, mastered } from /stats/mypage, or null
@@ -41,12 +47,19 @@ let reviewLeft = 0;              // cards still on the list
 /* ---------- opening ---------- */
 
 export async function openMypage() {
+  // The header button is a way out of a live session that does not reload the
+  // page. A listen or a transcription left running on the hidden screen would
+  // post a turn and play the reply over this one, so it is thrown away here
+  // -- the same as the learner pressing 취소. (A turn already sent is left to
+  // finish; the session comes back as 이어서 하기.)
+  if (canDo('cancel')) cancelTurn();
   router.show('mypage');
   syncLanguageButtons();
-  // Captured at call time: a language switch meanwhile starts a newer load,
-  // and this one's answers must not paint over it.
+  // Captured at call time: a language switch or a second open meanwhile
+  // starts a newer load, and this one's answers must not paint over it.
   const lang = state.language;
-  const stale = () => state.language !== lang;
+  const token = ++loadToken;
+  const stale = () => token !== loadToken || state.language !== lang;
   const screen = $('mypage');
 
   if (screen.dataset.painted === '1') {
@@ -178,11 +191,13 @@ export function renderLevel(level) {
     return;
   }
   // Stops at the target: 세션 5/3 next to 발화 9/15 reads as a typo.
-  const sessions = Math.min(level?.sessions ?? 0, level?.need_sessions ?? 3);
-  const utterances = Math.min(level?.utterances ?? 0, level?.need_utterances ?? 15);
+  const needSessions = level?.need_sessions ?? 3;
+  const needUtterances = level?.need_utterances ?? 15;
+  const sessions = Math.min(level?.sessions ?? 0, needSessions);
+  const utterances = Math.min(level?.utterances ?? 0, needUtterances);
   body.replaceChildren(
     el('p', 'level-value', '판정하기엔 아직 일러요'),
-    el('p', 'level-note', `세션 ${sessions}/3 · 발화 ${utterances}/15`),
+    el('p', 'level-note', `세션 ${sessions}/${needSessions} · 발화 ${utterances}/${needUtterances}`),
   );
 }
 
@@ -220,10 +235,12 @@ function reviewCard(item) {
   const card = el('div', 'review-card');
   card.dataset.id = String(item.id);
 
+  // A space between label and sentence, so they never read as one word
+  // (copied text, a screen reader, or a stylesheet that drops the margin).
   const said = el('p', 'said');
-  said.append(el('span', 'label', '내가 한 말'), el('s', '', item.text));
+  said.append(el('span', 'label', '내가 한 말'), document.createTextNode(' '), el('s', '', item.text));
   const fixed = el('p', 'fixed');
-  fixed.append(el('span', 'label', '고친 문장'), el('b', '', item.fixed));
+  fixed.append(el('span', 'label', '고친 문장'), document.createTextNode(' '), el('b', '', item.fixed));
   card.append(said, fixed);
   if (item.tag) card.append(el('span', 'tag', item.tag));
 
@@ -279,12 +296,15 @@ export async function playReview(item, btn) {
    result line; the verdict below overwrites that. Resolves once the verdict
    is handled -- never, if the re-speak was refused (startRespeak says why). */
 export function speakReview(item, card, respeak = startRespeak) {
+  // A card whose result is being saved, or that is on its way out, takes no
+  // second attempt.
+  if (card.inert) return Promise.resolve();
   const resultEl = find(card, 'review-result');
   const btn = find(card, 'speak');
   return new Promise((resolve) => {
     respeak(item.fixed, resultEl, btn, (good, spoken) => {
       judged(item, card, resultEl, good, spoken).finally(resolve);
-    });
+    }, { busy: BUSY });
   });
 }
 
@@ -300,25 +320,30 @@ async function judged(item, card, resultEl, good) {
     return;
   }
   let saved;
+  // Asleep while the result is out, so a quick second press cannot save a
+  // second one.
+  card.inert = true;
   try {
     saved = await postJSON(`/review/${item.id}/result`, { result: good ? 'pass' : 'fail' });
   } catch {
+    card.inert = false;
     notify('복습 결과를 저장하지 못했어요');
     return;
   }
   if (!good) {
+    card.inert = false;
     say('조금 달라요. 내일 다시 볼게요', 'bad');
     return;
   }
   if (saved.mastered && reviewCounts) reviewCounts.mastered += 1;
   say(saved.mastered ? '익혔어요 🎉' : `좋아요! ${saved.interval_d}일 뒤에 다시 볼게요`, 'good');
-  // Done with: nothing on it may be pressed again while it waits to go.
-  card.inert = true;
+  // Done with: it stays asleep while it waits to go.
   const fadeAt = reducedMotion() ? PASS_HOLD_MS : PASS_HOLD_MS - LEAVE_MS;
   setTimeout(() => { removeCard(card); }, fadeAt);
 }
 
 export async function skipReview(item, card) {
+  if (card.inert) return;
   card.inert = true;
   try {
     await postJSON(`/review/${item.id}/result`, { result: 'skip' });
@@ -395,6 +420,8 @@ export function renderTags(tags, accuracy) {
 
 export async function loadHistory({ append = false } = {}) {
   const lang = state.language;
+  const token = loadToken;
+  const stale = () => token !== loadToken || state.language !== lang;
   const list = $('history-list');
   const more = $('btn-history-more');
   // Only real rows count -- the first load's skeleton rows have no id.
@@ -405,7 +432,7 @@ export async function loadHistory({ append = false } = {}) {
   }
   try {
     const page = await getJSON(`/sessions/history?language=${lang}&offset=${offset}`);
-    if (state.language !== lang) return;
+    if (stale()) return;
     const rows = (page.items || []).map(historyRow);
     if (append) list.append(...rows);
     else list.replaceChildren(...rows);
@@ -413,7 +440,7 @@ export async function loadHistory({ append = false } = {}) {
     setShown(more, Boolean(page.more));
     if (!append) settle('history-section');
   } catch {
-    if (state.language !== lang) return;
+    if (stale()) return;
     if (append) {
       notify('기록을 더 불러오지 못했어요');
     } else {
@@ -481,9 +508,16 @@ export async function openReport(sessionId) {
   }
   try {
     const data = await getJSON(`/sessions/${sessionId}/report`);
-    state.mode = data.mode;   // renderReport reads it
     router.show('report');
-    renderReport(data);
+    // renderReport reads state.mode, synchronously; a session still open
+    // underneath reads it too (sendHeard), so it gets its own mode back.
+    const mode = state.mode;
+    state.mode = data.mode;
+    try {
+      renderReport(data);
+    } finally {
+      state.mode = mode;
+    }
     $('btn-report-back').hidden = false;
     if (status) setShown(status, false);
   } catch {

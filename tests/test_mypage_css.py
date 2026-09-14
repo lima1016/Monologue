@@ -74,3 +74,21 @@ def test_history_rows_do_not_animate_in():
     css = _all_css()
     for m in re.finditer(r"([^{}]*(?:\.history-row|\.transcript)[^{}]*)\{([^}]*)\}", css):
         assert "animation" not in m.group(2), m.group(1)
+
+
+def test_the_panel_label_rule_reaches_only_direct_children():
+    """An id-scoped `#mypage .panel .label` outranked `.review-card .label`, so a
+    card's 내가 한 말 turned into a block with no gap before the sentence."""
+    css = _all_css()
+    assert "margin: 0 0 var(--space-2)" in _rule_body(css, "#mypage .panel > .label {")
+    assert "#mypage .panel .label" not in css
+    inline = _rule_body(css, ".review-card .label {")
+    assert "display: inline" in inline and "var(--space-2)" in inline
+
+
+def test_the_level_note_keeps_its_gap():
+    """`#level-body > p { margin: 0 }` outranked `.level-note`'s margin-top."""
+    css = _all_css()
+    assert "#level-body > p" not in css
+    assert "margin: 0" in _rule_body(css, ":where(#level-body) > p {")
+    assert "margin-top: var(--space-1)" in _rule_body(css, ".level-note {")

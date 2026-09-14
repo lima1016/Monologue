@@ -286,6 +286,90 @@ test('one section failing says so there and leaves the others', async () => {
   assert.equal($('history-list').children.length, 3);
 });
 
+test('the level counts use the targets the server sends', async () => {
+  routes({ stats: () => jsonResponse(STATS({ level: { value: null, sessions: 7, utterances: 9, need_sessions: 4, need_utterances: 20 } })) });
+  await mypage.openMypage();
+  assert.match(text($('level-body')), /세션 4\/4 · 발화 9\/20/);
+});
+
+test('a label and its sentence are two words, not one', async () => {
+  routes();
+  await mypage.openMypage();
+  const said = findByClass($('review-list').children[0], 'said');
+  assert.equal(said.childNodes[1].textContent, ' ');
+});
+
+test("opening an old report leaves the app's own mode alone", async () => {
+  routes();
+  await mypage.openMypage();
+  state.mode = 'script';
+  try {
+    await mypage.openReport(100);
+    assert.equal(state.mode, 'script');
+    // ...while the report itself was drawn as the free session it was.
+    assert.equal($('report-headline').textContent, '오늘 3턴을 주고받았어요.');
+  } finally {
+    state.mode = 'free';
+  }
+});
+
+test('a second quick press cannot save a second result', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const seen = routes({ result: async (body) => { await held; return jsonResponse({ id: 11, passes: 0, interval_d: 1, due_date: 'z', mastered: false }); } });
+  await mypage.openMypage();
+  const [first, second] = $('review-list').children;
+  const skips = [mypage.skipReview(ITEMS[0], first), mypage.skipReview(ITEMS[0], first)];
+  const speaking = mypage.speakReview(ITEMS[1], second, (t, r, b, onResult) => onResult(false, 'x'));
+  const again = mypage.speakReview(ITEMS[1], second, (t, r, b, onResult) => onResult(false, 'x'));
+  release();
+  await Promise.all([...skips, speaking, again]);
+  assert.deepEqual(seen.results, [[11, 'skip'], [12, 'fail']]);
+  assert.equal(second.inert, false, 'a kept card stayed asleep after its result was saved');
+});
+
+test('a result that fails to save wakes the card again', async () => {
+  routes({ result: () => jsonResponse({ detail: 'down' }, { ok: false, status: 500 }) });
+  await mypage.openMypage();
+  const card = $('review-list').children[0];
+  await mypage.speakReview(ITEMS[0], card, (t, r, b, onResult) => onResult(true, 'x'));
+  assert.equal(card.inert, false);
+});
+
+test('an older load for the same language does not paint over a newer one (en -> ja -> en)', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let calls = 0;
+  routes({ historyResponse: async () => {
+    calls += 1;
+    if (calls === 1) { await held; return jsonResponse(HISTORY(5)); }
+    return jsonResponse(HISTORY(2));
+  } });
+  const first = mypage.openMypage();
+  state.language = 'ja';
+  await mypage.openMypage();
+  state.language = 'en';
+  await mypage.openMypage();
+  release();
+  await first;
+  assert.equal($('history-list').children.length, 2);
+});
+
+test('a 더 보기 still out when my page is opened again is not appended', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  routes({ historyResponse: async (url) => {
+    if (url.includes('offset=20')) { await held; return jsonResponse(HISTORY(1)); }
+    return jsonResponse(HISTORY(20, true));
+  } });
+  await mypage.openMypage();
+  const more = mypage.loadHistory({ append: true });
+  await mypage.openMypage();
+  release();
+  await more;
+  assert.equal($('history-list').children.length, 20);
+});
+
 /* ---------- the UI stability rules (spec 2026-09-14-monologue-ui-stability) ---------- */
 
 test('the first load holds a skeleton of each section with the loading words (R3)', async () => {
