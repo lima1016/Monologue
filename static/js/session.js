@@ -943,6 +943,10 @@ export async function endSession() {
    -- a later phase needs the history to compute a level over several
    sessions -- this function just does not render it. */
 export function renderReport(data) {
+  // Keyed on the payload's own kind, not state.mode/state.shadowing: Task 3
+  // leaves state.shadowing true after a shadowing session ends, until the
+  // next start, so those flags cannot tell this report from the next one.
+  if (data.kind === 'shadow') { renderShadowReport(data); return; }
   const s = data.stats || {};
   // 헤드라인. LLM 에 새 필드를 요구하지 않는다 -- 리포트 프롬프트는 여러 라운드에
   // 걸쳐 다듬어졌고, 필드를 하나 더 넣는 것만으로 그 품질이 회귀할 수 있다.
@@ -1018,6 +1022,74 @@ async function loadWeakPoints() {
     list.append(li);
   }
   $('report-weak').hidden = tags.length === 0;
+}
+
+/* Shadowing's report (Task 4): no model call ever ran (see `_shadow_report`
+   in app/api.py), so there is nothing to summarise -- 총평/부족한 부분/외워둘
+   표현/다음엔 이것을 all stay off, and so does the cumulative-weak-points
+   panel (that reads across every session, not this one; a session with
+   nothing graded has no grammar signal to feed it). Just the counts the
+   server already computed, and the lines worth trying again. */
+function renderShadowReport(data) {
+  const sh = data.shadow || {};
+  const s = data.stats || {};
+  $('report-headline').textContent = `${sh.done ?? 0}줄을 따라 말했어요.`;
+  $('report-counts').textContent =
+    `따라 한 줄 ${sh.done ?? 0}/${sh.lines ?? 0} · 대본과 같음 ${sh.matched ?? 0} · 글자 보고 함 ${sh.peeked ?? 0}`;
+
+  const body = $('report-body');
+  body.replaceChildren();
+  const hard = sh.hard || [];
+  if (hard.length) {
+    body.append(shadowHardCard(hard));
+  } else {
+    const p = document.createElement('p');
+    p.textContent = '전부 대본대로 따라 했어요 🎉';
+    body.append(p);
+  }
+
+  $('rep-turns').textContent = s.turns ?? 0;
+  // No grammar correction happens in a shadowing session (same reason script
+  // mode uses '—' above): 0 would read as "every line was perfect".
+  $('rep-wrong').textContent = '—';
+  $('rep-minutes').textContent = s.minutes ?? 0;
+
+  // Not loadWeakPoints(): that panel is app-wide history, and a shadowing
+  // session graded nothing that could feed it.
+  $('report-weak').hidden = true;
+}
+
+function shadowHardCard(hard) {
+  const card = document.createElement('section');
+  card.className = 'report-card';
+  const heading = document.createElement('p');
+  heading.className = 'label';
+  heading.textContent = '어려웠던 줄';
+  card.append(heading);
+  for (const h of hard) {
+    const row = document.createElement('div');
+    row.className = 'fix-row';
+    const said = document.createElement('p');
+    said.className = 'said';
+    said.textContent = h.said;
+    const target = document.createElement('p');
+    target.className = 'fixed';
+    target.textContent = h.target;
+    // No ▶ 내 발음: the recording is gone by the time this renders (the
+    // session's own end route sweeps it, see _forget_recordings).
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-stable';
+    btn.textContent = '▶ 원어민';
+    btn.addEventListener('click', () => play(h.audio_key, h.target));
+    row.append(said, target, btn);
+    card.append(row);
+  }
+  const note = document.createElement('p');
+  note.className = 'hint';
+  note.textContent = '이 줄들은 내일 복습에 나와요';
+  card.append(note);
+  return card;
 }
 
 function reportCard(title, items) {

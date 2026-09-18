@@ -33,6 +33,15 @@ const GOAL_MIN = 1;
 const GOAL_MAX = 14;
 const START_LABELS = { script: '스크립트로 시작', free: '자유 대화로 시작' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극' };
+
+// A shadowing session is stored server-side as a flagged script session
+// (docs/superpowers/specs/2026-09-19-monologue-shadowing-design.md), so
+// MODE_NAMES alone would call it 스크립트 -- item.shadowing always wins.
+// Same rule as mypage.js's modeName(); not shared -- the two screens have no
+// other reason to move together.
+function modeName(item) {
+  return item.shadowing ? '쉐도잉' : (MODE_NAMES[item.mode] || item.mode);
+}
 const REVIEW_PLAY_LABEL = '▶ 듣기';
 // A placeholder line needs a character to be a line at all: an empty or
 // space-only <p> is zero tall.
@@ -467,7 +476,7 @@ export function renderRecentThemes(items) {
     card.type = 'button';
     card.dataset.theme = item.theme_id;
     card.dataset.mode = item.mode;
-    card.append(el('span', 't', item.title), el('span', 'm', MODE_NAMES[item.mode] || item.mode));
+    card.append(el('span', 't', item.title), el('span', 'm', modeName(item)));
     list.append(card);
   }
   $('recent-themes-wrap').hidden = list.children.length === 0;

@@ -684,6 +684,15 @@ test('recent themes render up to four and library progress shows only while inco
   assert.equal($('library-progress').hidden, true);
 });
 
+/* Task 4: a shadowing recent-theme card shows 쉐도잉, not the underlying
+ * script mode name -- same rule as mypage.js's history rows. */
+test('a shadowing recent theme reads 쉐도잉, not 스크립트', async () => {
+  homeRoutes(PAYLOAD({ recent_themes: [{ theme_id: 'cafe-restaurant', title: '카페·음식점 주문', mode: 'script', shadowing: true }] }));
+  await home.loadHome();
+  const card = $('recent-themes').children[0];
+  assert.equal(text(card), '카페·음식점 주문쉐도잉');
+});
+
 test('a stale response for another language is not painted', async () => {
   let release;
   const held = new Promise((r) => { release = r; });

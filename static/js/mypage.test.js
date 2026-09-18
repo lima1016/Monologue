@@ -315,6 +315,20 @@ test('a history row with no graded turns does not claim 고친 곳 0', async () 
   assert.equal(findByClass(graded, 'sub').textContent, '말한 문장 4 · 고친 곳 0');
 });
 
+/* Task 4: a shadowing row's mode name and subtitle come from `item.shadowing`,
+ * not `item.mode` -- the server still stores it as a script session
+ * (docs/superpowers/specs/2026-09-19-monologue-shadowing-design.md). */
+test('a shadowing history row shows 쉐도잉, not 스크립트', async () => {
+  routes({ history: () => ({ items: [
+    { id: 1, ended_at: '2026-09-13T05:00:00+00:00', title: 'a', mode: 'script', turns: 3, wrong: 0, graded: 0, shadowing: true },
+  ], more: false }) });
+  await mypage.openMypage();
+  const row = $('history-list').children[0];
+  assert.match(text(row), /쉐도잉/);
+  assert.doesNotMatch(text(row), /스크립트/);
+  assert.equal(findByClass(row, 'sub').textContent, '따라 한 줄 3 · 쉐도잉');
+});
+
 test('더 보기 says it is loading while the next page comes', async () => {
   let release;
   const held = new Promise((r) => { release = r; });
@@ -357,6 +371,26 @@ test('opening a report shows the report screen with a way back', async () => {
   assert.equal(state.mode, 'free');
 });
 
+/* Task 4: openReport just hands whatever /sessions/{id}/report returns to
+ * session.renderReport -- a shadowing report (kind: 'shadow') gets the same
+ * shadowing layout there as ending a live session would. */
+test('opening a shadowing report draws the shadowing report', async () => {
+  routes({ report: () => jsonResponse({
+    kind: 'shadow', mode: 'script', shadowing: true,
+    stats: { turns: 3, minutes: 2 },
+    shadow: {
+      lines: 16, done: 3, matched: 2, peeked: 1,
+      hard: [{ index: 1, said: 'banana', target: 'Yes, I am ready.', message_id: 5, audio_key: 'k' }],
+    },
+  }) });
+  await mypage.openMypage();
+  await mypage.openReport(100);
+  assert.equal(router.current(), 'report');
+  assert.equal($('report-headline').textContent, '3줄을 따라 말했어요.');
+  assert.match(text($('report-body')), /어려웠던 줄/);
+  assert.equal($('report-weak').hidden, true);
+});
+
 test('a transcript lists both sides and the fix under my line', async () => {
   routes();
   await mypage.openMypage();
@@ -397,6 +431,37 @@ test('a label and its sentence are two words, not one', async () => {
   await mypage.openMypage();
   const said = findByClass($('review-list').children[0], 'said');
   assert.equal(said.childNodes[1].textContent, ' ');
+});
+
+/* Task 4: a normal review card still reads 내가 한 말 / 고친 문장 with the
+ * wrong sentence struck through -- only a shadowing card (below) changes. */
+test('a normal review card keeps 내가 한 말 / 고친 문장 and its strikethrough', () => {
+  mypage.renderReviewList(
+    [{ id: 1, text: 'I go there', fixed: 'I went there.', correction: '', tag: '시제', created_at: 'x' }], null,
+  );
+  const card = $('review-list').children[0];
+  const said = findByClass(card, 'said');
+  const fixed = findByClass(card, 'fixed');
+  assert.equal(findByClass(said, 'label').textContent, '내가 한 말');
+  assert.equal(findByClass(fixed, 'label').textContent, '고친 문장');
+  assert.ok(said.children.some((c) => c.tagName === 'S'), '고친 문장이 아니라 틀린 문장이므로 취소선이 있다');
+  assert.equal(findByClass(card, 'tag').textContent, '시제');
+});
+
+/* A shadowing card has nothing "wrong" to strike through -- 내 말 is just
+ * what the learner said back to the script, and the tag chip's spot always
+ * reads 쉐도잉 regardless of item.tag (there is no grammar tag to show). */
+test('a shadowing review card reads 내 말 / 대본, no strikethrough, tag 쉐도잉', () => {
+  mypage.renderReviewList(
+    [{ id: 2, text: 'banana', fixed: 'Yes, I am ready.', correction: '', tag: null, shadowing: true, created_at: 'x' }], null,
+  );
+  const card = $('review-list').children[0];
+  const said = findByClass(card, 'said');
+  const fixed = findByClass(card, 'fixed');
+  assert.equal(findByClass(said, 'label').textContent, '내 말');
+  assert.equal(findByClass(fixed, 'label').textContent, '대본');
+  assert.ok(!said.children.some((c) => c.tagName === 'S'), '쉐도잉 카드는 취소선이 없다');
+  assert.equal(findByClass(card, 'tag').textContent, '쉐도잉');
 });
 
 test("opening an old report leaves the app's own mode alone", async () => {
