@@ -274,17 +274,23 @@ export async function startTheme(mode, themeId) {
   await openPick(mode);
   // ← 홈 while the list loaded: the learner backed out, so nothing starts.
   if (router.current() !== 'pick') return;
-  if (state.language !== language || state.mode !== mode) return;
+  // openPick normalizes state.mode to 'script' for 'shadow' (its own
+  // comment explains why: shadowing picks from the same scripts as a script
+  // session). Every state.mode check below must compare against that same
+  // normalized value -- comparing against the raw `mode` argument would
+  // always mismatch for 'shadow' and silently abort the start.
+  const effectiveMode = mode === 'shadow' ? 'script' : mode;
+  if (state.language !== language || state.mode !== effectiveMode) return;
   if (!themes.length) return;              // the list failed to load, and loadThemes said so
   const theme = themes.find((t) => t.id === themeId);
   if (theme) selectCategory(theme.category);
-  if (!theme || !isReady(theme, mode)) {
+  if (!theme || !isReady(theme, effectiveMode)) {
     notify('이 테마는 아직 준비되지 않았어요');
     return;
   }
   await selectTheme(themeId);
   if (router.current() !== 'pick') return;
-  if (state.language !== language || state.mode !== mode) return;
+  if (state.language !== language || state.mode !== effectiveMode) return;
   if (selected?.kind !== 'theme' || selected.id !== themeId) return;
   await startFromPick();
 }

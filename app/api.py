@@ -1347,7 +1347,11 @@ def _recent_themes(language):
         if theme is None or theme_id in seen:
             continue
         seen.add(theme_id)
-        out.append({"theme_id": theme_id, "title": theme["title"], "mode": row["mode"]})
+        # A shadowing session is stored as a flagged script session (mode is
+        # still "script"); the client needs the flag itself to show 쉐도잉
+        # instead of 스크립트 and to start the theme back into shadowing.
+        out.append({"theme_id": theme_id, "title": theme["title"], "mode": row["mode"],
+                    "shadowing": bool(row["shadowing"])})
         if len(out) == _RECENT_THEMES:
             break
     return out

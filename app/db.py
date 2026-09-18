@@ -896,7 +896,7 @@ def sessions_completed_since(language, start) -> int:
 def library_sessions(language, limit=50) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT scenario_id, mode, started_at FROM sessions"
+            "SELECT scenario_id, mode, started_at, shadowing FROM sessions"
             " WHERE language = ? AND scenario_id LIKE 'lib-%'"
             " ORDER BY started_at DESC, id DESC LIMIT ?", (language, limit)).fetchall()
     return [dict(r) for r in rows]

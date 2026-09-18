@@ -54,11 +54,16 @@ function routes(extra = {}) {
       return extra.generate ? extra.generate() : jsonResponse({ id: 'user-abc' });
     }
     if (url === '/api/sessions') {
-      seen.sessions.push(JSON.parse(options.body));
+      const body = JSON.parse(options.body);
+      seen.sessions.push(body);
       seen.statuses.push($('start-status-text').textContent);
-      const mode = JSON.parse(options.body).mode;
-      return jsonResponse(mode === 'script' ? { session_id: 1, mode, lines: [{ speaker: 'bot', text: 'Hi.' }] }
-                                           : { session_id: 1, mode, opening: 'Hi.', opening_audio: null, goal: null });
+      const { mode, shadowing } = body;
+      // The real POST /sessions echoes `shadowing` back (app/api.py); startSession
+      // (session.js) reads it off the response to set state.shadowing, so a mock
+      // that dropped it would silently make every shadowing start look like it
+      // wasn't one, no matter what was actually sent.
+      return jsonResponse(mode === 'script' ? { session_id: 1, mode, shadowing, lines: [{ speaker: 'bot', text: 'Hi.' }] }
+                                           : { session_id: 1, mode, shadowing, opening: 'Hi.', opening_audio: null, goal: null });
     }
     return jsonResponse({});
   });
@@ -551,6 +556,23 @@ test('startTheme in free mode starts the theme it was given, not one drawn from 
   await pick.startTheme('free', 'hotel');
   assert.deepEqual(seen.picks.map((p) => [p.mode, p.theme_id]), [['free', 'hotel']]);
   assert.deepEqual(seen.statuses, ['첫 대사 만드는 중...']);
+});
+
+/* Task 4 fix round: a shadowing recent-theme card carries data-mode="shadow"
+ * (main.js's startThemeButton hands it straight to startTheme) -- openPick
+ * already normalizes state.mode to 'script' for 'shadow' (its own test
+ * above), but startTheme kept comparing state.mode against the raw 'shadow'
+ * argument, so the mismatch guard fired and every such start silently did
+ * nothing. This proves the whole path, mode argument to server request. */
+test('startTheme(\'shadow\', …) starts a shadowing session, not a silent no-op', async () => {
+  const seen = routes();
+  await pick.startTheme('shadow', 'hotel');
+  assert.equal(state.mode, 'script');
+  assert.equal(state.shadowing, true);
+  assert.equal(seen.picks[0].theme_id, 'hotel');
+  assert.equal(seen.sessions[0].scenario_id, 'lib-hotel-en-07');
+  assert.equal(seen.sessions[0].shadowing, true);
+  assert.equal(router.current(), 'session');
 });
 
 test('startTheme does nothing while a start is already running', async () => {

@@ -327,7 +327,10 @@ const PAYLOAD = (over = {}) => ({
     { theme_id: 'hotel', title: '호텔', category: 'travel', situations: ['체크인', '방 문제 알리기', '짐 맡기기', '체크아웃 연장'], reason: '아직 안 해본 테마예요', ready: { free: true, script: 3 } },
     { theme_id: 'meetings', title: '회의', category: 'business', situations: ['의견 말하기'], reason: '어제 연습했어요', ready: { free: false, script: 3 } },
   ],
-  recent_themes: [{ theme_id: 'cafe-restaurant', title: '카페·음식점 주문', mode: 'script' }],
+  // The real shape /stats/home sends (app/api.py's _recent_themes): mode is
+  // the server's session mode ("script" even for shadowing), and shadowing
+  // is its own field.
+  recent_themes: [{ theme_id: 'cafe-restaurant', title: '카페·음식점 주문', mode: 'script', shadowing: false }],
   library: { scripts: 312, target: 600 },
   ...over,
 });
@@ -684,13 +687,17 @@ test('recent themes render up to four and library progress shows only while inco
   assert.equal($('library-progress').hidden, true);
 });
 
-/* Task 4: a shadowing recent-theme card shows 쉐도잉, not the underlying
- * script mode name -- same rule as mypage.js's history rows. */
-test('a shadowing recent theme reads 쉐도잉, not 스크립트', async () => {
+/* Task 4 fix round: a shadowing recent-theme card shows 쉐도잉, not the
+ * underlying script mode name (same rule as mypage.js's history rows), and
+ * carries data-mode="shadow" -- not the server's "script" -- since
+ * startThemeButton (main.js) hands this straight to startTheme(mode, …),
+ * which only recognises 'shadow' as its own mode (see pick.js's openPick). */
+test('a shadowing recent theme reads 쉐도잉, not 스크립트, and starts as shadowing', async () => {
   homeRoutes(PAYLOAD({ recent_themes: [{ theme_id: 'cafe-restaurant', title: '카페·음식점 주문', mode: 'script', shadowing: true }] }));
   await home.loadHome();
   const card = $('recent-themes').children[0];
   assert.equal(text(card), '카페·음식점 주문쉐도잉');
+  assert.equal(card.dataset.mode, 'shadow');
 });
 
 test('a stale response for another language is not painted', async () => {

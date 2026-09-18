@@ -241,7 +241,8 @@ def test_home_stats_recommend_recent_themes_library_and_history(client, monkeypa
     assert 1 <= len(body["recommend"]) <= 2
     themes = [r["theme_id"] for r in body["recent_themes"]]
     assert len(themes) == 4 and len(set(themes)) == 4
-    assert body["recent_themes"][0] == {"theme_id": "hobbies", "title": "취미·관심사", "mode": "script"}
+    assert body["recent_themes"][0] == {"theme_id": "hobbies", "title": "취미·관심사", "mode": "script",
+                                        "shadowing": False}
 
 
 def test_recent_themes_lists_each_theme_once_with_its_latest_mode(client, monkeypatch):
@@ -259,6 +260,6 @@ def test_recent_themes_lists_each_theme_once_with_its_latest_mode(client, monkey
     db.create_session("en", "free", scenario_id="lib-hotel-en-01")       # newest
     body = client.get("/api/stats/home?language=en").json()
     assert body["recent_themes"] == [
-        {"theme_id": "hotel", "title": "호텔", "mode": "free"},
-        {"theme_id": "meetings", "title": "회의", "mode": "script"},
+        {"theme_id": "hotel", "title": "호텔", "mode": "free", "shadowing": False},
+        {"theme_id": "meetings", "title": "회의", "mode": "script", "shadowing": False},
     ]

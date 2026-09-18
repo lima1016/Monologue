@@ -138,3 +138,18 @@ def test_lists_say_which_sessions_were_shadowing(client):
     recent = client.get("/api/stats/home?language=en").json()
     rows = recent["recent"]
     assert rows and rows[0]["shadowing"] is True
+
+
+def test_home_stats_recent_themes_say_which_theme_was_shadowing(client):
+    """The home screen's 최근 테마 cards (`_recent_themes`) also need the flag:
+    a shadowing session is stored with mode "script" (SCRIPT above is not a
+    lib- scenario, so `shadow_three` never reaches this list -- this needs
+    its own library scenario). Not ended: library_sessions/recent_themes read
+    straight off `sessions` the moment it is created, matching
+    test_api_config.py's test_home_stats_recommend_recent_themes_library_and_history."""
+    db.add_library_scenario({"id": "lib-hotel-en-01", "theme_id": "hotel", "situation": "s", "language": "en",
+                             "type": "script", "title": "t",
+                             "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
+    db.create_session("en", "script", scenario_id="lib-hotel-en-01", shadowing=True)
+    body = client.get("/api/stats/home?language=en").json()
+    assert body["recent_themes"] == [{"theme_id": "hotel", "title": "호텔", "mode": "script", "shadowing": True}]
