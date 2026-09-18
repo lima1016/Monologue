@@ -9,6 +9,7 @@ import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, sync
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory } from './mypage.js';
+import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
 import * as router from './router.js';
 
 /* ---------- screens ---------- */
@@ -208,6 +209,19 @@ $('conversation').addEventListener('click', (e) => {
   play(bubble.dataset.audioKey, bubble.dataset.source || bubble.textContent);
 });
 $('btn-suggest').addEventListener('click', suggestForLatest);
+
+/* Shadowing's line card: one listener for every button on it. While a line
+   saves none of them applies -- the attempt being saved is this line's, and
+   다음 or 다시 하기 would move the card out from under its verdict. */
+const SHADOW_ACTIONS = {
+  replay, slow: replaySlow, peek, native: replay, mine, retry, next: nextLine,
+};
+$('shadow-card').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-shadow]');
+  if (!btn || btn.disabled || shadowState().saving) return;
+  const action = SHADOW_ACTIONS[btn.dataset.shadow];
+  if (action) action();
+});
 
 $('panel-body').addEventListener('click', (e) => {
   const meaning = e.target.closest('button.meaning');

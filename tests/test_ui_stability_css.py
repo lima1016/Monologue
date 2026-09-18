@@ -291,3 +291,16 @@ def test_review_home_sits_right_after_today_alt_in_the_phone_order():
         order[selector] = int(m.group(1))
     assert order["#today-alt"] < order["#review-home"] < order["#resume-card"] \
         < order["#week-card"] < order["#recommend"]
+
+
+def test_the_shadowing_card_holds_its_height_and_never_transforms():
+    """Shadowing's line card changes stage in place: a fixed min-height, both
+    button rows on one two-column grid (so both are two buttons tall), and no
+    transform -- the dock under it must not move."""
+    css = _all_css()
+    card = _rule_body(css, ".shadow-card {")
+    assert "min-height: 15rem" in card
+    assert "transform" not in card
+    actions = _rule_body(css, ".shadow-actions {")
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in actions
+    assert "min-height:" in _rule_body(css, ".shadow-said {")

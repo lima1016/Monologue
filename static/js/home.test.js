@@ -77,6 +77,32 @@ test('resumeSession sets state.language from the session actually being resumed'
   assert.equal(state.language, 'en');
 });
 
+/* A resume does not go through startSession, which is what otherwise puts a
+   shadowing session's card and its hidden dock controls away. */
+test('resumeSession after a shadowing session puts the line card away and gives the dock back', async () => {
+  router.register('session', 'session');
+  state.language = 'ja';
+  state.sessionId = null;
+  await armResumeCard();
+  state.shadowing = true;
+  $('shadow-card').hidden = false;
+  for (const id of ['text-input', 'btn-send']) $(id).hidden = true;
+
+  stubFetch(async (url) => {
+    if (url === '/api/sessions/42') {
+      return jsonResponse({ session: { id: 42, language: 'ja' }, messages: [] });
+    }
+    return jsonResponse({});
+  });
+
+  await home.resumeSession();
+  assert.equal(state.shadowing, false);
+  assert.equal($('shadow-card').hidden, true);
+  assert.equal($('text-input').hidden, false);
+  assert.equal($('btn-send').hidden, false);
+  assert.equal($('btn-next').hidden, true);
+});
+
 /* GET /sessions/{id} hands back a cache-only audio_key per bot message (never
    freshly synthesised -- see _resumable_audio_key in app/api.py). Without
    this passthrough, every replayed bot bubble has no audio key at all, and

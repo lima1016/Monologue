@@ -594,6 +594,14 @@ export async function resumeSession() {
     const { session, messages } = await getJSON(`/sessions/${resumeTarget.id}`);
     state.sessionId = resumeTarget.id;
     state.mode = resumeTarget.mode;
+    // A resumed session is never shadowing (script sessions are not
+    // resumable), and this path does not go through startSession, which is
+    // what otherwise puts the shadowing card and its hidden dock controls away.
+    state.shadowing = false;
+    $('shadow-card').hidden = true;
+    $('text-input').hidden = false;
+    $('btn-send').hidden = false;
+    $('btn-next').hidden = true;
     setSuggestVisible(resumeTarget.mode);
     // Same rule startSession follows for a session it just created: the
     // session that actually exists becomes the app's language, not whatever

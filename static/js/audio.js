@@ -19,30 +19,34 @@ function once(fn) {
 
 /* `onDone` is optional and, when given, fires once playback actually finishes
    (or immediately if nothing could be played at all) -- session.js uses it to
-   fire the AUDIO_DONE event that returns the turn state machine to `idle`. */
-export function play(audioKey, fallbackText, onDone) {
+   fire the AUDIO_DONE event that returns the turn state machine to `idle`.
+   `rate` slows the same clip down (shadowing's 천천히 듣기) rather than asking
+   the server for a second, slower synthesis. */
+export function play(audioKey, fallbackText, onDone, { rate = 1 } = {}) {
   const done = onDone ? once(onDone) : null;
   if (audioKey) {
     notify(''); // a real server clip means any earlier quality warning no longer applies
     const clip = new Audio(`/api/audio/${audioKey}.wav`);
+    clip.playbackRate = rate;
     if (done) {
       clip.addEventListener('ended', done);
       clip.addEventListener('error', done);
     }
-    clip.play().catch(() => speakInBrowser(fallbackText, done));
+    clip.play().catch(() => speakInBrowser(fallbackText, done, rate));
     return;
   }
   notify('서버 음성 생성에 실패해 브라우저 음성으로 대체합니다. 품질이 떨어집니다.');
-  speakInBrowser(fallbackText, done);
+  speakInBrowser(fallbackText, done, rate);
 }
 
-export function speakInBrowser(text, onDone) {
+export function speakInBrowser(text, onDone, rate = 1) {
   if (!('speechSynthesis' in window)) {
     if (onDone) onDone();
     return;
   }
   const u = new SpeechSynthesisUtterance(text);
   u.lang = BCP47[state.language];
+  u.rate = rate;
   if (onDone) {
     u.addEventListener('end', onDone);
     u.addEventListener('error', onDone);

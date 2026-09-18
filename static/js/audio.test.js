@@ -198,3 +198,49 @@ test('with no recorder the recording is null', async () => {
   rec.onend();
   assert.equal(await got, null);
 });
+
+/* 쉐도잉의 천천히 듣기. dom-shim의 Audio는 아무것도 기록하지 않으므로, 만든
+   것을 들여다볼 수 있는 가짜로 잠깐 바꾼다. play()가 new Audio를 부르는 순간에
+   전역을 읽으므로 import 뒤에 바꿔도 된다. */
+function recordAudio() {
+  const made = [];
+  const Real = globalThis.Audio;
+  globalThis.Audio = class {
+    constructor(src) { this.src = src; made.push(this); }
+    addEventListener() {}
+    play() { return Promise.resolve(); }
+  };
+  return { made, restore: () => { globalThis.Audio = Real; } };
+}
+
+test('play takes a rate for the server clip; without one it plays at normal speed', () => {
+  const { made, restore } = recordAudio();
+  try {
+    audio.play('k', 't', null, { rate: 0.75 });
+    audio.play('k', 't');
+  } finally {
+    restore();
+  }
+  assert.equal(made[0].playbackRate, 0.75);
+  assert.equal(made[1].playbackRate ?? 1, 1);
+});
+
+test('the browser voice fallback speaks at the same rate', () => {
+  const spoken = [];
+  globalThis.SpeechSynthesisUtterance = class {
+    constructor(text) { this.text = text; }
+    addEventListener() {}
+  };
+  globalThis.speechSynthesis = { speak: (u) => spoken.push(u) };
+  window.speechSynthesis = globalThis.speechSynthesis;
+  try {
+    audio.play(null, 'slow please', null, { rate: 0.75 });
+    audio.play(null, 'normal');
+  } finally {
+    delete window.speechSynthesis;
+    delete globalThis.speechSynthesis;
+    delete globalThis.SpeechSynthesisUtterance;
+  }
+  assert.equal(spoken[0].rate, 0.75);
+  assert.equal(spoken[1].rate ?? 1, 1);
+});

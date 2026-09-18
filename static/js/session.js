@@ -180,7 +180,16 @@ export function setTurnState(event) {
   // same reason.
   if (isListening && !wasListening) liveHeard = '';
   syncControls();
+  if (state.shadowing) shadowHooks.turn(turnState);
   return turnState;
+}
+
+/* Shadowing (shadow.js) owns its own line card; session.js only hands it the
+   session's lines, each final transcript, and each turn state. Injected, like
+   audio.js's handlers, so neither module imports the other. */
+let shadowHooks = { start() {}, heard() {}, turn() {} };
+export function setShadowHooks(hooks) {
+  shadowHooks = { ...shadowHooks, ...hooks };
 }
 
 /* Whisper's answer beats the browser's, but never blocks the turn: on any
@@ -234,6 +243,19 @@ export async function handleHeard(browserText, audioPromise) {
    returns control to the learner. Re-speak (Task 8) takes priority over this
    handler via audio.js's `deliver` and never reaches it. */
 function sendHeard(transcript) {
+  // Shadowing judges a line on the server and keeps the attempt in its own
+  // card; it never posts a turn. `sending` holds the mic while it saves.
+  if (state.shadowing) {
+    if (!transcript) {
+      discardRecording();
+      setTurnState('HEARD_NOTHING');
+      shadowHooks.heard(null);
+      return;
+    }
+    setTurnState('HEARD');
+    shadowHooks.heard(transcript);
+    return;
+  }
   if (!transcript) {
     // Nothing to attach the recording to, and chunks left behind would be
     // uploaded with whatever the learner types next.
@@ -343,7 +365,7 @@ export async function refreshHealth() {
    several seconds ago, and the session must be created under the same pair the
    id belongs to. Reading `state` here instead is exactly how a session came to
    be stamped with one language and bound to another language's scenario. */
-export async function startSession({ language, mode, scenarioId, topic } = {}) {
+export async function startSession({ language, mode, scenarioId, topic, shadowing = false } = {}) {
   // startScript resets this for a script session; a free session never went
   // through startScript before, so without this a free session started right
   // after a finished script session would inherit the earlier session's
@@ -356,6 +378,7 @@ export async function startSession({ language, mode, scenarioId, topic } = {}) {
     mode,
     scenario_id: mode === 'lesson' ? null : scenarioId,
     topic: topic || null,
+    shadowing,
   };
   $('btn-start').disabled = true;
   try {
@@ -374,8 +397,19 @@ export async function startSession({ language, mode, scenarioId, topic } = {}) {
     router.show('session');
     $('conversation').innerHTML = '';
     notify('');
+    // What the server made, not what was asked: shadowing is a script session
+    // with a flag, and the flag decides whose card the lines go to.
+    state.shadowing = Boolean(data.shadowing);
+    $('shadow-card').hidden = !state.shadowing;
+    // Shadowing is spoken or nothing -- a typed line has no sound to judge.
+    $('text-input').hidden = state.shadowing;
 
-    if (data.mode === 'script') startScript(data.lines);
+    if (state.shadowing) {
+      // The card's own 다음 줄 moves on, and there is no turn to send.
+      $('btn-next').hidden = true;
+      $('btn-send').hidden = true;
+      shadowHooks.start(data.lines);
+    } else if (data.mode === 'script') startScript(data.lines);
     else {
       // The scenario's goal (free mode) or the topic the learner typed
       // (lesson mode) is what the panel shows. Lesson mode with no topic has
@@ -815,6 +849,23 @@ function addPlayButton(bubble, messageId) {
       .catch(() => notify('녹음을 재생할 수 없습니다.'));
   });
   bubble.appendChild(btn);
+}
+
+/* The learner's recording for one known message -- shadowing knows its row id,
+   and a retried line keeps it, so "the last user message" would be wrong. */
+export async function uploadRecordingFor(messageId) {
+  if (!state.chunks.length) return false;
+  const blob = new Blob(state.chunks, { type: 'audio/webm' });
+  state.chunks = [];
+  try {
+    const form = new FormData();
+    form.append('message_id', messageId);
+    form.append('file', blob, 'clip.webm');
+    await api(`/sessions/${state.sessionId}/audio`, { method: 'POST', body: form });
+    return true;
+  } catch {
+    return false;   // a recording never interrupts practice
+  }
 }
 
 export async function uploadPendingRecording(bubble) {
