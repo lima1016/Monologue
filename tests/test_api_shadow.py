@@ -1,8 +1,10 @@
 """Shadowing: a script session with a flag, one row per line attempt."""
+from datetime import date, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
-from app import config, db, llm, scenarios, tts
+from app import api, config, db, llm, scenarios, tts
 from app.main import app
 
 
@@ -78,3 +80,61 @@ def test_script_only_routes_refuse_a_shadowing_session(client):
     assert client.post(f"/api/sessions/{sid}/script-line", json={"index": 0}).status_code == 400
     client.post(f"/api/sessions/{sid}/shadow-line", json={"index": 0, "text": "hi", "peeked": False})
     assert client.delete(f"/api/sessions/{sid}/last-turn").status_code == 400
+
+
+def shadow_three(client):
+    """Line 0 said right blind, line 1 said wrong, line 2 said right after peeking."""
+    sid = start(client).json()["session_id"]
+    ls = lines()
+    say = lambda i, text, peeked=False: client.post(
+        f"/api/sessions/{sid}/shadow-line", json={"index": i, "text": text, "peeked": peeked})
+    say(0, ls[0]["text"])
+    say(1, "completely different words here")
+    say(2, ls[2]["text"], peeked=True)
+    return sid
+
+
+def test_ending_a_shadowing_session_counts_and_queues_the_hard_lines(client, monkeypatch):
+    monkeypatch.setattr(api, "_today", lambda: date(2026, 9, 19))
+    sid = shadow_three(client)
+    r = client.post(f"/api/sessions/{sid}/end")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["kind"] == "shadow" and body["level"] is None
+    s = body["shadow"]
+    assert (s["lines"], s["done"], s["matched"], s["peeked"]) == (len(lines()), 3, 2, 1)
+    assert [h["index"] for h in s["hard"]] == [1, 2]
+    assert s["hard"][0]["target"] == lines()[1]["text"] and s["hard"][0]["said"] == "completely different words here"
+    assert all("audio_key" in h for h in s["hard"])
+    assert db.get_session(sid)["level"] is None
+    queued = db.due_reviews("en", date(2026, 9, 20))
+    assert sorted(q["fixed"] for q in queued) == sorted([lines()[1]["text"], lines()[2]["text"]])
+    assert all(q["shadowing"] for q in queued)
+    assert db.due_reviews("en", date(2026, 9, 19)) == [], "queued for tomorrow, not today"
+
+
+def test_the_report_reads_back_the_same_numbers(client):
+    sid = shadow_three(client)
+    ended = client.post(f"/api/sessions/{sid}/end").json()
+    again = client.get(f"/api/sessions/{sid}/report").json()
+    assert again["kind"] == "shadow" and again["shadowing"] is True and again["mode"] == "script"
+    assert again["shadow"] == ended["shadow"]
+
+
+def test_shadowing_leaves_level_accuracy_and_weak_spots_alone(client):
+    before = (db.stable_level("en"), db.accuracy_since("en", date(2000, 1, 1)),
+              db.home_stats("en")["top_tags"], db.home_stats("en")["fixed_total"])
+    client.post(f"/api/sessions/{shadow_three(client)}/end")
+    after = (db.stable_level("en"), db.accuracy_since("en", date(2000, 1, 1)),
+             db.home_stats("en")["top_tags"], db.home_stats("en")["fixed_total"])
+    assert after == before
+
+
+def test_lists_say_which_sessions_were_shadowing(client):
+    sid = shadow_three(client)
+    client.post(f"/api/sessions/{sid}/end")
+    item = client.get("/api/sessions/history?language=en").json()["items"][0]
+    assert item["id"] == sid and item["shadowing"] is True and item["turns"] == 3
+    recent = client.get("/api/stats/home?language=en").json()
+    rows = recent["recent"]
+    assert rows and rows[0]["shadowing"] is True

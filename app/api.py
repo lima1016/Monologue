@@ -1182,6 +1182,34 @@ def _forget_recordings(session_id: int) -> None:
     _unlink_audio(db.clear_session_audio(session_id))
 
 
+def _sweep_recordings(session_id: int) -> None:
+    """Best-effort cleanup shared by every path that ends a session: forget
+    this session's own clips, then sweep any sessions nobody came back to
+    while we're here. A failure here is housekeeping, not something the
+    caller's already-committed report should turn into an error."""
+    try:
+        _forget_recordings(session_id)
+        for stale in db.stale_open_sessions():
+            _forget_recordings(stale)
+    except Exception:
+        pass
+
+
+def _shadow_report(session: dict) -> dict:
+    """Shadowing's report: counts and the lines to try again. No model call and
+    no level -- the learner repeated lines they were given, which says nothing
+    about the level they would speak at."""
+    summary = db.shadow_summary(session["id"])
+    scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
+    summary["lines"] = len(scenario["lines"]) if scenario else summary["done"]
+    for h in summary["hard"]:
+        h["audio_key"] = _speak(h["target"], session["language"])
+    stats = db.session_stats(session["id"])
+    stats["minutes"] = db.active_minutes(session["id"])
+    return {"kind": "shadow", "summary": "", "weak_points": [], "expressions": [], "next_focus": "",
+            "level": None, "stats": stats, "shadow": summary}
+
+
 @router.post("/sessions/{session_id}/end")
 def finish_session(session_id: int):
     session = db.get_session(session_id)
@@ -1189,6 +1217,15 @@ def finish_session(session_id: int):
         raise HTTPException(404, "no such session")
     if session["ended_at"] is not None:
         raise HTTPException(409, "this session has already ended")
+
+    if session["shadowing"]:
+        result = _shadow_report(session)
+        db.end_session(session_id, json.dumps({"kind": "shadow"}), None)
+        tomorrow = _today() + timedelta(days=1)
+        for h in result["shadow"]["hard"]:
+            db.enqueue_review(h["message_id"], session["language"], tomorrow)
+        _sweep_recordings(session_id)
+        return result
 
     stats = db.session_stats(session_id)
     # The right-hand panel's "분" -- active time, not wall time since the
@@ -1224,14 +1261,7 @@ def finish_session(session_id: int):
     # history screen) will need to handle both shapes.
     db.end_session(session_id, json.dumps(report, ensure_ascii=False), level)
 
-    # The report is already committed. Cleanup is housekeeping, and no failure
-    # in it is worth turning a finished report into an error the learner sees.
-    try:
-        _forget_recordings(session_id)
-        for stale in db.stale_open_sessions():
-            _forget_recordings(stale)
-    except Exception:
-        pass
+    _sweep_recordings(session_id)
 
     return {**report, "level": level, "stats": stats}
 
@@ -1368,6 +1398,7 @@ def _recent_row(row: dict) -> dict:
         "title": (scenario["title"] if scenario else row["topic"]) or "자유 대화",
         "ended_at": row["ended_at"],
         "fixed": row["fixed"],
+        "shadowing": bool(row.get("shadowing")),
     }
 
 
@@ -1411,7 +1442,8 @@ def mypage_stats(language: Language):
 @router.get("/review")
 def review_items(language: Language):
     items = db.due_reviews(language, _today())
-    return {"items": [{k: i[k] for k in ("id", "text", "fixed", "correction", "tag", "created_at")} for i in items]}
+    return {"items": [{**{k: i[k] for k in ("id", "text", "fixed", "correction", "tag", "created_at")},
+                       "shadowing": bool(i["shadowing"])} for i in items]}
 
 
 class ReviewResult(BaseModel):
@@ -1447,7 +1479,7 @@ def session_history_page(language: Language, offset: int = Query(default=0, ge=0
         titled = _recent_row({**row, "fixed": row["wrong"]})
         items.append({"id": row["id"], "ended_at": row["ended_at"], "title": titled["title"],
                       "mode": row["mode"], "turns": row["turns"], "wrong": row["wrong"],
-                      "graded": row["graded"]})
+                      "graded": row["graded"], "shadowing": bool(row.get("shadowing"))})
     return {"items": items, "more": len(rows) > _HISTORY_PAGE}
 
 
@@ -1466,6 +1498,8 @@ def session_report(session_id: int):
     except ValueError:
         report = {"summary": session["report"]}
         graded = False
+    if session["shadowing"]:
+        return {**_shadow_report(session), "mode": session["mode"], "shadowing": True, "graded": True}
     stats = db.session_stats(session_id)
     stats["minutes"] = db.active_minutes(session_id)
     return {"summary": report.get("summary") or "", "weak_points": report.get("weak_points") or [],

@@ -571,6 +571,25 @@ def session_stats(session_id) -> dict:
             "sentences": sentences}
 
 
+def shadow_summary(session_id) -> dict:
+    """The numbers a shadowing report shows, computed from the stored lines --
+    never from the model. `hard` is every line said differently or said after
+    peeking at the text: the ones worth another go."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id, script_index, text, fixed, matched, peeked FROM messages"
+            " WHERE session_id = ? AND speaker = 'user' AND script_index IS NOT NULL"
+            " ORDER BY script_index", (session_id,)).fetchall()
+    return {
+        "done": len(rows),
+        "matched": sum(1 for r in rows if r["matched"]),
+        "peeked": sum(1 for r in rows if r["peeked"]),
+        "hard": [{"index": r["script_index"], "said": r["text"], "target": r["fixed"],
+                  "message_id": r["id"]}
+                 for r in rows if not r["matched"] or r["peeked"]],
+    }
+
+
 def end_session(session_id, report, level) -> None:
     with connect() as conn:
         conn.execute(
@@ -728,7 +747,7 @@ def recent_sessions(language, limit=3) -> list[dict]:
     """
     with connect() as conn:
         rows = conn.execute(
-            "SELECT s.id, s.scenario_id, s.topic, s.ended_at,"
+            "SELECT s.id, s.scenario_id, s.topic, s.ended_at, s.shadowing,"
             "       (SELECT COUNT(*) FROM messages m"
             "         WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok = 0)"
             "       AS fixed"
@@ -941,8 +960,9 @@ def due_reviews(language, today, limit=20) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
             "SELECT r.id, r.message_id, m.text, m.fixed, m.correction, m.tag, r.created_at,"
-            "       r.interval_d, r.passes"
+            "       r.interval_d, r.passes, s.shadowing"
             " FROM review_queue r JOIN messages m ON m.id = r.message_id"
+            "   JOIN sessions s ON s.id = m.session_id"
             " WHERE r.language = ? AND r.mastered_at IS NULL AND r.due_date <= ?"
             " ORDER BY r.due_date, r.id LIMIT ?", (language, today.isoformat(), limit)).fetchall()
     return [dict(r) for r in rows]
@@ -1052,7 +1072,7 @@ def history(language, offset, limit) -> list[dict]:
     graded (an old session, or every grading call failed) skip 고친 곳 0."""
     with connect() as conn:
         rows = conn.execute(
-            "SELECT s.id, s.scenario_id, s.topic, s.mode, s.ended_at,"
+            "SELECT s.id, s.scenario_id, s.topic, s.mode, s.ended_at, s.shadowing,"
             "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user') turns,"
             "  CASE WHEN s.mode = 'script' THEN 0 ELSE"
             "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok = 0)"
