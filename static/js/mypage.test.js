@@ -27,7 +27,7 @@ const HISTORY = (n, more = false) => ({ items: Array.from({ length: n }, (_, i) 
   id: 100 + i, ended_at: '2026-09-13T05:00:00+00:00', title: `상황 ${i}`, mode: i === 0 ? 'script' : 'free', turns: 8, wrong: 2 })), more });
 
 function routes(extra = {}) {
-  const seen = { results: [], audio: [], history: [] };
+  const seen = { results: [], audio: [], history: [], reports: [] };
   stubFetch(async (url, options = {}) => {
     if (url.startsWith('/api/stats/mypage')) return extra.stats ? extra.stats(url) : jsonResponse(STATS());
     if (url.startsWith('/api/review?')) return extra.review ? extra.review(url) : jsonResponse({ items: extra.items ?? ITEMS });
@@ -38,6 +38,7 @@ function routes(extra = {}) {
     }
     if (/\/api\/review\/\d+\/audio/.test(url)) { seen.audio.push(url); return jsonResponse({ audio_key: 'k1' }); }
     if (url.startsWith('/api/sessions/history')) { seen.history.push(url); return extra.historyResponse ? extra.historyResponse(url) : jsonResponse(extra.history ? extra.history(url) : HISTORY(3)); }
+    if (/\/api\/sessions\/\d+\/report/.test(url)) { seen.reports.push(url); if (extra.report) return extra.report(url); }
     if (/\/api\/sessions\/\d+\/report/.test(url)) return jsonResponse({ summary: '좋았어요', weak_points: [], expressions: [], next_focus: '', level: 'beginner', mode: 'free', stats: { turns: 3, wrong: 1, minutes: 4, sentences: [] } });
     if (/\/api\/sessions\/\d+$/.test(url)) return jsonResponse({ session: {}, messages: [
       { speaker: 'bot', text: 'Hi.' }, { speaker: 'user', text: 'I go', ok: 0, fixed: 'I went.' }] });
@@ -123,7 +124,7 @@ test('a review result that cannot be saved says so', async () => {
 });
 
 test('다음에 skips, and an empty list explains itself', async () => {
-  const seen = routes({ items: [ITEMS[0]] });
+  const seen = routes({ items: [ITEMS[0]], stats: () => jsonResponse(STATS({ review: { due: 1, mastered: 1, total: 2 } })) });
   await mypage.openMypage();
   await mypage.skipReview(ITEMS[0], $('review-list').children[0]);
   assert.deepEqual(seen.results, [[11, 'skip']]);
@@ -131,11 +132,99 @@ test('다음에 skips, and an empty list explains itself', async () => {
 });
 
 test('an empty list with nothing ever corrected says where sentences come from', async () => {
-  routes({ items: [], stats: () => jsonResponse(STATS({ review: { due: 0, mastered: 0 } })) });
+  routes({ items: [], stats: () => jsonResponse(STATS({ review: { due: 0, mastered: 0, total: 0 } })) });
   await mypage.openMypage();
   assert.match(text($('review-list')), /오늘 복습할 문장이 없어요/);
   assert.match(text($('review-list')), /대화에서 고친 문장이 여기 모여요/);
   assert.equal($('review-mastered').textContent, '');
+});
+
+test('an empty list after corrections were queued does not say where sentences come from', async () => {
+  // Queued before and not due today: nothing mastered, nothing due, but not new.
+  routes({ items: [], stats: () => jsonResponse(STATS({ review: { due: 0, mastered: 0, total: 3 } })) });
+  await mypage.openMypage();
+  assert.match(text($('review-list')), /오늘 복습할 문장이 없어요/);
+  assert.doesNotMatch(text($('review-list')), /대화에서 고친 문장이 여기 모여요/);
+});
+
+test('the heading counts every due sentence, not the twenty on the list', async () => {
+  const seen = routes({ items: [ITEMS[0]], stats: () => jsonResponse(STATS({ review: { due: 25, mastered: 0, total: 25 } })) });
+  await mypage.openMypage();
+  assert.equal($('review-count').textContent, '오늘의 복습 25개');
+  await mypage.skipReview(ITEMS[0], $('review-list').children[0]);
+  assert.deepEqual(seen.results, [[11, 'skip']]);
+  assert.equal($('review-count').textContent, '오늘의 복습 24개');
+  // The list ran out before the day's reviews did.
+  assert.doesNotMatch(text($('review-list')), /오늘 복습할 문장이 없어요/);
+  assert.match(text($('review-list')), /남은 문장 24개는 다시 열면 나와요/);
+});
+
+test('a review that is gone (404) leaves the list instead of waking again', async () => {
+  const seen = routes({ result: () => jsonResponse({ detail: 'no such review' }, { ok: false, status: 404 }) });
+  await mypage.openMypage();
+  const [first, second] = $('review-list').children;
+  await mypage.speakReview(ITEMS[0], first, (t, r, b, onResult) => { onResult(true, 'x'); return true; });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal($('review-list').children.includes(first), false, 'a 404 card stayed on the list');
+  assert.notEqual($('notice-text').textContent, '복습 결과를 저장하지 못했어요');
+  await mypage.skipReview(ITEMS[1], second);
+  assert.equal($('review-list').children.includes(second), false);
+  assert.equal(seen.results.length, 2);
+  assert.equal($('review-count').textContent, '오늘의 복습 0개');
+});
+
+test('a result that lands after a reload does not count twice in the new load', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  routes({ result: async () => { await held; return jsonResponse({ id: 11, passes: 3, interval_d: 7, due_date: 'z', mastered: true }); } });
+  await mypage.openMypage();
+  const card = $('review-list').children[0];
+  const speaking = mypage.speakReview(ITEMS[0], card, (t, r, b, onResult) => { onResult(true, 'x'); return true; });
+  // The reload's answer already counts the pass.
+  routes({ items: [ITEMS[1]], stats: () => jsonResponse(STATS({ review: { due: 1, mastered: 2, total: 3 } })),
+           result: async () => { await held; return jsonResponse({ id: 11, passes: 3, interval_d: 7, due_date: 'z', mastered: true }); } });
+  await mypage.openMypage();
+  assert.equal($('review-mastered').textContent, '익힌 문장 2개');
+  release();
+  await speaking;
+  await new Promise((r) => setTimeout(r, 1600));
+  assert.equal($('review-mastered').textContent, '익힌 문장 2개', 'the old pass counted again');
+  assert.equal($('review-count').textContent, '오늘의 복습 1개', 'the old card counted down the new list');
+  assert.equal($('review-list').children.length, 1);
+});
+
+test('a report that answers after the learner left my page is not shown', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const report = { summary: 's', weak_points: [], expressions: [], next_focus: '', mode: 'free', stats: { turns: 1, wrong: 0 } };
+  const seen = routes({ report: async () => { await held; return jsonResponse(report); } });
+  await mypage.openMypage();
+  const opening = mypage.openReport(100);
+  // A second press while the first is out asks nothing more.
+  const again = mypage.openReport(100);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(seen.reports.length, 1);
+  router.show('home');
+  release();
+  await Promise.all([opening, again]);
+  assert.equal(router.current(), 'home', 'the report pulled the learner back');
+  assert.equal($('report-headline').textContent, '', 'the report was drawn anyway');
+});
+
+test('a report that answers after my page was loaded again is not shown', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const report = { summary: 's', weak_points: [], expressions: [], next_focus: '', mode: 'free', stats: { turns: 1, wrong: 0 } };
+  routes({ report: async () => { await held; return jsonResponse(report); } });
+  await mypage.openMypage();
+  const opening = mypage.openReport(100);
+  await mypage.openMypage();
+  release();
+  await opening;
+  assert.equal(router.current(), 'mypage');
+  // ...and a new press is free to ask again.
+  await mypage.openReport(100);
+  assert.equal(router.current(), 'report');
 });
 
 test('a card fades out before it leaves the list (R8), and goes at once under reduced motion', async () => {

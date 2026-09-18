@@ -3,7 +3,9 @@ export const api = async (path, options) => {
   const res = await fetch(`/api${path}`, options);
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || 'request failed');
+    const err = new Error(body.detail || 'request failed');
+    err.status = res.status;   // lets a caller tell "gone" (404) from "down"
+    throw err;
   }
   return res;
 };

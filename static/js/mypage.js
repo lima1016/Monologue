@@ -41,8 +41,10 @@ const BUSY = '지금은 다른 연습이 진행 중이에요';
 let loadToken = 0;
 
 let reviewItems = new Map();     // id -> item, for main.js's delegated clicks
-let reviewCounts = null;         // { due, mastered } from /stats/mypage, or null
+let reviewCounts = null;         // { due, mastered, total } from /stats/mypage, or null
 let reviewLeft = 0;              // cards still on the list
+let reviewDone = 0;              // cards taken off the list this load
+let reportOut = false;           // a 리포트 보기 is waiting for its answer
 
 /* ---------- opening ---------- */
 
@@ -207,6 +209,7 @@ export function renderReviewList(items, counts) {
   reviewItems = new Map(items.map((item) => [String(item.id), item]));
   reviewCounts = counts ? { ...counts } : null;
   reviewLeft = items.length;
+  reviewDone = 0;
   paintReviewHead();
   const list = $('review-list');
   if (!items.length) {
@@ -216,16 +219,29 @@ export function renderReviewList(items, counts) {
   list.replaceChildren(...items.map(reviewCard));
 }
 
+/* The list stops at twenty; the heading counts the day's reviews the server
+   has, less the ones done here. Without counts, the list is all there is. */
+function reviewsLeft() {
+  return reviewCounts ? Math.max(reviewLeft, reviewCounts.due - reviewDone) : reviewLeft;
+}
+
 function paintReviewHead() {
-  $('review-count').textContent = `오늘의 복습 ${reviewLeft}개`;
+  $('review-count').textContent = `오늘의 복습 ${reviewsLeft()}개`;
   const mastered = reviewCounts ? reviewCounts.mastered : 0;
   $('review-mastered').textContent = mastered > 0 ? `익힌 문장 ${mastered}개` : '';
 }
 
 function paintReviewEmpty() {
   const empty = el('div', 'review-empty');
-  empty.append(el('p', '', '오늘 복습할 문장이 없어요'));
-  if (reviewCounts && reviewCounts.mastered === 0 && reviewCounts.due === 0) {
+  const more = reviewsLeft();
+  if (more > 0) {
+    // The twenty on the list are done; the rest come with the next load.
+    empty.append(el('p', '', `남은 문장 ${more}개는 다시 열면 나와요`));
+  } else {
+    empty.append(el('p', '', '오늘 복습할 문장이 없어요'));
+  }
+  // Only for a learner who has never had a correction queued.
+  if (!more && reviewCounts && reviewCounts.total === 0) {
     empty.append(el('p', 'hint', '대화에서 고친 문장이 여기 모여요'));
   }
   $('review-list').replaceChildren(empty);
@@ -369,7 +385,8 @@ async function judged(item, card, resultEl, good, btn = null, token = loadToken)
   card.inert = true;
   try {
     saved = await postJSON(`/review/${item.id}/result`, { result: good ? 'pass' : 'fail' });
-  } catch {
+  } catch (err) {
+    if (gone(err, card, token)) return;
     wake(card, btn);
     notify('복습 결과를 저장하지 못했어요');
     return;
@@ -379,11 +396,12 @@ async function judged(item, card, resultEl, good, btn = null, token = loadToken)
     say('조금 달라요. 내일 다시 볼게요', 'bad');
     return;
   }
-  if (saved.mastered && reviewCounts) reviewCounts.mastered += 1;
+  // A reload since has its own counts, which already include this pass.
+  if (saved.mastered && reviewCounts && token === loadToken) reviewCounts.mastered += 1;
   say(saved.mastered ? '익혔어요 🎉' : `좋아요! ${saved.interval_d}일 뒤에 다시 볼게요`, 'good');
   // Done with: it stays asleep while it waits to go.
   const fadeAt = reducedMotion() ? PASS_HOLD_MS : PASS_HOLD_MS - LEAVE_MS;
-  setTimeout(() => { removeCard(card); }, fadeAt);
+  setTimeout(() => { removeCard(card, token); }, fadeAt);
 }
 
 /* Asleep (inert) drops focus from the card; the learner's place comes back
@@ -393,27 +411,42 @@ function wake(card, btn) {
   if (btn) btn.focus();
 }
 
+/* A 404: the review is not there any more (undone with its turn, say).
+   Waking the card would only fail again, so it leaves the list. */
+function gone(err, card, token) {
+  if (!err || err.status !== 404) return null;
+  return removeCard(card, token);
+}
+
 export async function skipReview(item, card) {
   if (card.inert || isListening(card)) return;
+  const token = loadToken;
   card.inert = true;
   try {
     await postJSON(`/review/${item.id}/result`, { result: 'skip' });
-  } catch {
+  } catch (err) {
+    const removal = gone(err, card, token);
+    if (removal) {
+      await removal;
+      return;
+    }
     card.inert = false;
     notify('복습 결과를 저장하지 못했어요');
     return;
   }
-  await removeCard(card);
+  await removeCard(card, token);
 }
 
 /* Fades the card out, then takes it off the list and counts it down (R8);
-   under reduced motion it goes at once. */
-function removeCard(card) {
+   under reduced motion it goes at once. A card from an earlier load (`token`)
+   counts nothing down: the list it belonged to has been replaced. */
+function removeCard(card, token = loadToken) {
   const done = () => {
-    if (!card.parentNode) return;
+    if (!card.parentNode || token !== loadToken) return;
     card.remove();
     reviewItems.delete(card.dataset.id);
     reviewLeft = Math.max(0, reviewLeft - 1);
+    reviewDone += 1;
     paintReviewHead();
     if (reviewLeft === 0) paintReviewEmpty();
   };
@@ -564,6 +597,10 @@ export function leaveMypage() {
 }
 
 export async function openReport(sessionId) {
+  // One at a time: a second press while the first is out asks nothing more.
+  if (reportOut) return;
+  reportOut = true;
+  const token = loadToken;
   const row = Array.from($('history-list').children).find((c) => c.dataset.id === String(sessionId));
   const status = row ? find(row, 'history-status') : null;
   if (status) {
@@ -572,6 +609,12 @@ export async function openReport(sessionId) {
   }
   try {
     const data = await getJSON(`/sessions/${sessionId}/report`);
+    // The learner left, or my page loaded again, while it was on its way:
+    // pulling them onto the report now would be a jump they did not ask for.
+    if (router.current() !== 'mypage' || token !== loadToken) {
+      if (status) setShown(status, false);
+      return;
+    }
     router.show('report');
     // renderReport reads state.mode, synchronously; a session still open
     // underneath reads it too (sendHeard), so it gets its own mode back.
@@ -586,6 +629,8 @@ export async function openReport(sessionId) {
     if (status) setShown(status, false);
   } catch {
     if (status) status.textContent = FAILED;
+  } finally {
+    reportOut = false;
   }
 }
 
