@@ -317,6 +317,18 @@ test('자유 세션의 헤드라인', () => {
   assert.equal($('rep-wrong').textContent, '5');
 });
 
+/* An old prose report (graded: false from /sessions/{id}/report) predates
+ * grading: its turns are ungraded because nothing graded them then, not
+ * because grading failed. */
+test('an old report that was never graded does not count its turns as ungraded', () => {
+  resetDom();
+  state.mode = 'free';
+  session.renderReport({ summary: 'x', graded: false, stats: { turns: 3, wrong: 0, ungraded: 3, minutes: 2 } });
+  assert.equal($('report-counts').textContent, '말한 횟수 3 · 고칠 곳이 있던 횟수 0');
+  session.renderReport({ summary: 'x', stats: { turns: 3, wrong: 0, ungraded: 3, minutes: 2 } });
+  assert.match($('report-counts').textContent, /교정을 받지 못한 발화 3회/);
+});
+
 test('an English bot bubble carries a meaning toggle; a learner bubble does not', () => {
   resetDom();
   state.language = 'en';
@@ -785,4 +797,154 @@ test('a session that could not be created says so in the same voice as the pick 
   });
   await startSession({ language: 'en', mode: 'free', scenarioId: 'x' });
   assert.match($('notice-text').textContent, /^세션을 시작하지 못했어요: /);
+});
+
+/* my page's 🎤 말해보기 runs the same re-speak and needs its verdict: the chip
+ * path never passed a callback and still does not. */
+async function respeakOnce(target, heard) {
+  resetDom();
+  state.language = 'en';
+  stubFetch(async () => jsonResponse({}));
+  const results = [];
+  const btn = document.createElement('button');
+  btn.textContent = '🎤 말해보기';
+  const resultEl = document.createElement('p');
+  session.startRespeak(target, resultEl, btn, (good, spoken) => results.push([good, spoken]));
+  rec.onstart();
+  if (heard) rec.onresult(respeakFinal(heard));
+  rec.onend();
+  await new Promise((r) => setTimeout(r, 20));
+  return { results, btn, resultEl };
+}
+
+test('startRespeak reports the verdict to an onResult callback', async () => {
+  // No recording in node, so Whisper is not asked: the browser's words are the verdict's.
+  const { results } = await respeakOnce('I went there.', 'I went there');
+  assert.deepEqual(results, [[true, 'I went there']]);
+});
+
+test('startRespeak reports a different sentence as false', async () => {
+  const { results } = await respeakOnce('I went there.', 'I go there');
+  assert.deepEqual(results, [[false, 'I go there']]);
+});
+
+test('startRespeak reports hearing nothing as null, null', async () => {
+  const { results } = await respeakOnce('I went there.', null);
+  assert.deepEqual(results, [[null, null]]);
+});
+
+test("a re-speak gives its button back its own label, not the chip's", async () => {
+  const { btn } = await respeakOnce('I went there.', 'I went there');
+  assert.equal(btn.textContent, '🎤 말해보기');
+});
+
+test('a result line that holds its place is shown and hidden by class, not hidden', async () => {
+  resetDom();
+  const btn = document.createElement('button');
+  const resultEl = document.createElement('p');
+  resultEl.dataset.hold = '1';
+  resultEl.className = 'review-result is-invisible';
+  session.startRespeak('Hello.', resultEl, btn, () => {});
+  rec.onstart();
+  assert.equal(resultEl.classList.contains('is-invisible'), false);
+  assert.ok(resultEl.classList.contains('review-result'), 'the caller\'s own class survives');
+  session.cancelTurn();
+  rec.onend();
+  assert.equal(resultEl.hidden, false);
+  assert.ok(resultEl.classList.contains('is-invisible'));
+});
+
+/* The header's 마이페이지 is a way out of a live session that does not reload.
+ * my page shares this file's session.js (and its fake recognition), so it is
+ * imported here rather than in mypage.test.js. */
+const mypage = await import('./mypage.js');
+
+test('opening my page while listening throws the listen away instead of sending it', async () => {
+  resetDom();
+  ['home', 'session', 'report', 'mypage'].forEach((s) => router.register(s, s));
+  state.language = 'en';
+  state.mode = 'free';
+  const posted = [];
+  stubFetch(async (url) => {
+    if (url === '/api/chat') posted.push(url);
+    return jsonResponse({});
+  });
+  session.setTurnState('MIC');
+  rec.onstart();
+  rec.onresult(respeakFinal('I was saying'));
+  const opening = mypage.openMypage();
+  // abort() raises the onend that reports the cancel.
+  rec.onend();
+  await opening;
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(session.canDo('cancel'), false, 'the listen is still running on the hidden screen');
+  assert.equal(session.canDo('respeak'), true, 'the turn did not go back to idle');
+  assert.deepEqual(posted, []);
+  assert.ok(rec.calls.includes('abort'));
+});
+
+test("a review refused mid-turn says another practice is running; the chip's words stay", async () => {
+  resetDom();
+  state.language = 'en';
+  stubFetch(async () => jsonResponse({}));
+  mypage.renderReviewList([{ id: 11, text: 'I go', fixed: 'I went.', correction: '', tag: '' }], { due: 1, mastered: 0 });
+  session.setTurnState('SEND');
+  try {
+    mypage.speakReview({ id: 11, fixed: 'I went.' }, $('review-list').children[0]);
+    assert.equal($('notice-text').textContent, '지금은 다른 연습이 진행 중이에요');
+    session.startRespeak('I went.', document.createElement('p'), document.createElement('button'));
+    assert.match($('notice-text').textContent, /^봇이 말하는 동안에는/);
+  } finally {
+    session.setTurnState('SEND_FAILED');
+  }
+});
+
+test('startRespeak says whether it started, and a cancel tells the caller through onCancel', async () => {
+  resetDom();
+  state.language = 'en';
+  stubFetch(async () => jsonResponse({}));
+  const btn = document.createElement('button');
+  const other = document.createElement('button');
+  const resultEl = document.createElement('p');
+  let cancelled = 0;
+  const results = [];
+  assert.equal(session.startRespeak('Hi.', resultEl, btn, (g) => results.push(g), { onCancel: () => { cancelled += 1; } }), true);
+  rec.onstart();
+  // Another button is refused while this one listens.
+  assert.equal(session.startRespeak('Hi.', document.createElement('p'), other, () => {}), false);
+  session.cancelTurn();
+  rec.onend();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(cancelled, 1);
+  assert.deepEqual(results, []);
+});
+
+/* my page's ← 홈 is a way out of a listen on a review card, the same as the
+ * header's 마이페이지 is out of a session's. */
+test('leaving my page mid-listen throws the listen away and wakes the card', async () => {
+  resetDom();
+  ['home', 'session', 'report', 'mypage'].forEach((s) => router.register(s, s));
+  state.language = 'en';
+  const posted = [];
+  stubFetch(async (url) => {
+    if (url.includes('/result')) posted.push(url);
+    return jsonResponse({});
+  });
+  rec.calls = [];
+  mypage.renderReviewList([{ id: 11, text: 'I go', fixed: 'I went.', correction: '', tag: '' }], { due: 1, mastered: 0, total: 1 });
+  router.show('mypage');
+  const card = $('review-list').children[0];
+  mypage.speakReview({ id: 11, fixed: 'I went.' }, card);
+  rec.onstart();
+  assert.equal(session.canDo('cancel'), true);
+  mypage.leaveMypage();
+  assert.ok(rec.calls.includes('abort'), 'leaving did not abort the listen');
+  rec.onend();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(router.current(), 'home');
+  assert.equal(session.canDo('cancel'), false, 'the listen kept running behind the home screen');
+  assert.ok(rec.calls.includes('abort'));
+  assert.deepEqual(posted, []);
+  const skip = card.children.find((c) => c.classList.contains('actions')).children.find((c) => c.classList.contains('skip'));
+  assert.equal(skip.disabled, false, 'a cancelled listen left the card busy');
 });

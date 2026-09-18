@@ -31,6 +31,7 @@
   <div class="status">
     <span id="status-ollama" class="dot" title="Ollama"></span>
     <span id="status-voicevox" class="dot" title="VOICEVOX"></span>
+    <button id="btn-mypage" class="ghost" type="button">마이페이지</button>
     <button id="btn-settings" class="ghost">설정</button>
   </div>
 </header>
@@ -58,6 +59,23 @@
         <div id="today-body" class="fade"></div>
       </div>
       <p id="today-alt" class="today-alt is-invisible" aria-hidden="true"></p>
+
+      <!-- 오늘 복습: exists only when there is a due count. Collapses by class
+           like #resume-card below (see home.js setReviewHomeShown), not
+           `hidden` -- a due count that comes and goes with a language switch
+           must not pop the recommend line and mode cards below it. -->
+      <div id="review-home" class="is-collapsed" aria-hidden="true" inert>
+        <div class="review-home-clip">
+          <div class="review-home-box panel">
+            <p id="review-home-count" class="label"></p>
+            <p id="review-home-first" class="review-home-first"></p>
+            <div class="review-home-actions">
+              <button id="review-home-play" class="ghost btn-stable" type="button">▶ 듣기</button>
+              <button id="review-home-go" class="ghost" type="button">복습하러 가기 →</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <p id="recommend" class="recommend" hidden></p>
 
@@ -110,6 +128,7 @@
           <span>목표 <b id="goal-value"></b> 세션</span>
           <button id="goal-plus" type="button" class="ghost" aria-label="목표 늘리기">+</button>
         </div>
+        <button id="week-more" class="ghost link" type="button">기록 더 보기 →</button>
       </div>
     </aside>
   </section>
@@ -135,6 +154,37 @@
     <div id="start-status" class="start-status is-invisible" aria-hidden="true">
       <div class="thinking"><i></i><i></i><i></i></div>
       <span id="start-status-text"></span>
+    </div>
+  </section>
+
+  <!-- 마이페이지: 돌아보는 곳. mypage.js fills every section; each one holds a
+       skeleton of its own size while it loads and dims in place on a reload. -->
+  <section id="mypage" hidden>
+    <div class="mypage-head">
+      <button id="btn-mypage-home" class="ghost" type="button">← 홈</button>
+      <h2>마이페이지</h2>
+      <span class="seg" id="mypage-language-seg">
+        <button type="button" data-language="en">English</button>
+        <button type="button" data-language="ja">日本語</button>
+      </span>
+    </div>
+    <div id="level-card" class="panel">
+      <p class="label">레벨</p>
+      <div id="level-body"></div>
+    </div>
+    <div id="review-section" class="panel">
+      <div class="review-head"><p id="review-count" class="label"></p><span id="review-mastered" class="hint"></span></div>
+      <div id="review-list"></div>
+    </div>
+    <div id="weak-section" class="panel">
+      <p class="label">자주 걸리는 것</p>
+      <p id="accuracy-line" class="hint is-invisible" aria-hidden="true"></p>
+      <div id="tag-bars"></div>
+    </div>
+    <div id="history-section" class="panel">
+      <p class="label">지난 기록</p>
+      <ul id="history-list"></ul>
+      <button id="btn-history-more" class="ghost btn-stable is-invisible" type="button" aria-hidden="true">더 보기</button>
     </div>
   </section>
 
@@ -181,6 +231,7 @@
       <h2 id="report-headline"></h2>
       <p id="report-counts" class="hint"></p>
       <div id="report-body"></div>
+      <button id="btn-report-back" class="ghost" type="button" hidden>← 마이페이지</button>
       <button id="btn-restart" class="primary">새 세션</button>
     </div>
     <aside class="report-aside">

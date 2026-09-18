@@ -2,12 +2,13 @@ import { $, postJSON, notify, state } from './api.js';
 import { play, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
 import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
-import { loadHome, resumeSession, swapToday, changeGoal } from './home.js';
+import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome } from './home.js';
 import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
          startFromPick, startTheme, syncLanguageButtons } from './pick.js';
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
+import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory } from './mypage.js';
 import * as router from './router.js';
 
 /* ---------- screens ---------- */
@@ -16,12 +17,14 @@ router.register('home', 'home');
 router.register('pick', 'pick');
 router.register('session', 'session');
 router.register('report', 'report');
+router.register('mypage', 'mypage');
 router.show('home');
 
 /* ---------- wiring ---------- */
 
-/* Home and pick each carry a language segment; both are the one state.language,
-   so they share this handler and are kept in step by syncLanguageButtons. */
+/* Home, pick and my page each carry a language segment; all are the one
+   state.language, so they share this handler and are kept in step by
+   syncLanguageButtons. */
 function switchLanguage(e) {
   const btn = e.target.closest('button[data-language]');
   if (!btn) return;
@@ -32,10 +35,27 @@ function switchLanguage(e) {
   // without a reload the previous language's stay on screen under the new
   // selection. Only the visible screen reloads -- ← 홈 calls loadHome anyway.
   if (router.current() === 'pick') loadThemes();
+  else if (router.current() === 'mypage') openMypage();
   else loadHome();
 }
 $('language-seg').addEventListener('click', switchLanguage);
 $('pick-language-seg').addEventListener('click', switchLanguage);
+$('mypage-language-seg').addEventListener('click', switchLanguage);
+
+/* ---------- my page ---------- */
+
+$('btn-mypage').addEventListener('click', openMypage);
+$('btn-mypage-home').addEventListener('click', () => {
+  leaveMypage();
+  loadHome();
+});
+$('review-list').addEventListener('click', onReviewClick);
+$('history-list').addEventListener('click', onHistoryClick);
+$('btn-history-more').addEventListener('click', () => loadHistory({ append: true }));
+$('btn-report-back').addEventListener('click', () => {
+  router.show('mypage');
+  $('btn-report-back').hidden = true;
+});
 
 $('modes').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-mode]');
@@ -55,6 +75,13 @@ $('today-alt').addEventListener('click', (e) => {
 });
 $('goal-minus').addEventListener('click', () => changeGoal(-1));
 $('goal-plus').addEventListener('click', () => changeGoal(+1));
+$('week-more').addEventListener('click', openMypage);
+
+/* 오늘 복습: 듣기 does not navigate -- playReviewHome handles the swap to
+   음성 준비 중... itself. 복습하러 가기 and 기록 더 보기 both just open my page;
+   home.js must not import mypage.js (cycle), so this is wired here. */
+$('review-home-play').addEventListener('click', playReviewHome);
+$('review-home-go').addEventListener('click', openMypage);
 
 $('notice-close').addEventListener('click', () => notify(''));
 

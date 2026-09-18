@@ -98,8 +98,18 @@ const RESPEAK_STOP_LABEL = '🎤 그만 말하기';
 let transcribingRespeak = null;
 
 function clearActiveRespeak() {
-  if (activeRespeak) activeRespeak.btn.textContent = RESPEAK_LABEL;
+  // The button's own label, not the chip's: my page's 🎤 말해보기 runs the
+  // same re-speak and must not come back reading 고쳐서 다시 말해보기.
+  if (activeRespeak && activeRespeak.btn) activeRespeak.btn.textContent = activeRespeak.label || RESPEAK_LABEL;
   activeRespeak = null;
+}
+
+/* A result line is either the chip's (comes and goes with `hidden`) or one
+   that holds its row while empty (`data-hold`, my page's review card, spec
+   R5), which comes and goes by class. */
+function showRespeakResult(el, on) {
+  if (el.dataset.hold) setShown(el, on);
+  else el.hidden = !on;
 }
 
 /* The one place that knows what is in flight. Callers ask it rather than
@@ -288,8 +298,11 @@ export function handleCancelled() {
   transcribingRespeak = null;
   if (respeak) {
     respeak.resultEl.textContent = '';
-    respeak.resultEl.hidden = true;
+    showRespeakResult(respeak.resultEl, false);
   }
+  // The caller learns the attempt is over without a verdict (my page wakes
+  // the card it put to sleep for the listen).
+  if (respeak && respeak.onCancel) respeak.onCancel();
   liveHeard = '';
   setTurnState('CANCEL');
 }
@@ -459,6 +472,8 @@ export function addChip(bubble, fb) {
   return wrap;
 }
 
+const RESPEAK_BUSY = '봇이 말하는 동안에는 다시 말할 수 없습니다. 끝날 때까지 기다려주세요.';
+
 /* Re-speaking is deliberately a different state from a normal turn: the
    recognised text is compared against `target` and never sent to the bot.
 
@@ -468,8 +483,21 @@ export function addChip(bubble, fb) {
    The chip's re-speak buttons are not wired into syncControls (they belong to
    whichever turn produced them, not to "the current turn"), so this guard is
    the only thing standing between a stray click and two recognitions
-   overlapping. */
-export function startRespeak(target, resultEl, btn) {
+   overlapping.
+
+   `onResult` is optional: once the attempt is judged it gets (true|false,
+   spoken), and (null, null) when nothing was heard. A cancel or a start that
+   throws never calls it -- nothing was attempted. The chip passes none.
+
+   `onCancel` is called when a started attempt ends without a verdict (a
+   cancel). The return value says whether an attempt started: false when it
+   was refused, stopped an attempt already running, or failed to start -- in
+   none of those will onResult or onCancel be called for this call.
+
+   `busy` is what to say when a turn is already running. The chip's own words
+   are about the bot speaking, which is the only way a chip can be refused;
+   my page can be reached mid-turn, where that is not what is happening. */
+export function startRespeak(target, resultEl, btn, onResult = null, { busy = RESPEAK_BUSY, onCancel = null } = {}) {
   // Mirrors main.js's mic handler: this button owns the active re-speak, so
   // a second click on it ends the session instead of trying to start a new
   // one. recognition.stop() lets Chrome flush a last final result, then
@@ -480,21 +508,21 @@ export function startRespeak(target, resultEl, btn) {
   // and is refused the same way it always was.
   if (activeRespeak && activeRespeak.btn === btn) {
     recognition.stop();
-    return;
+    return false;
   }
   // Whisper is already working on what this same chip's recognition heard --
   // there is nothing left to stop, and canDo('respeak') is false here (the
   // machine is in `respeaking`, not `idle`), so without this the same click
   // would fall through to the "bot is speaking" notice below, which is not
   // what is happening at all.
-  if (transcribingRespeak && transcribingRespeak.btn === btn) return;
+  if (transcribingRespeak && transcribingRespeak.btn === btn) return false;
   if (!canDo('respeak')) {
-    notify('봇이 말하는 동안에는 다시 말할 수 없습니다. 끝날 때까지 기다려주세요.');
-    return;
+    notify(busy);
+    return false;
   }
-  if (!recognition) { notify('이 브라우저는 음성 인식을 지원하지 않습니다.'); return; }
+  if (!recognition) { notify('이 브라우저는 음성 인식을 지원하지 않습니다.'); return false; }
   setTurnState('RESPEAK');
-  activeRespeak = { btn, resultEl };
+  activeRespeak = { btn, resultEl, onCancel, label: btn ? btn.textContent : RESPEAK_LABEL };
   // setTurnState above already ran syncControls, but before `activeRespeak`
   // existed -- syncControls reads it to decide whether the big mic may end
   // this re-speak (see its own comment), so without a second call here the
@@ -504,8 +532,10 @@ export function startRespeak(target, resultEl, btn) {
   // who wants to stop immediately, or during silence, would press it.
   syncControls();
   if (btn) btn.textContent = RESPEAK_STOP_LABEL;
-  resultEl.hidden = false;
-  resultEl.className = 'respeak-result';
+  showRespeakResult(resultEl, true);
+  // Classes, not className: a caller's own class (review-result) stays on.
+  resultEl.classList.remove('good', 'bad');
+  resultEl.classList.add('respeak-result');
   resultEl.textContent = '듣는 중...';
 
   setRespeakHandler(async (browserSpoken, audioPromise) => {
@@ -513,7 +543,7 @@ export function startRespeak(target, resultEl, btn) {
     // already locked there. The chip says what is happening.
     // The button stops reading as the stop control now -- there is nothing
     // left to stop.
-    transcribingRespeak = { btn, resultEl };
+    transcribingRespeak = { btn, resultEl, onCancel };
     clearActiveRespeak();
     resultEl.textContent = '받아쓰는 중...';
     syncControls();
@@ -527,12 +557,14 @@ export function startRespeak(target, resultEl, btn) {
     if (spoken === null) {
       setTurnState('HEARD_NOTHING');
       resultEl.textContent = '못 알아들었습니다. 다시 해보세요.';
+      if (onResult) onResult(null, null);
       return;
     }
     setTurnState('HEARD');
     const good = matches(spoken, target, state.language);
     resultEl.classList.add(good ? 'good' : 'bad');
     resultEl.textContent = good ? `좋습니다 — "${spoken}"` : `"${spoken}" — 조금 다릅니다. 다시 해보세요.`;
+    if (onResult) onResult(good, spoken);
   });
   recognition.lang = BCP47[state.language];
   // Mirrors main.js's mic handler. Without its own recording, the re-speak's
@@ -554,7 +586,9 @@ export function startRespeak(target, resultEl, btn) {
     notify(`음성 인식을 시작하지 못했습니다: ${err.message}`);
     resultEl.textContent = '음성 인식을 시작하지 못했습니다. 다시 눌러보세요.';
     setTurnState('HEARD_NOTHING');
+    return false;
   }
+  return true;
 }
 
 function block(label, text, kind) {
@@ -832,6 +866,8 @@ export async function endSession() {
   try {
     const data = await postJSON(`/sessions/${state.sessionId}/end`);
     router.show('report');
+    // Only a report opened from my page has a way back there.
+    $('btn-report-back').hidden = true;
     renderReport(data);
     notify(''); // clear any stale notice ("전송 실패", "대본이 끝났습니다") left over from the session
   } catch (err) {
@@ -880,7 +916,9 @@ export function renderReport(data) {
     // grading call failed from reading as a flawless one, since "고칠 곳이
     // 있던 횟수 0" alone looks exactly like a perfect session.
     : `말한 횟수 ${s.turns ?? 0} · 고칠 곳이 있던 횟수 ${s.wrong ?? 0}`
-      + (s.ungraded ? ` · 교정을 받지 못한 발화 ${s.ungraded}회` : '');
+      // An old prose report (graded === false) predates grading: nothing
+      // failed, so there is no ungraded count to confess.
+      + (s.ungraded && data.graded !== false ? ` · 교정을 받지 못한 발화 ${s.ungraded}회` : '');
   $('report-counts').textContent = counts;
 
   const body = $('report-body');

@@ -855,3 +855,43 @@ def test_resumable_sweep_deletes_a_stale_sessions_recording_before_closing_it(cl
 
     assert db.get_session(sid)["ended_at"] is not None
     assert not clip.exists()
+
+
+def test_a_corrected_turn_is_queued_for_review_tomorrow(client, monkeypatch):
+    from datetime import date, timedelta
+    from app import api
+    monkeypatch.setattr(api, "_today", lambda: date(2026, 9, 14))
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    client.post("/api/chat", json={"session_id": sid, "text": "I go there"})
+    assert db.due_reviews("en", date(2026, 9, 14)) == []
+    due = db.due_reviews("en", date(2026, 9, 15))
+    assert len(due) == 1 and due[0]["fixed"] == "I went there."
+
+
+def test_correct_and_neutralised_turns_are_not_queued(client, monkeypatch):
+    from datetime import date
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    monkeypatch.setattr("app.api.llm.chat_json", lambda m, s, **kw: {
+        "ok": False, "fixed": "Card, please.", "tag": "어순", "correction": "c", "suggestion": None})
+    client.post("/api/chat", json={"session_id": sid, "text": "Card please"})    # punctuation only
+    monkeypatch.setattr("app.api.llm.chat_json", lambda m, s, **kw: {
+        "ok": True, "fixed": "Fine.", "tag": "없음", "correction": "c", "suggestion": None})
+    client.post("/api/chat", json={"session_id": sid, "text": "Fine."})
+    assert db.due_reviews("en", date(2030, 1, 1)) == []
+
+
+def test_a_grading_failure_is_not_queued_even_when_fixed_is_present(client, monkeypatch):
+    """A malformed model response could in principle set ok to None while still
+    filling in `fixed` (the normal grading-failure path -- an exception caught
+    by _feedback -- always sets both to None, so this is the harder case). It
+    must not be enqueued: `ok is False` is the only trigger, so ok=None must
+    stay excluded regardless of what `fixed` holds."""
+    from datetime import date
+    sid = client.post("/api/sessions", json={"language": "en", "mode": "free",
+                                             "scenario_id": "airport-checkin-en"}).json()["session_id"]
+    monkeypatch.setattr("app.api.llm.chat_json", lambda m, s, **kw: {
+        "ok": None, "fixed": "She has.", "tag": None, "correction": None, "suggestion": None})
+    client.post("/api/chat", json={"session_id": sid, "text": "She have"})
+    assert db.due_reviews("en", date(2030, 1, 1)) == []

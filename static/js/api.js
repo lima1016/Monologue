@@ -3,7 +3,9 @@ export const api = async (path, options) => {
   const res = await fetch(`/api${path}`, options);
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || 'request failed');
+    const err = new Error(body.detail || 'request failed');
+    err.status = res.status;   // lets a caller tell "gone" (404) from "down"
+    throw err;
   }
   return res;
 };
@@ -25,12 +27,12 @@ export const state = {
   chunks: [],
 };
 
-/* Home and pick each carry a language segment, and both show the one
+/* Home, pick and my page each carry a language segment, and all show the one
    state.language. Lives here rather than in pick.js because home.js's
    resumeSession changes the language too, and home.js must not import pick.js
    (that closes an import cycle -- see home.js's header). */
 export function syncLanguageButtons() {
-  for (const seg of [$('language-seg'), $('pick-language-seg')]) {
+  for (const seg of [$('language-seg'), $('pick-language-seg'), $('mypage-language-seg')]) {
     for (const b of seg.children) b.classList.toggle('on', b.dataset.language === state.language);
   }
 }

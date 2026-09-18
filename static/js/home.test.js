@@ -674,3 +674,104 @@ test('a stale response for another language is not painted', async () => {
   assert.match(text($('today-body')), /회의/);
   state.language = 'en';
 });
+
+/* ---------- 오늘 복습 (home review card) ---------- */
+
+/* #review-home exists only under a nonzero due count, and used to pop in and
+   out like #resume-card once did. It slides instead, by class, never `hidden`
+   -- see the UI-stability addendum for Task 4. */
+test('the review card shows today\'s count and first sentence, and collapses at zero', async () => {
+  homeRoutes(PAYLOAD({ review: { due: 3, first: { id: 11, fixed: 'I went there.' } } }));
+  await home.loadHome();
+  const card = $('review-home');
+  assert.equal(card.hidden, false);
+  assert.equal(card.classList.contains('is-collapsed'), false);
+  assert.notEqual(card.getAttribute('aria-hidden'), 'true');
+  assert.equal(card.inert, false);
+  assert.equal($('review-home-count').textContent, '오늘 복습할 문장 3개');
+  assert.equal($('review-home-first').textContent, 'I went there.');
+
+  homeRoutes(PAYLOAD({ review: { due: 0, first: null } }));
+  await home.loadHome();
+  assert.equal(card.hidden, false, 'the card popped out with hidden instead of sliding');
+  assert.ok(card.classList.contains('is-collapsed'));
+  assert.equal(card.getAttribute('aria-hidden'), 'true');
+  assert.equal(card.inert, true, 'a collapsed card must not take focus or clicks');
+});
+
+/* due and first disagreeing should never happen from the real payload, but
+   the guard checks both -- not just `first` -- so a stale/malformed due of 0
+   never shows a card with nothing actually due. */
+test('a nonzero first with a zero due count still collapses the card', async () => {
+  homeRoutes(PAYLOAD({ review: { due: 0, first: { id: 11, fixed: 'I went there.' } } }));
+  await home.loadHome();
+  assert.ok($('review-home').classList.contains('is-collapsed'));
+});
+
+test('a payload with no review field at all leaves the card collapsed', async () => {
+  homeRoutes(PAYLOAD());   // the existing PAYLOAD helper carries no `review` key
+  await home.loadHome();
+  assert.ok($('review-home').classList.contains('is-collapsed'));
+});
+
+/* Same first-reveal rule as #resume-card: a fresh page load that already has
+   a due count must not slide the card open -- that would be new motion on
+   first paint. Later reloads (a language switch) slide as before. */
+test('the review card appears without motion on first load and slides on a later reload', async () => {
+  const card = $('review-home');
+  const flushes = [];
+  Object.defineProperty(card, 'offsetHeight', { get() {
+    flushes.push({ noMotion: card.classList.contains('no-motion'), open: !card.classList.contains('is-collapsed') });
+    return 0;
+  } });
+  homeRoutes(PAYLOAD({ review: { due: 2, first: { id: 5, fixed: 'Hi.' } } }));
+  await home.loadHome();
+  assert.deepEqual(flushes, [{ noMotion: true, open: true }],
+    'the first reveal was not flushed with .no-motion on, after opening');
+  assert.equal(card.classList.contains('no-motion'), false, '.no-motion stayed on, so switches would not slide');
+
+  flushes.length = 0;
+  homeRoutes(PAYLOAD());                   // a reload: the count drops to zero, the card shuts
+  await home.loadHome();
+  homeRoutes(PAYLOAD({ review: { due: 1, first: { id: 5, fixed: 'Hi.' } } }));
+  await home.loadHome();                   // and opens again
+  assert.deepEqual(flushes, [], 'a later reload skipped the slide');
+});
+
+/* Reloading must dim #review-home in place with the other cards (spec R2),
+   not hide it, and take it out of clicks while the answer is in flight. */
+test('the review card dims with the other cards while home reloads, and wakes when it lands', async () => {
+  let release;
+  homeRoutes(PAYLOAD({ review: { due: 2, first: { id: 5, fixed: 'Hi.' } } }));
+  await home.loadHome();
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => {
+    await held;
+    return jsonResponse(PAYLOAD({ review: { due: 2, first: { id: 5, fixed: 'Hi.' } } }));
+  } });
+  const reloading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal($('review-home').hidden, false, 'the review card must not collapse during a reload');
+  assert.ok($('review-home').classList.contains('is-refreshing'));
+  assert.equal($('review-home').inert, true, 'a dimmed card must not take clicks');
+  release();
+  await reloading;
+  assert.equal($('review-home').classList.contains('is-refreshing'), false);
+  assert.equal($('review-home').inert, false);
+});
+
+test('listening on the home review card shows the preparing copy', async () => {
+  const played = [];
+  homeRoutes(PAYLOAD({ review: { due: 1, first: { id: 11, fixed: 'I went there.' } } }), {});
+  stubFetch(async (url) => {
+    if (url === '/api/review/11/audio') { played.push(url); return jsonResponse({ audio_key: 'k' }); }
+    if (url.startsWith('/api/stats/home')) return jsonResponse(PAYLOAD({ review: { due: 1, first: { id: 11, fixed: 'I went there.' } } }));
+    return jsonResponse({ session: null });
+  });
+  await home.loadHome();
+  const p = home.playReviewHome();
+  assert.equal($('review-home-play').textContent, '음성 준비 중...');
+  await p;
+  assert.equal($('review-home-play').textContent, '▶ 듣기');
+  assert.deepEqual(played, ['/api/review/11/audio']);
+});

@@ -127,6 +127,33 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_library_theme
         ON library_scenarios(language, type, theme_id);
     """],
+    # v5 -> v6: the review queue (docs/superpowers/specs/2026-09-14-monologue-
+    # mypage-design.md, section "데이터"). The original design for this table
+    # assumed only test data existed at the point it shipped, so it deliberately
+    # did not backfill -- but by the time this migration actually runs there is
+    # real correction history sitting in messages, and none of it should be lost
+    # just because the table showed up after the fact. So this step also queues
+    # one review per already-corrected turn, due today. Script sessions are
+    # excluded: a script session's corrections are never meant to be practised
+    # again the way a free/lesson turn's is (the spec's own words: "그 세션의
+    # 교정은 이미 비웠다").
+    ["""
+    CREATE TABLE IF NOT EXISTS review_queue (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id   INTEGER NOT NULL UNIQUE,
+        language     TEXT    NOT NULL,
+        due_date     TEXT    NOT NULL,
+        interval_d   INTEGER NOT NULL DEFAULT 1,
+        passes       INTEGER NOT NULL DEFAULT 0,
+        mastered_at  TEXT,
+        created_at   TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_due ON review_queue(language, mastered_at, due_date);
+    INSERT OR IGNORE INTO review_queue (message_id, language, due_date, interval_d, passes, created_at)
+    SELECT m.id, s.language, date('now', 'localtime'), 1, 0, strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')
+      FROM messages m JOIN sessions s ON s.id = m.session_id
+     WHERE m.speaker = 'user' AND m.ok = 0 AND m.fixed IS NOT NULL AND m.fixed <> '' AND s.mode <> 'script';
+    """],
 ]
 
 
@@ -283,6 +310,12 @@ def get_messages(session_id) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_message(message_id):
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def delete_last_turn(session_id) -> tuple[int, list[str]]:
     """Drop the most recent learner turn and the bot reply that followed it.
 
@@ -317,6 +350,11 @@ def delete_last_turn(session_id) -> tuple[int, list[str]]:
             " WHERE session_id = ? AND turn >= ? AND audio_path IS NOT NULL",
             (session_id, last_user["turn"]),
         ).fetchall()
+        conn.execute(
+            "DELETE FROM review_queue WHERE message_id IN"
+            " (SELECT id FROM messages WHERE session_id = ? AND turn >= ?)",
+            (session_id, last_user["turn"]),
+        )
         cur = conn.execute(
             "DELETE FROM messages WHERE session_id = ? AND turn >= ?",
             (session_id, last_user["turn"]),
@@ -838,3 +876,158 @@ def library_readiness(language) -> dict:
             " FROM library_scenarios WHERE language = ? GROUP BY theme_id",
             (language,)).fetchall()
     return {r["theme_id"]: {"free": bool(r["free"]), "script": r["scripts"]} for r in rows}
+
+
+# Spaced repetition (docs/superpowers/specs/2026-09-14-monologue-mypage-design.md,
+# section "데이터"). Module-level so record_review reads them fresh on every call
+# rather than closing over a value captured at import time -- tests monkeypatch
+# REVIEW_PASSES_TO_MASTER to shorten the ladder, and that only works if the
+# function looks the name up again each time it runs.
+REVIEW_INTERVALS = (1, 3, 7, 14)
+REVIEW_PASSES_TO_MASTER = 3
+
+
+def enqueue_review(message_id, language, due) -> None:
+    """Queue one corrected sentence for review, due on `due`. A silent no-op if
+    this message is already queued (UNIQUE(message_id)) -- callers never need to
+    check first, including the migration's own backfill."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO review_queue (message_id, language, due_date, created_at)"
+            " VALUES (?, ?, ?, ?)", (message_id, language, due.isoformat(), _now()))
+
+
+def get_review(review_id):
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM review_queue WHERE id = ?", (review_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def due_reviews(language, today, limit=20) -> list[dict]:
+    """Up to `limit` not-yet-mastered reviews due on or before `today`, oldest
+    due date first (ties broken by id, i.e. insertion order)."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT r.id, r.message_id, m.text, m.fixed, m.correction, m.tag, r.created_at,"
+            "       r.interval_d, r.passes"
+            " FROM review_queue r JOIN messages m ON m.id = r.message_id"
+            " WHERE r.language = ? AND r.mastered_at IS NULL AND r.due_date <= ?"
+            " ORDER BY r.due_date, r.id LIMIT ?", (language, today.isoformat(), limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def review_counts(language, today) -> dict:
+    """`due` counts exactly what due_reviews could list (same JOIN, no limit),
+    so a row orphaned from its message is never promised. `total` is every row
+    for the language, mastered or not: 0 means nothing was ever queued."""
+    with connect() as conn:
+        due = conn.execute(
+            "SELECT COUNT(*) FROM review_queue r JOIN messages m ON m.id = r.message_id"
+            " WHERE r.language = ? AND r.mastered_at IS NULL AND r.due_date <= ?",
+            (language, today.isoformat())).fetchone()[0]
+        mastered = conn.execute(
+            "SELECT COUNT(*) FROM review_queue WHERE language = ? AND mastered_at IS NOT NULL",
+            (language,)).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM review_queue WHERE language = ?",
+                             (language,)).fetchone()[0]
+    return {"due": due, "mastered": mastered, "total": total}
+
+
+def record_review(review_id, result, today) -> dict:
+    """Spaced repetition, one sentence at a time (spec table). pass climbs the
+    interval ladder and masters on the third pass (which keeps its interval);
+    fail starts over; skip only
+    moves the card to tomorrow."""
+    if result not in ("pass", "fail", "skip"):
+        raise ValueError(result)
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM review_queue WHERE id = ?", (review_id,)).fetchone()
+        if row is None:
+            raise KeyError(review_id)
+        if row["mastered_at"] is not None:
+            raise ValueError("already mastered")
+        passes, interval, mastered_at = row["passes"], row["interval_d"], None
+        if result == "pass":
+            passes += 1
+            if passes >= REVIEW_PASSES_TO_MASTER:
+                # Spec table: the mastering pass leaves interval_d as it was.
+                mastered_at = _now()
+            else:
+                steps = [i for i in REVIEW_INTERVALS if i > interval]
+                interval = steps[0] if steps else REVIEW_INTERVALS[-1]
+            due = today + timedelta(days=interval)
+        elif result == "fail":
+            passes, interval = 0, REVIEW_INTERVALS[0]
+            due = today + timedelta(days=1)
+        else:
+            due = today + timedelta(days=1)
+        conn.execute("UPDATE review_queue SET passes = ?, interval_d = ?, due_date = ?, mastered_at = ?"
+                     " WHERE id = ?", (passes, interval, due.isoformat(), mastered_at, review_id))
+    return {"id": review_id, "passes": passes, "interval_d": interval, "due_date": due.isoformat(),
+            "mastered": mastered_at is not None}
+
+
+def level_sample(language) -> dict:
+    with connect() as conn:
+        sessions = conn.execute("SELECT COUNT(*) FROM sessions WHERE language = ? AND report IS NOT NULL",
+                                (language,)).fetchone()[0]
+        utterances = conn.execute(
+            "SELECT COUNT(*) FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user'", (language,)).fetchone()[0]
+    return {"sessions": sessions, "utterances": utterances}
+
+
+def accuracy_since(language, since) -> dict:
+    """Accuracy over graded, non-script learner turns from local `since` onward.
+
+    Same bound as practice_days (see its docstring): `m.created_at >= cutoff`
+    runs before the localtime conversion so SQLite can rule out most rows with
+    a plain string compare instead of computing datetime(m.created_at,
+    'localtime') for every message in the table just to throw most of them
+    away on the date compare below. `cutoff` is local midnight of `since`
+    *minus one day*, converted to UTC -- one exact day short of `since` would
+    clip a message on `since`'s own local morning whenever the local zone runs
+    ahead of UTC (as this app's Korea does). The date compare is still what
+    actually decides membership; this bound only narrows what reaches it, so
+    results are unchanged."""
+    local_tz = datetime.now().astimezone().tzinfo
+    cutoff_local = datetime.combine(since - timedelta(days=1), datetime.min.time(), tzinfo=local_tz)
+    cutoff = cutoff_local.astimezone(timezone.utc).isoformat(timespec="seconds")
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(m.ok = 1), 0) correct, COUNT(*) graded"
+            " FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND s.mode <> 'script' AND m.speaker = 'user' AND m.ok IS NOT NULL"
+            "   AND m.created_at >= ?"
+            "   AND substr(datetime(m.created_at, 'localtime'), 1, 10) >= ?",
+            (language, cutoff, since.isoformat())).fetchone()
+    return {"correct": row["correct"], "graded": row["graded"]}
+
+
+def wrong_tag_counts(language) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT m.tag, COUNT(*) n FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0"
+            "   AND m.tag IS NOT NULL AND m.tag <> '없음'"
+            " GROUP BY m.tag ORDER BY n DESC, m.tag", (language,)).fetchall()
+    return [{"tag": r["tag"], "n": r["n"]} for r in rows]
+
+
+def history(language, offset, limit) -> list[dict]:
+    """Finished sessions, newest first. A script session reads fixed lines, so
+    none of its turns is wrong or graded; `graded` lets a row that was never
+    graded (an old session, or every grading call failed) skip 고친 곳 0."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT s.id, s.scenario_id, s.topic, s.mode, s.ended_at,"
+            "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user') turns,"
+            "  CASE WHEN s.mode = 'script' THEN 0 ELSE"
+            "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok = 0)"
+            "  END wrong,"
+            "  CASE WHEN s.mode = 'script' THEN 0 ELSE"
+            "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok IS NOT NULL)"
+            "  END graded"
+            " FROM sessions s WHERE s.language = ? AND s.report IS NOT NULL"
+            " ORDER BY s.ended_at DESC, s.id DESC LIMIT ? OFFSET ?", (language, limit, offset)).fetchall()
+    return [dict(r) for r in rows]
