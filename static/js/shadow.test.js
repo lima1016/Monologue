@@ -180,6 +180,23 @@ test('다시 하기 says the same line again', async () => {
   assert.deepEqual(seen.lines.map((b) => b.index), [0, 0]);
 });
 
+test('an attempt after the reveal counts as peeked: the text is on screen', async () => {
+  const seen = await begin();
+  await say('morning');
+  assert.equal($('shadow-peeked').classList.contains('is-invisible'), true, 'the first attempt did not peek');
+  shadow.retry();
+  await say('morning ready for standup');
+  assert.deepEqual(seen.lines.map((b) => b.peeked), [false, true]);
+  assert.equal($('shadow-peeked').classList.contains('is-invisible'), false);
+});
+
+test('speaking again straight from the reveal, without 다시 하기, counts as peeked too', async () => {
+  const seen = await begin();
+  await say('morning');
+  await say('morning ready for standup');
+  assert.deepEqual(seen.lines.map((b) => [b.index, b.peeked]), [[0, false], [0, true]]);
+});
+
 test('a failed save keeps what was said, stays on the line, and gives the mic back', async () => {
   await begin({ line: () => jsonResponse({ detail: 'boom' }, { ok: false, status: 500 }) });
   state.chunks = ['x'];

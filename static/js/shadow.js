@@ -153,6 +153,10 @@ function reveal(matched) {
   showText();
   setShown($('shadow-said'), true);
   setShown($('shadow-peeked'), peeked);
+  // The tag above told the truth about this attempt; from here on the text is
+  // on screen, so every later attempt on this line -- 다시 하기, or the mic
+  // pressed again straight from the reveal -- is said having seen it.
+  peeked = true;
   $('shadow-play-mine').disabled = !recorded;
   $('shadow-next').textContent = index === lines.length - 1 ? '끝! 리포트 보기' : '다음 줄 →';
   // The panel keeps every line the learner has been shown. Once only: a
@@ -167,7 +171,8 @@ function reveal(matched) {
 }
 
 /* Back to the same line. The text stays up -- it has been seen, hiding it again
-   would pretend otherwise -- and the mic is the learner's to press. Gated on
+   would pretend otherwise (and reveal() has already counted what follows as
+   peeked) -- and the mic is the learner's to press. Gated on
    the turn state like 다음 →: a listen still running belongs to this attempt. */
 export function retry() {
   if (!canDo('next')) return;
