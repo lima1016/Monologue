@@ -112,3 +112,39 @@ def test_the_learners_real_genuinely_different_pairs_stay_different():
     ]
     for spoken, fixed in pairs:
         assert normalize(spoken) != normalize(fixed), (spoken, fixed)
+
+
+import json
+import subprocess
+
+from app.text_match import matches, similarity
+
+_PAIRS = [
+    ("en", "i would like a coffee please", "I'd like a coffee, please."),
+    ("en", "I would like a coffee please", "I would like a coffee, please."),
+    ("en", "could you tell me the way to the station", "Could you tell me the way to the station?"),
+    ("en", "could you tell me way station", "Could you tell me the way to the station?"),
+    ("en", "", "Hello."),
+    ("ja", "すみません 駅はどこですか", "すみません、駅はどこですか？"),
+    ("ja", "駅どこ", "すみません、駅はどこですか？"),
+    ("ja", "ありがとうございます", "ありがとうございました。"),
+]
+
+
+def test_matches_is_the_twin_of_match_js():
+    """Same pairs through both files: the server's verdict is what is stored,
+    the browser's is what re-speak shows -- they must never disagree."""
+    script = (
+        "import('./static/js/match.js').then(m => {"
+        f" const pairs = {json.dumps(_PAIRS, ensure_ascii=False)};"
+        " console.log(JSON.stringify(pairs.map(([l, s, t]) => [m.similarity(s, t, l), m.matches(s, t, l)])));"
+        "});"
+    )
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True,
+                         text=True, encoding="utf-8", check=True).stdout
+    js = json.loads(out)
+    py = [[similarity(s, t, l), matches(s, t, l)] for l, s, t in _PAIRS]
+    for (lang, s, t), (js_sim, js_ok), (py_sim, py_ok) in zip(_PAIRS, js, py):
+        assert abs(js_sim - py_sim) < 1e-9, (lang, s, t, js_sim, py_sim)
+        assert js_ok == py_ok, (lang, s, t)
+    assert any(ok for _, ok in py) and not all(ok for _, ok in py), "pairs must include both verdicts"

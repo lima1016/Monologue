@@ -154,6 +154,16 @@ MIGRATIONS = [
       FROM messages m JOIN sessions s ON s.id = m.session_id
      WHERE m.speaker = 'user' AND m.ok = 0 AND m.fixed IS NOT NULL AND m.fixed <> '' AND s.mode <> 'script';
     """],
+    # v6 -> v7: shadowing (docs/superpowers/specs/2026-09-19-monologue-shadowing-
+    # design.md, "데이터"). A shadowing session is a script session with a flag;
+    # each line attempt is one learner row keyed by script_index, with the verdict
+    # and whether the text was peeked at. ok stays NULL: nothing here is graded,
+    # so level, accuracy and weak spots never see these rows.
+    [
+        "ALTER TABLE sessions ADD COLUMN shadowing INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE messages ADD COLUMN matched INTEGER",
+        "ALTER TABLE messages ADD COLUMN peeked INTEGER",
+    ],
 ]
 
 
@@ -229,12 +239,12 @@ def init_db() -> None:
             conn.execute(f"PRAGMA user_version = {version}")
 
 
-def create_session(language, mode, scenario_id=None, topic=None) -> int:
+def create_session(language, mode, scenario_id=None, topic=None, shadowing=False) -> int:
     with connect() as conn:
         cur = conn.execute(
-            "INSERT INTO sessions (language, mode, scenario_id, topic, started_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (language, mode, scenario_id, topic, _now()),
+            "INSERT INTO sessions (language, mode, scenario_id, topic, shadowing, started_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (language, mode, scenario_id, topic, int(bool(shadowing)), _now()),
         )
         return cur.lastrowid
 
@@ -300,6 +310,28 @@ def add_script_line_message(session_id, index, text) -> int | None:
             return cur.lastrowid
         except sqlite3.IntegrityError:
             return None
+
+
+def save_shadow_line(session_id, index, text, target, matched, peeked) -> int:
+    """One shadowing attempt at script line `index`; a retry replaces the text
+    and verdict in the same row, so the id -- and the recording attached to it
+    -- stays put. UNIQUE(session_id, script_index) makes a second row for the
+    index impossible even when two requests race. `peeked` only ever turns on:
+    a line whose text was once shown was not shadowed blind, whatever a later
+    attempt says."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO messages (session_id, turn, speaker, text, fixed, script_index,"
+            " matched, peeked, created_at)"
+            " SELECT ?, (SELECT COALESCE(MAX(turn), 0) + 1 FROM messages WHERE session_id = ?),"
+            "        'user', ?, ?, ?, ?, ?, ?"
+            " ON CONFLICT(session_id, script_index) DO UPDATE SET"
+            "   text = excluded.text, matched = excluded.matched,"
+            "   peeked = MAX(peeked, excluded.peeked), created_at = excluded.created_at",
+            (session_id, session_id, text, target, index, int(matched), int(peeked), _now()))
+        return conn.execute(
+            "SELECT id FROM messages WHERE session_id = ? AND script_index = ?",
+            (session_id, index)).fetchone()[0]
 
 
 def get_messages(session_id) -> list[dict]:

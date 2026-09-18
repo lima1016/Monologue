@@ -14,7 +14,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Response, Uploa
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from app import config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, tts
+from app import config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, text_match, tts
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
@@ -551,6 +551,7 @@ class SessionStart(BaseModel):
     mode: Mode
     scenario_id: str | None = None
     topic: str | None = None
+    shadowing: bool = False
 
 
 class ChatTurn(BaseModel):
@@ -712,6 +713,8 @@ def _feedback(language: str, text: str, *, scenario_title=None,
 
 @router.post("/sessions")
 def start_session(payload: SessionStart):
+    if payload.shadowing and payload.mode != "script":
+        raise HTTPException(400, "shadowing is a script session")
     scenario = None
     if payload.mode in ("free", "script"):
         if not payload.scenario_id:
@@ -759,7 +762,8 @@ def start_session(payload: SessionStart):
             )
 
     session_id = db.create_session(payload.language, payload.mode,
-                                   scenario_id=payload.scenario_id, topic=payload.topic)
+                                   scenario_id=payload.scenario_id, topic=payload.topic,
+                                   shadowing=payload.shadowing)
 
     if payload.mode == "script":
         lines = []
@@ -769,7 +773,8 @@ def start_session(payload: SessionStart):
             # 16줄 남짓이고 tts는 캐시되므로 전부 선합성해도 비용은 무시할 만하다.
             key = _speak(line["text"], payload.language)
             lines.append({"speaker": line["speaker"], "text": line["text"], "audio_key": key})
-        return {"session_id": session_id, "mode": "script", "lines": lines}
+        return {"session_id": session_id, "mode": "script", "lines": lines,
+               "shadowing": payload.shadowing}
 
     system = prompts.build_system_prompt(
         payload.mode, payload.language, scenario=scenario, topic=payload.topic,
@@ -970,6 +975,8 @@ def store_script_line(session_id: int, payload: ScriptLineStore):
         raise HTTPException(404, "no such session")
     if session["mode"] != "script":
         raise HTTPException(400, "not a script session")
+    if session["shadowing"]:
+        raise HTTPException(400, "a shadowing session stores lines through /shadow-line")
     scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
     lines = scenario["lines"] if scenario else []
     if payload.index < 0 or payload.index >= len(lines):
@@ -1014,10 +1021,43 @@ def script_turn(payload: ScriptTurn):
         raise HTTPException(400, "text is empty")
     if session["mode"] != "script":
         raise HTTPException(400, "not a script session")
+    if session["shadowing"]:
+        raise HTTPException(400, "a shadowing session stores lines through /shadow-line")
 
     turns_used = sum(1 for m in db.get_messages(payload.session_id) if m["speaker"] == "user")
     db.add_message(payload.session_id, "user", text)
     return {"turn": turns_used + 1}
+
+
+class ShadowLine(BaseModel):
+    index: int
+    text: str
+    peeked: bool = False
+
+
+@router.post("/sessions/{session_id}/shadow-line")
+def shadow_line(session_id: int, payload: ShadowLine):
+    """One attempt at shadowing script line `index`. The verdict is the
+    server's (text_match.matches, the twin of match.js), and a retry replaces
+    the attempt in place -- see db.save_shadow_line."""
+    session = db.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "no such session")
+    if session["ended_at"] is not None:
+        raise HTTPException(409, "this session has already ended")
+    if not session["shadowing"]:
+        raise HTTPException(400, "not a shadowing session")
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(400, "text is empty")
+    scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
+    lines = scenario["lines"] if scenario else []
+    if payload.index < 0 or payload.index >= len(lines):
+        raise HTTPException(400, "line index out of range")
+    target = lines[payload.index]["text"]
+    matched = text_match.matches(text, target, session["language"])
+    message_id = db.save_shadow_line(session_id, payload.index, text, target, matched, payload.peeked)
+    return {"message_id": message_id, "matched": matched}
 
 
 @router.delete("/sessions/{session_id}/last-turn")
@@ -1028,6 +1068,8 @@ def undo_last_turn(session_id: int):
         raise HTTPException(404, "no such session")
     if session["ended_at"] is not None:
         raise HTTPException(409, "this session has already ended")
+    if session["shadowing"]:
+        raise HTTPException(400, "shadowing retries a line instead of undoing it")
     deleted, paths = db.delete_last_turn(session_id)
     # Undo is used exactly when recognition mishears, which is often -- without
     # this the deleted turn's recording becomes a file no row ever points to
