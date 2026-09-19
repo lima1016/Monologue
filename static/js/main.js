@@ -9,7 +9,7 @@ import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, sync
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
-         selectTab, onTabKey } from './mypage.js';
+         selectTab, onTabKey, onTagClick, loadCoach } from './mypage.js';
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
 import * as router from './router.js';
 
@@ -61,6 +61,8 @@ $('mypage-tabs').addEventListener('click', (e) => {
 $('mypage-tabs').addEventListener('keydown', onTabKey);
 $('review-list').addEventListener('click', onReviewClick);
 $('history-list').addEventListener('click', onHistoryClick);
+$('tag-bars').addEventListener('click', onTagClick);
+$('coach-body').addEventListener('click', (e) => { if (e.target.closest('.coach-retry')) loadCoach({ force: true }); });
 $('btn-history-more').addEventListener('click', () => loadHistory({ append: true }));
 $('btn-report-back').addEventListener('click', () => {
   router.show('mypage');

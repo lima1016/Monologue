@@ -116,3 +116,16 @@ def test_tab_panels_share_one_height_and_fade_without_transform():
 
 def test_tab_count_reserves_its_width():
     assert re.search(r"\.tab-n\s*\{[^}]*min-width", _all_css())
+
+
+def test_the_learners_words_are_never_struck_through_on_my_page():
+    """내 말 on a tag's sentences and in the coach is not a mistake to cross out."""
+    css = _all_css()
+    for sel in (r"\.tag-ex-mine[^{]*", r"\.tag-ex-text[^{]*"):
+        for block in re.findall(sel + r"\{([^}]*)\}", css):
+            assert "line-through" not in block
+
+
+def test_the_coach_body_keeps_its_height_while_loading():
+    """The 10-20 s wait holds the answer's room (two items), so it does not jump."""
+    assert re.search(r"#coach-body\s*\{[^}]*min-height", _all_css())

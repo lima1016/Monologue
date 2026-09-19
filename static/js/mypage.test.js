@@ -18,13 +18,22 @@ afterEach(() => { delete globalThis.localStorage; });
 
 const STATS = (over = {}) => ({
   level: { value: null, sessions: 2, utterances: 9, need_sessions: 3, need_utterances: 15 },
-  accuracy: { correct: 18, graded: 25 }, tags: [{ tag: '시제', n: 6 }, { tag: '관사', n: 3 }],
+  accuracy: { correct: 18, graded: 25 },
+  tags: [{ tag: '시제', n: 6, examples: [
+    { text: 'I go there yesterday', fixed: 'I went there yesterday.', correction: '지난 일은 과거형으로 말해야 합니다. 이 문장에서는 go가 went가 됩니다.' },
+    { text: 'I meet him last week', fixed: 'I met him last week.', correction: '과거형' }] },
+  { tag: '관사', n: 3, examples: [] }],
   review: { due: 2, mastered: 1 }, ...over,
 });
 const ITEMS = [
   { id: 11, text: 'I go there', fixed: 'I went there.', correction: '과거형', tag: '시제', created_at: 'x' },
   { id: 12, text: 'She have', fixed: 'She has.', correction: '수 일치', tag: '단복수', created_at: 'y' },
 ];
+const COACH = {
+  status: 'ready', day: '2026-09-19', count: 12, items: [
+    { habit: '여러 말을 끊지 않고 이어 말해요', tip: '한 문장 말하고 숨을 한 번 쉬어요', said: 'Yes water please And', fixed: 'Yes, water please.', tag: '어순' },
+    { habit: '장소 앞 전치사를 빠뜨려요', tip: '"by the"를 먼저 붙여요', said: 'sit the window', fixed: 'sit by the window.', tag: '어순' },
+  ] };
 const HISTORY = (n, more = false) => ({ items: Array.from({ length: n }, (_, i) => ({
   id: 100 + i, ended_at: '2026-09-13T05:00:00+00:00', title: `상황 ${i}`, mode: i === 0 ? 'script' : 'free', turns: 8, wrong: 2 })), more });
 
@@ -45,6 +54,7 @@ function routes(extra = {}) {
     if (/\/api\/sessions\/\d+$/.test(url)) return jsonResponse({ session: {}, messages: [
       { speaker: 'bot', text: 'Hi.' }, { speaker: 'user', text: 'I go', ok: 0, fixed: 'I went.' }] });
     if (url.startsWith('/api/stats/home')) return jsonResponse({ top_tags: [] });
+    if (url.startsWith('/api/mypage/coach')) { seen.coach = (seen.coach || 0) + 1; return extra.coach ? extra.coach(url) : jsonResponse(COACH); }
     return jsonResponse({});
   });
   return seen;
@@ -780,6 +790,115 @@ test('reloading my page keeps what is painted, dimmed and asleep, and replaces i
   assert.equal($('history-list').children.length, 2);
 });
 
+/* ---------- 약점: the coach, and a tag's own sentences ---------- */
+
+const settleAll = async () => { for (let i = 0; i < 20; i += 1) await new Promise(setImmediate); };
+
+test('the coach is asked for only when 약점 is opened, once per load', async () => {
+  const seen = routes();
+  stubStorage();
+  await mypage.openMypage();
+  assert.equal(seen.coach, undefined);
+  mypage.selectTab('weak');
+  mypage.selectTab('review');
+  mypage.selectTab('weak');
+  await settleAll();
+  assert.equal(seen.coach, 1);
+  assert.match(text($('coach-body')), /여러 말을 끊지 않고 이어 말해요/);
+  assert.match(text($('coach-body')), /한 문장 말하고 숨을 한 번 쉬어요/);
+  assert.match(text($('coach-body')), /내 말\s+Yes water please And/);
+  assert.match(text($('coach-body')), /고친 문장\s+Yes, water please\./);
+  assert.equal($('coach-day').textContent, '오늘 만듦');
+});
+
+test('while the coach is being made the wait is said on screen', async () => {
+  let release;
+  routes({ coach: () => new Promise((r) => { release = () => r(jsonResponse(COACH)); }) });
+  stubStorage();
+  await mypage.openMypage();
+  mypage.selectTab('weak');
+  assert.match(text($('coach-body')), /코치가 최근 문장을 읽는 중이에요/);
+  assert.equal($('coach-body').getAttribute('aria-busy'), 'true');
+  await settleAll();
+  release();
+  await settleAll();
+  assert.doesNotMatch(text($('coach-body')), /읽는 중/);
+  assert.equal($('coach-body').getAttribute('aria-busy'), null);
+});
+
+test('too few wrong sentences says how many are needed', async () => {
+  routes({ coach: () => jsonResponse({ status: 'too_few', count: 3, need: 5 }) });
+  stubStorage({ 'mypage-tab': 'weak' });
+  await mypage.openMypage();
+  await settleAll();
+  assert.match(text($('coach-body')), /틀린 문장이 5개 넘게 모이면 코치가 짚어 줘요 \(지금 3개\)/);
+  assert.equal($('coach-day').textContent, '');
+});
+
+test('a failed coach offers 다시 시도 and it asks again', async () => {
+  let fail = true;
+  const seen = routes({ coach: () => (fail ? jsonResponse({ detail: 'x' }, { ok: false, status: 503 }) : jsonResponse(COACH)) });
+  stubStorage({ 'mypage-tab': 'weak' });
+  await mypage.openMypage();
+  await settleAll();
+  assert.match(text($('coach-body')), /코치 한마디를 만들지 못했어요/);
+  assert.ok(findByClass($('coach-body'), 'coach-retry'), 'no 다시 시도 button');
+  fail = false;
+  await mypage.loadCoach({ force: true });
+  assert.equal(seen.coach, 2);
+  assert.match(text($('coach-body')), /여러 말을 끊지 않고/);
+});
+
+test('a coach answer from an older load or language is not painted', async () => {
+  let release;
+  routes({ coach: () => new Promise((r) => { release = () => r(jsonResponse(COACH)); }) });
+  stubStorage({ 'mypage-tab': 'weak' });
+  await mypage.openMypage();
+  state.language = 'ja';
+  const seen = routes({ coach: () => jsonResponse({ status: 'too_few', count: 1, need: 5 }) });
+  await mypage.openMypage();
+  await settleAll();
+  assert.equal(seen.coach, 1, 'the new load did not ask for its own coach');
+  release();
+  await settleAll();
+  assert.match(text($('coach-body')), /지금 1개/);
+});
+
+test('a tag opens to its newest sentences, without a strike-through class', async () => {
+  routes();
+  stubStorage({ 'mypage-tab': 'weak' });
+  await mypage.openMypage();
+  const item = $('tag-bars').children.find((c) => c.classList.contains('tag-item'));
+  const fold = item.children.find((c) => c.classList.contains('tag-examples'));
+  assert.ok(fold.classList.contains('is-collapsed'));
+  const head = item.children.find((c) => c.classList.contains('tag-bar'));
+  assert.equal(head.tagName, 'BUTTON');
+  assert.equal(head.getAttribute('aria-expanded'), 'false');
+  mypage.toggleTagItem(item);
+  assert.ok(!fold.classList.contains('is-collapsed'));
+  assert.equal(head.getAttribute('aria-expanded'), 'true');
+  assert.match(text(fold), /내 말\s+I go there yesterday/);
+  assert.match(text(fold), /고친 문장\s+I went there yesterday\./);
+  assert.match(text(fold), /지난 일은 과거형으로/);
+  assert.equal(hasClass(fold, 'said'), false, 'a .said class is struck through elsewhere');
+  assert.equal(hasTag(fold, 'S'), false, 'the learner\'s words sit in an <s>');
+  mypage.toggleTagItem(item);
+  assert.ok(fold.classList.contains('is-collapsed'));
+  assert.equal(head.getAttribute('aria-expanded'), 'false');
+});
+
+test('a tag with no sentences stays a plain bar', async () => {
+  routes();
+  stubStorage({ 'mypage-tab': 'weak' });
+  await mypage.openMypage();
+  const items = $('tag-bars').children.filter((c) => c.classList.contains('tag-item'));
+  const plain = items[1];
+  assert.equal(plain.children.some((c) => c.classList.contains('tag-examples')), false);
+  const bar = plain.children.find((c) => c.classList.contains('tag-bar'));
+  assert.notEqual(bar.tagName, 'BUTTON');
+  assert.equal(bar.getAttribute('aria-expanded'), null);
+});
+
 function findByClass(el, cls) {
   if (el.classList && el.classList.contains(cls)) return el;
   for (const c of el.children || []) { const hit = findByClass(c, cls); if (hit) return hit; }
@@ -789,3 +908,5 @@ function findByClass(el, cls) {
 const text = (n) => (n.textContent || '') + (n.childNodes || []).map(text).join(' ');
 const hasClass = (node, cls) => node.classList.contains(cls)
   || node.children.some((c) => hasClass(c, cls));
+const hasTag = (node, tag) => node.tagName === tag
+  || node.children.some((c) => hasTag(c, tag));
