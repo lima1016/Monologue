@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 마이페이지 B</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* B: 왼쪽 세로 메뉴(220px) + 오른쪽 넓은 내용. 지금 보이는 것은 '성장'. */
+  .mp-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+  .mp-nav { position: sticky; top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+  .mp-nav-level { display: flex; flex-direction: column; gap: var(--space-2); }
+  .mp-nav-level .label { margin: 0; }
+  .mp-nav-level .lv { margin: 0; font-size: var(--text-xl); font-weight: 750; color: var(--text); line-height: 1.2; }
+  .mp-nav-level .sc { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+  .mp-nav-level .level-actions { flex-wrap: wrap; }
+  .mp-menu { display: flex; flex-direction: column; gap: 2px; }
+  .mp-menu a { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+    padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
+    color: var(--text-dim); text-decoration: none; font-weight: 600; }
+  .mp-menu a:hover:not([aria-current]) { background: var(--surface-sunken); color: var(--text); }
+  .mp-menu a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); }
+  .mp-menu .n { font-size: var(--text-sm); color: var(--accent); font-weight: 700; }
+  .mp-menu a[aria-current="page"] .n { color: var(--accent-ink); }
+  .mp-menu .d { font-size: var(--text-xs); color: var(--text-faint); font-weight: 500; }
+
+  .mp-content { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+  .mp-content-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+  .mp-content-head h3 { margin: 0; font-size: var(--text-xl); font-weight: 750; }
+  .mp-content-head .hint { font-size: var(--text-sm); margin: 0; }
+  .mp-row { display: grid; gap: var(--space-4); }
+  .mp-row > * { min-width: 0; }
+  .mp-row.cal { grid-template-columns: minmax(0, 1fr) 260px; }
+  .mp-row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .mp-row.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mp-week .growth-lines { margin-top: 0; gap: var(--space-2); }
+  .mp-week .coach-habit { margin-top: var(--space-3); font-size: var(--text-sm); }
+  .mp-week .coach-tip { margin-bottom: 0; }
+
+  @media (max-width: 1100px) { .mp-row.cal { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) {
+    .mp-grid { grid-template-columns: 1fr; }
+    .mp-nav { position: static; }
+    .mp-menu { flex-direction: row; flex-wrap: wrap; }
+    .mp-menu .d { display: none; }
+    .mp-row.three, .mp-row.two { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">마이페이지 B · 왼쪽 메뉴로 성장·복습·약점·기록을 바꿔 봄 (지금은 성장)</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<main class="mock-main">
+  <div class="mock-head">
+    <button class="ghost" type="button">← 홈</button>
+    <h2>마이페이지</h2>
+    <span class="spacer"></span>
+    <span class="seg">
+      <button type="button" class="on">English</button>
+      <button type="button">日本語</button>
+    </span>
+  </div>
+
+  <div class="mp-grid">
+    <nav class="mp-nav" aria-label="마이페이지 메뉴">
+      <div class="panel mp-nav-level">
+        <p class="label">내 레벨</p>
+        <p class="lv">B1 상위</p>
+        <p class="sc">IELTS 말하기 4.5–5.0 예상</p>
+        <span class="level-actions"><button type="button" class="ghost">결과 보기</button><button type="button" class="ghost">다시 테스트</button></span>
+      </div>
+      <div class="mp-menu">
+        <a href="#" aria-current="page"><span>성장</span><span class="d">요약·그래프</span></a>
+        <a href="#"><span>복습</span><span class="n">16</span></a>
+        <a href="#"><span>약점</span><span class="d">시제 12번</span></a>
+        <a href="#"><span>기록</span><span class="d">세션 58번</span></a>
+      </div>
+    </nav>
+
+    <section class="mp-content mock-growth" aria-label="성장">
+      <div class="mp-content-head"><h3>성장</h3><p class="hint">오늘 9월 19일 토요일 · 최근 16주</p></div>
+
+      <div class="stat-tiles">
+        <div class="stat-tile"><span class="k">연속</span><span class="v">3<small>일</small></span><span class="d">최장 9일</span></div>
+        <div class="stat-tile"><span class="k">총 연습</span><span class="v">12<small>시간</small> 40<small>분</small></span><span class="d">세션 58번</span></div>
+        <div class="stat-tile"><span class="k">이번 주 정확도</span><span class="v">72<small>%</small></span><span class="d up">▲ 지난주보다 3%p</span></div>
+        <div class="stat-tile"><span class="k">1분 말하기</span><span class="v">87<small>단어/분</small></span><span class="d up">▲ 지난번보다 6</span></div>
+      </div>
+
+      <div class="mp-row cal">
+        <div class="panel">
+          <div class="panel-head"><p class="label">연습 잔디 · 최근 16주</p><p class="hint">64일 연습</p></div>
+          <div class="mock-chart" data-cal data-maxstep="40"></div>
+          <div class="heat-key"><span>적음</span><span class="heat-swatch lv1"></span><span class="heat-swatch lv2"></span><span class="heat-swatch lv3"></span><span class="heat-swatch lv4"></span><span>많음</span></div>
+        </div>
+        <div class="panel mp-week">
+          <p class="label">이번 주</p>
+          <div class="growth-lines">
+            <p class="growth-line growth-streak">3일 연속 연습 중</p>
+            <p class="growth-line">문장 71개 · 세션 5번 · 1시간 20분</p>
+            <p class="growth-line">정확도 72% <span class="growth-delta up">▲ 3%p</span></p>
+            <p class="growth-line">1분 말하기 분당 87단어 · 긴 멈춤 4번</p>
+          </div>
+          <p class="coach-habit">과거 일을 현재형으로 말하는 버릇</p>
+          <p class="coach-tip">어제·지난주 얘기가 나오면 동사부터 과거형으로 떠올려 보세요</p>
+        </div>
+      </div>
+
+      <div class="mp-row three">
+        <div class="panel">
+          <div class="panel-head"><p class="label">정확도 변화</p><p class="hint">주별</p></div>
+          <div class="mock-chart" data-line="58,61,63,,60,64,66,65,68,69,72" data-ymax="100" data-ticks="0,50,100" data-suffix="%" data-labels="7/6,,,,8/3,,,,8/31,,9/14" data-h="170"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><p class="label">1분 말하기 · 분당 단어</p></div>
+          <div class="mock-chart" data-line="62,66,64,71,75,78,81,87" data-ymax="120" data-ticks="0,60,120" data-labels="7/12,,,8/5,,,,9/18" data-h="170"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><p class="label">1분 말하기 · 긴 멈춤</p></div>
+          <div class="mock-chart" data-line="9,8,8,7,6,6,5,4" data-ymax="10" data-ticks="0,5,10" data-suffix="번" data-labels="7/12,,,8/5,,,,9/18" data-h="170"></div>
+        </div>
+      </div>
+
+      <div class="mp-row two">
+        <div class="panel">
+          <div class="panel-head"><p class="label">레벨 테스트 기록</p><p class="hint">4번</p></div>
+          <ul class="growth-tests">
+            <li class="growth-test"><span class="growth-test-date">9/19</span><span class="growth-test-level">B1 상위</span><span class="growth-test-scale">IELTS 4.5–5.0</span><span class="growth-delta up">▲ 한 단계</span></li>
+            <li class="growth-test"><span class="growth-test-date">9/5</span><span class="growth-test-level">B1 하위</span><span class="growth-test-scale">IELTS 4.0–4.5</span><span class="growth-delta up">▲ 한 단계</span></li>
+            <li class="growth-test"><span class="growth-test-date">8/8</span><span class="growth-test-level">A2 상위</span><span class="growth-test-scale">IELTS 3.5–4.0</span><span class="growth-delta">그대로</span></li>
+            <li class="growth-test"><span class="growth-test-date">7/11</span><span class="growth-test-level">A2 상위</span><span class="growth-test-scale">IELTS 3.5–4.0</span><span class="growth-delta">첫 테스트</span></li>
+          </ul>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><p class="label">자주 걸리는 것</p><a href="#" class="hint">약점 보기 →</a></div>
+          <div id="tag-bars">
+            <div class="tag-bar"><span class="name">시제</span><div class="track"><div class="fill" style="width: 100%"></div></div><span class="n">12번</span></div>
+            <div class="tag-bar"><span class="name">관사</span><div class="track"><div class="fill" style="width: 67%"></div></div><span class="n">8번</span></div>
+            <div class="tag-bar"><span class="name">전치사</span><div class="track"><div class="fill" style="width: 50%"></div></div><span class="n">6번</span></div>
+            <div class="tag-bar"><span class="name">수 일치</span><div class="track"><div class="fill" style="width: 33%"></div></div><span class="n">4번</span></div>
+            <div class="tag-bar"><span class="name">어순</span><div class="track"><div class="fill" style="width: 25%"></div></div><span class="n">3번</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+</body>
+</html>
