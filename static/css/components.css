@@ -995,6 +995,14 @@ button.meaning:hover { color: var(--accent-ink); }
 .review-result.good { color: var(--suggest-ink); }   /* the re-speak chip's colours */
 .review-result.bad  { color: var(--correct-ink); }
 .review-empty p { margin: 0; }
+/* 더 보기 (12개 남음) is longer than .btn-stable's 8.5em; sized for it, so the
+   count going down does not narrow the button. Its row is held while hidden
+   (setShown), as 기록's 더 보기. */
+#btn-review-more { margin-top: var(--space-2); }
+#btn-review-more.btn-stable { min-width: calc(10em + var(--space-4) * 2 + 2px); }
+/* A card brought out by 더 보기 or by one leaving fades in -- opacity only (R1). */
+.review-card.is-revealed { animation: tab-in var(--dur-fast) ease; }
+@media (prefers-reduced-motion: reduce) { .review-card.is-revealed { animation: none; } }
 
 /* Weak spots */
 #accuracy-line { margin: 0 0 var(--space-2); min-height: calc(var(--text-sm) * 1.55); }
