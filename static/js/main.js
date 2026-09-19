@@ -12,6 +12,8 @@ import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
          selectTab, onTabKey, onTagClick, loadCoach, showMoreReviews } from './mypage.js';
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
+import { leaveTimed, startNow, stopNow, retryTranscribe, again, endTimed, playMine,
+         playNative, retryNative } from './timed.js';
 import * as router from './router.js';
 
 /* ---------- screens ---------- */
@@ -25,6 +27,13 @@ router.register('timed', 'timed');
 router.show('home');
 
 /* ---------- wiring ---------- */
+
+/* What every way off a screen cleans up first. 1분 말하기 is the one screen with
+   a live microphone and a clock of its own: a minute still recording is
+   dropped (never uploaded) and its timers stop. A no-op anywhere else. */
+function leaving() {
+  leaveTimed();
+}
 
 /* Home, pick and my page each carry a language segment; all are the one
    state.language, so they share this handler and are kept in step by
@@ -50,7 +59,10 @@ $('mypage-language-seg').addEventListener('click', switchLanguage);
 
 // Arrow functions, not openMypage itself: it takes { tab }, and a click
 // handler's first argument is the Event.
-$('btn-mypage').addEventListener('click', () => openMypage());
+$('btn-mypage').addEventListener('click', () => {
+  leaving();
+  openMypage();
+});
 $('btn-mypage-home').addEventListener('click', () => {
   leaveMypage();
   loadHome();
@@ -101,9 +113,26 @@ $('review-home-go').addEventListener('click', () => openMypage({ tab: 'review' }
 $('notice-close').addEventListener('click', () => notify(''));
 
 $('btn-home').addEventListener('click', () => {
+  leaving();
   router.show('home');
   loadHome();
 });
+
+/* 1분 말하기's card. Arrow functions: a click handler's first argument is the
+   Event, and startNow/stopNow take the stage event they raise. */
+$('btn-timed-home').addEventListener('click', () => {
+  leaving();
+  router.show('home');
+  loadHome();
+});
+$('timed-start').addEventListener('click', () => startNow());
+$('timed-stop').addEventListener('click', () => stopNow());
+$('timed-retry-btn').addEventListener('click', () => retryTranscribe());
+$('timed-native-play').addEventListener('click', () => playNative());
+$('timed-native-retry').addEventListener('click', () => retryNative());
+$('timed-mine').addEventListener('click', () => playMine());
+$('timed-again').addEventListener('click', () => again());
+$('timed-end').addEventListener('click', () => endTimed());
 
 $('category-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-category]');
