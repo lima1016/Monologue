@@ -479,7 +479,7 @@ class _NoMeaning(Exception):
     pass
 
 
-def _cached_translation(language: str, text: str) -> str | None:
+def _cached_translation(language: str, text: str, answer: str | None = None) -> str | None:
     """성공한 뜻만 기억한다. 실패(None)는 캐시하지 않는다.
 
     실패는 모델이 죽은 경우만이 아니다 -- 일본어 줄은 되묻고도 두 번 새는
@@ -488,19 +488,28 @@ def _cached_translation(language: str, text: str) -> str | None:
     펼칠 때마다 14b를 다시 두드리는 비용은 학습자가 버튼을 누를 때뿐이라
     감수할 만하다.
     lru_cache는 예외를 캐시하지 않으므로, 실패를 예외로 바꿔 그 아래로
-    보내고 여기서 None으로 되돌린다."""
+    보내고 여기서 None으로 되돌린다.
+
+    `answer` is the level test learner's own answer text, opt-in and only
+    ever passed from the level-test comment translation fallback -- the ▸ 뜻
+    button's call leaves it None. When given, a bare CJK/kana run in the
+    model's translation that names the learner's own word (週末) is not
+    treated as a leak either, same tolerance as _drop_answers_own_words."""
     try:
-        return _successful_translation(language, text)
+        return _successful_translation(language, text, answer)
     except _NoMeaning:
         return None
 
 
 @functools.lru_cache(maxsize=512)
-def _successful_translation(language: str, text: str) -> str:
+def _successful_translation(language: str, text: str, answer: str | None = None) -> str:
+    def korean_enough(meaning: str) -> bool:
+        checked = _drop_answers_own_words(meaning, answer) if answer else meaning
+        return _is_korean_meaning(checked, source=text)
     try:
         messages = prompts.build_translate_messages(language, text)
         meaning = _first_line(_translate_call(messages))
-        if meaning and not _is_korean_meaning(meaning, source=text):
+        if meaning and not korean_enough(meaning):
             # One retry, with the leaked answer in view. In the prompt probe
             # (29 Japanese lines x3 = 87 calls on the real model, judged by the
             # probe's own Korean check) it took Korean meanings from 56% to
@@ -513,7 +522,7 @@ def _successful_translation(language: str, text: str) -> str:
             meaning = _first_line(_translate_call(messages))
     except Exception as exc:
         raise _NoMeaning from exc
-    if not (meaning and _is_korean_meaning(meaning, source=text)):
+    if not (meaning and korean_enough(meaning)):
         raise _NoMeaning
     return meaning
 
@@ -2117,10 +2126,10 @@ async def level_test_answer(test_id: int, q: int, seconds: float = Form(...),
 
 # CJK ideographs and kana together -- a comment naming the learner's own
 # Japanese word (週末) may leave it bare, not just quoted (「週末」). Deliberately
-# narrower than _CJK_IDEOGRAPH: that range's 豈-﫿 block (CJK compatibility
-# ideographs) also spans the Hangul syllables block, which would merge a run
-# like "週末의" into one unit that no longer matches verbatim against the
-# source and so never gets dropped.
+# narrower than _CJK_IDEOGRAPH: it drops that range's 豈-﫿 block (CJK
+# compatibility ideographs, legacy duplicate glyphs for characters that
+# already have a canonical code point elsewhere), which a transcribed spoken
+# answer is not going to produce, so there is nothing there worth matching.
 _CJK_OR_KANA_RUN = re.compile(r"[一-鿿぀-ヿ]+")
 
 
@@ -2130,8 +2139,19 @@ def _drop_answers_own_words(comment: str, source: str) -> str:
     reasonably calls out the learner's own words by name; that is not the
     language leaking, so it should not fail the Korean check. A run of
     ideographs the model invented -- not present in the answer -- stays, and
-    still fails the check."""
-    return _CJK_OR_KANA_RUN.sub(lambda m: "" if m.group(0) in source else m.group(0), comment)
+    still fails the check.
+
+    Like _quote_dropper, a run has to be word-sized to count: at least two
+    characters (one common kanji -- 日, 人, 今, 友 -- turning up anywhere in
+    the answer is a coincidence, not the learner's own word being named), no
+    longer than _MAX_QUOTED_EXPRESSION, and under half the length of the
+    answer (so a comment that echoes most of the answer verbatim and calls
+    that "own words" still fails)."""
+    def drop(m: re.Match) -> str:
+        run = m.group(0)
+        word_sized = 2 <= len(run) <= _MAX_QUOTED_EXPRESSION and len(run) * 2 < len(source)
+        return "" if word_sized and run in source else run
+    return _CJK_OR_KANA_RUN.sub(drop, comment)
 
 
 def _level_judgments(raw, answers: dict) -> dict:
@@ -2225,8 +2245,13 @@ def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
         else:
             raw_comment = None
         if raw_comment:
-            translated = _cached_translation(language, raw_comment)
-            if translated and _is_korean_meaning(translated, source=answers[q]["text"] or ""):
+            answer_text = answers[q]["text"] or ""
+            translated = _cached_translation(language, raw_comment, answer_text)
+            # Same own-word tolerance as _level_judgments: the translation may
+            # name the learner's own word (週末) bare, and that is not a leak
+            # either -- see _drop_answers_own_words.
+            if translated and _is_korean_meaning(
+                    _drop_answers_own_words(translated, answer_text), source=answer_text):
                 result[q]["comment"] = translated
     return result
 

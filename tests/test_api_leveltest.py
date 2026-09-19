@@ -82,7 +82,7 @@ class TranslationSpy:
         self.calls = []
         monkeypatch.setattr(api, "_cached_translation", self)
 
-    def __call__(self, language, text):
+    def __call__(self, language, text, answer=None):
         self.calls.append((language, text))
         if isinstance(self.result, Exception):
             raise self.result
@@ -602,6 +602,38 @@ def test_a_korean_comment_naming_the_answers_own_word_bare_is_kept(client, monke
     assert translate.calls == []
     assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [
         ("B1", "週末의 활동을 자세히 설명했지만, 문장 연결이 좀 더 자연스러워지면 좋을 것 같아요.")]
+
+
+def test_drop_answers_own_words_needs_a_two_character_run():
+    """Every common kanji in the answer, scattered one at a time through an
+    otherwise Korean comment, used to get laundered: each single character
+    matched the answer on its own and _drop_answers_own_words stripped it
+    with no minimum length, leaving a comment that read as pure Korean. Only
+    a run of at least two characters is the learner's own word being named
+    -- a lone 日 or 今 turning up is a coincidence. The measured case, 週末
+    together, still passes."""
+    answer = "週末はよく寝ます。友達に会います。今日は忙しいです。"
+    laundered = "이 표현이 좋아요: 週 末 今 日 友 会 忙 잘했어요"
+    assert not api._is_korean_meaning(api._drop_answers_own_words(laundered, answer), source=answer)
+    measured = "週末 이야기를 잘 했어요."
+    assert api._is_korean_meaning(api._drop_answers_own_words(measured, answer), source=answer)
+
+
+def test_a_translated_comment_naming_the_answers_own_word_bare_is_kept(client, monkeypatch):
+    """The bug this fixes: when the raw Japanese comment has to be
+    translated (both calls leaked), the translation itself may also name the
+    learner's own word (週末) bare rather than quoting it. _cached_translation's
+    own internal Korean check used to reject that translation outright --
+    with no own-word tolerance -- so it never even came back as a candidate;
+    and even if it had, _judge_level_answers' own check on the result would
+    have rejected it too. Both need the same tolerance _drop_answers_own_words
+    gives a direct comment."""
+    api._cached_translation.cache_clear()
+    monkeypatch.setattr(llm, "chat",
+                         lambda messages, **kw: "週末 이야기를 잘 했지만 문장이 짧았어요.")
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, JA_COMMENT)
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [
+        ("B1", "週末 이야기를 잘 했지만 문장이 짧았어요.")]
 
 
 def test_a_comment_naming_a_word_not_in_the_answer_still_fails(client, monkeypatch):
