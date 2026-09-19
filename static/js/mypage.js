@@ -33,6 +33,8 @@ const LOADING = '불러오는 중...';
 const FAILED = '불러오지 못했어요';
 const PLAY_LABEL = '▶ 듣기';
 const MORE_LABEL = '더 보기';
+// 복습 shows this many cards at a time: sixteen due is three screens.
+const REVIEW_STEP = 5;
 // A passed card stays this long, result and all, before it is gone from the
 // list -- its fade is the last LEAVE_MS of it.
 const PASS_HOLD_MS = 1500;
@@ -51,6 +53,7 @@ let reviewItems = new Map();     // id -> item, for main.js's delegated clicks
 let reviewCounts = null;         // { due, mastered, total } from /stats/mypage, or null
 let reviewLeft = 0;              // cards still on the list
 let reviewDone = 0;              // cards taken off the list this load
+let reviewLimit = 0;             // cards shown at once; 더 보기 raises it
 let reportOut = false;           // a 리포트 보기 is waiting for its answer
 
 /* ---------- tabs ---------- */
@@ -168,6 +171,7 @@ export async function openMypage({ tab } = {}) {
       $('tab-review-n').textContent = '';
       $('tab-review').setAttribute('aria-label', '복습');
       $('review-mastered').textContent = '';
+      setShown($('btn-review-more'), false);
       fail('review-section', $('review-list'));
     },
   );
@@ -215,6 +219,7 @@ function paintSkeletons() {
     return card;
   });
   $('review-list').replaceChildren(loadingNote(), ...cards);
+  setShown($('btn-review-more'), false);
 
   const accuracy = $('accuracy-line');
   accuracy.textContent = NBSP;
@@ -278,6 +283,7 @@ export function renderReviewList(items, counts) {
   reviewCounts = counts ? { ...counts } : null;
   reviewLeft = items.length;
   reviewDone = 0;
+  reviewLimit = REVIEW_STEP;
   paintReviewHead();
   const list = $('review-list');
   if (!items.length) {
@@ -285,6 +291,38 @@ export function renderReviewList(items, counts) {
     return;
   }
   list.replaceChildren(...items.map(reviewCard));
+  paintReviewLimit();
+}
+
+/* The first `reviewLimit` cards on the list are shown, the rest [hidden] --
+   out of the layout and the tab order. A card that leaves makes room for the
+   next, so the list stays at the limit while more are waiting. Returns the
+   cards this call brought out. */
+function paintReviewLimit() {
+  const cards = $('review-list').children.filter((c) => c.classList.contains('review-card'));
+  const revealed = [];
+  cards.forEach((card, i) => {
+    const hide = i >= reviewLimit;
+    if (card.hidden && !hide) {
+      card.classList.add('is-revealed');
+      revealed.push(card);
+    }
+    card.hidden = hide;
+  });
+  const waiting = Math.max(0, cards.length - reviewLimit);
+  const more = $('btn-review-more');
+  if (waiting) more.textContent = `${MORE_LABEL} (${waiting}개 남음)`;
+  setShown(more, waiting > 0);
+  return revealed;
+}
+
+/* main.js's #btn-review-more: five more, and the keyboard lands on the first
+   of them rather than staying on a button that may now be gone. */
+export function showMoreReviews() {
+  reviewLimit += REVIEW_STEP;
+  const [first] = paintReviewLimit();
+  const target = first && findTag(first, 'BUTTON');
+  if (target) target.focus();
 }
 
 /* The list stops at twenty; the heading counts the day's reviews the server
@@ -318,6 +356,7 @@ function paintReviewEmpty() {
     empty.append(el('p', 'hint', '대화에서 고친 문장이 여기 모여요'));
   }
   $('review-list').replaceChildren(empty);
+  setShown($('btn-review-more'), false);
 }
 
 function reviewCard(item) {
@@ -531,6 +570,7 @@ function removeCard(card, token = loadToken) {
     reviewDone += 1;
     paintReviewHead();
     if (reviewLeft === 0) paintReviewEmpty();
+    else paintReviewLimit();
   };
   if (reducedMotion()) {
     done();
@@ -872,6 +912,15 @@ function button(cls, label) {
   const b = el('button', cls, label);
   b.type = 'button';
   return b;
+}
+
+function findTag(node, tag) {
+  for (const c of node.children || []) {
+    if (c.tagName === tag) return c;
+    const hit = findTag(c, tag);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 function find(node, cls) {
