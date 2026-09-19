@@ -488,10 +488,39 @@ def test_a_comment_leaking_twice_is_blank_and_the_model_is_asked_only_twice(clie
 
 
 @pytest.mark.parametrize("retry", [RuntimeError("ollama down"), {"answers": []}])
-def test_the_first_label_stands_when_the_retry_fails_or_leaves_it_out(client, monkeypatch, retry):
+def test_the_first_calls_japanese_comment_is_translated_when_the_retry_gives_nothing(
+        client, monkeypatch, retry):
+    """The bug this fixes: when the retry raises, or comes back without that
+    q, the FIRST call's raw Japanese comment is the only one there is -- it
+    must still go through the same checked ja->ko path, not be dropped."""
+    translate = TranslationSpy(monkeypatch, "주말 이야기는 잘 전했지만 문장이 짧았어요.")
     model, res = _ja_finish(client, monkeypatch, JA_COMMENT, retry)
     assert len(model.calls) == 2
-    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [("B1", "")]
+    assert translate.calls == [("ja", "週末の話はよくできましたが、文が短いです。")]
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [
+        ("B1", "주말 이야기는 잘 전했지만 문장이 짧았어요.")]
+
+
+def test_an_invalid_retry_cefr_keeps_the_first_cefr_and_still_translates(client, monkeypatch):
+    """The retry's cefr is outside leveltest.CEFR, so _level_judgments drops
+    that q entirely -- same as the retry omitting it. The first call's cefr
+    holds, and its raw Japanese comment still gets a translation try."""
+    translate = TranslationSpy(monkeypatch, "주말 이야기는 잘 전했지만 문장이 짧았어요.")
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, {"answers": [
+        {"q": 0, "cefr": "intermediate", "comment": "주말 이야기를 잘 전했어요."}]})
+    assert len(model.calls) == 2
+    assert translate.calls == [("ja", "週末の話はよくできましたが、文が短いです。")]
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [
+        ("B1", "주말 이야기는 잘 전했지만 문장이 짧았어요.")]
+
+
+def test_the_retrys_raw_comment_is_preferred_over_the_first_calls(client, monkeypatch):
+    """When both calls leak Japanese, the retry's raw comment is the freshest
+    read on the answer, so it wins over the first call's."""
+    translate = TranslationSpy(monkeypatch, "주말 이야기는 잘 전했지만 문장이 짧았어요.")
+    retry = {"answers": [{"q": 0, "cefr": "B1", "comment": "友達との週末について話しましたが短いです。"}]}
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, retry)
+    assert translate.calls == [("ja", "友達との週末について話しましたが短いです。")]
 
 
 def test_a_korean_comment_quoting_the_answer_is_kept_without_a_retry(client, monkeypatch):

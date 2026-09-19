@@ -2143,9 +2143,12 @@ def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
 
     A comment that is not Korean earns one re-ask (a Japanese answer pulls the
     comment into Japanese even with a Korean example); the comments come from
-    the retry, and a comment that leaks twice becomes "". The cefr stays either
-    way -- the label is the part the score uses -- and the first call's label
-    holds wherever the retry fails or leaves it out."""
+    the retry, falling back to a ja->ko translation of whichever call's raw
+    Japanese comment is freshest when both calls leak, and "" only when
+    neither call's raw comment looks Japanese or the translation itself
+    fails. The cefr stays either way -- the label is the part the score uses
+    -- and the first call's label holds wherever the retry fails or leaves
+    it out."""
     if not answers:
         return {}
     by_q = {q["q"]: q for q in questions}
@@ -2160,8 +2163,9 @@ def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
                     exc_info=True)
         return {}
     out = _level_judgments(raw, answers)
-    # raw_comment only matters for the merge below; strip it from what a
-    # caller sees so the {"cefr", "comment"} contract holds either way out.
+    # raw_comment only matters for the merge and the translation fallback
+    # below; strip it from what a caller sees so the {"cefr", "comment"}
+    # contract holds either way out.
     result = {q: {"cefr": j["cefr"], "comment": j["comment"]} for q, j in out.items()}
     if all(j["comment"] for j in result.values()):
         return result
@@ -2175,18 +2179,26 @@ def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
     for q, j in retry.items():
         first = result.get(q, {})
         comment = j["comment"] or first.get("comment", "")
-        # Measured on the real model twice: a Japanese B1 answer pulls the
-        # comment into Japanese, and the Korean re-ask ALSO comes back
-        # Japanese. Rather than drop it, translate it with the same checked
-        # ja->ko path the ▸ 뜻 button uses (_cached_translation) -- it already
-        # rejects Chinese leaks and returns None on failure. Only a comment
-        # that still fails the Korean check and looks Japanese (has kana) is
-        # translated; an English comment that merely isn't Korean is left "".
-        if not comment and j.get("raw_comment") and _KANA.search(j["raw_comment"]):
-            translated = _cached_translation(language, j["raw_comment"])
-            if translated and _is_korean_meaning(translated, source=answers[q]["text"] or ""):
-                comment = translated
         result[q] = {"cefr": j["cefr"], "comment": comment}
+    # Measured on the real model twice: a Japanese B1 answer pulls the
+    # comment into Japanese, and the Korean re-ask ALSO comes back Japanese
+    # -- or the re-ask raises, comes back unparseable, or simply omits that
+    # q, in which case the FIRST call's Japanese comment is the only one
+    # there is. Either way, rather than drop it, translate it with the same
+    # checked ja->ko path the ▸ 뜻 button uses (_cached_translation) -- it
+    # already rejects Chinese leaks and returns None on failure. Prefer the
+    # retry's raw comment when the retry answered that q, else fall back to
+    # the first call's. Only a comment that still fails the Korean check and
+    # looks Japanese (has kana) is translated; an English comment that
+    # merely isn't Korean is left "".
+    for q in result:
+        if result[q]["comment"]:
+            continue
+        raw_comment = retry.get(q, {}).get("raw_comment") or out.get(q, {}).get("raw_comment")
+        if raw_comment and _KANA.search(raw_comment):
+            translated = _cached_translation(language, raw_comment)
+            if translated and _is_korean_meaning(translated, source=answers[q]["text"] or ""):
+                result[q]["comment"] = translated
     return result
 
 
