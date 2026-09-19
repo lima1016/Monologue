@@ -2016,6 +2016,7 @@ def session_detail(session_id: int):
 LEVEL_STT_UNAVAILABLE = "받아쓰기를 할 수 없어요"
 LEVEL_NOT_DONE = "아직 따라 말하기가 끝나지 않았어요"
 LEVEL_NO_VOICE = "지금은 문장 음성을 준비할 수 없어요"
+LEVEL_NO_STT = "지금은 받아쓰기를 할 수 없어요"
 _LEVEL_ANSWER_MAX_SECONDS = 60
 
 
@@ -2029,7 +2030,12 @@ def start_level_test(payload: LevelTestStart):
     heard, so sending the text would hand them the answer -- which also means
     there is no browser-voice fallback. No voice, no test: the voices are made
     first, the first one TTS cannot make is a 503, and only then is a test row
-    created, so a failed start leaves nothing behind."""
+    created, so a failed start leaves nothing behind. Every step is judged
+    from a transcription, so a speech model that failed to load stops the
+    test here rather than seven minutes in; one still loading is let through,
+    since the uploads retry on 503 until it is ready."""
+    if stt.status() == "unavailable":
+        raise HTTPException(503, LEVEL_NO_STT)
     language = payload.language
     bank = leveltest.load_bank(language)
     items = []

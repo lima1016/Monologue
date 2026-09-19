@@ -18,6 +18,7 @@ def client(tmp_path, monkeypatch):
     db.init_db()
     monkeypatch.setattr(tts, "synthesize", lambda t, l, v: b"RIFFfake")
     monkeypatch.setattr(api, "_today", lambda: date(2026, 9, 19))
+    monkeypatch.setattr(stt, "status", lambda: "ready")
     return TestClient(app)
 
 
@@ -139,6 +140,20 @@ def test_no_voice_no_test_when_tts_is_down(client, monkeypatch):
     assert all(it["text"] not in r.text for it in BANK["items"])
     assert _count("level_tests") == 0, "a failed start leaves no test row"
     assert len(calls) == 1, "stops at the first voice it cannot make"
+
+
+def test_no_speech_model_no_test(client, monkeypatch):
+    spoken = []
+    monkeypatch.setattr(tts, "synthesize", lambda t, l, v: spoken.append(t) or b"RIFFfake")
+    monkeypatch.setattr(stt, "status", lambda: "unavailable")
+    r = client.post("/api/level-test", json={"language": "en"})
+    assert r.status_code == 503 and r.json()["detail"] == "지금은 받아쓰기를 할 수 없어요"
+    assert spoken == [] and _count("level_tests") == 0
+
+
+def test_a_speech_model_still_loading_lets_the_test_start(client, monkeypatch):
+    monkeypatch.setattr(stt, "status", lambda: "loading")
+    assert _start(client)["test_id"] > 0
 
 
 def test_a_voice_failing_partway_also_stops_the_start(client, monkeypatch):
