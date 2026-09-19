@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>데스크톱 시안</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  .ix-intro { margin: 0 0 var(--space-6); max-width: 46em; }
+  .ix-intro h2 { margin: 0 0 var(--space-2); font-size: var(--text-3xl); font-weight: 750; color: var(--text); letter-spacing: -.04em; }
+  .ix-intro p { margin: 0; color: var(--text-dim); }
+  .ix-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--space-5); align-items: start; }
+  .ix-group { display: flex; flex-direction: column; gap: var(--space-2); }
+  .ix-group .label { margin: 0; }
+  .ix-link { display: flex; flex-direction: column; gap: 2px; text-decoration: none; color: var(--text);
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--space-3) var(--space-4); }
+  .ix-link:hover { background: var(--accent-soft); border-color: var(--accent); }
+  .ix-link .t { font-weight: 650; }
+  .ix-link .t small { font-weight: 500; color: var(--text-faint); font-size: var(--text-xs); margin-left: var(--space-2); }
+  .ix-link .d { font-size: var(--text-sm); color: var(--text-dim); }
+  .ix-foot { margin-top: var(--space-8); font-size: var(--text-sm); color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">여기서 고른 테마·밝기가 모든 시안에 그대로 이어져요 (앱 설정과는 따로)</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status"><a href="/" class="hint">실제 앱으로 →</a></div>
+</header>
+
+<main class="mock-main">
+  <div class="ix-intro">
+    <h2>데스크톱 시안</h2>
+    <p>콘텐츠 폭 약 1200px, 여러 칸 배치. 창을 900px 아래로 줄이면 한 칸으로 접혀요. 버튼은 눌리지 않는 그림이에요 — 배치만 비교해 보세요.</p>
+  </div>
+
+  <div class="ix-groups">
+    <section class="ix-group">
+      <p class="label">홈 · 고르기</p>
+      <a class="ix-link" href="/mock/home.html"><span class="t">홈 <small>현재 시안</small></span><span class="d">세 구역: 오늘의 추천·모드 / 오늘 복습·코치 / 이어서 하기·이번 주</span></a>
+      <a class="ix-link" href="/mock/home-b.html"><span class="t">홈 B <small>대시보드형</small></span><span class="d">인사와 상태 타일 4개, 큰 오늘의 추천 옆에 이어서 하기, 아이콘 달린 모드 카드 5장, 맨 아래 잔디·복습·코치·최근 세션</span></a>
+      <a class="ix-link" href="/mock/home-c.html"><span class="t">홈 C <small>시작 중심형</small></span><span class="d">오늘의 추천을 맨 위 히어로로 크게(목표 문장·파형), 아래 모드 타일과 오른쪽 내 상태·복습·레벨 테스트 칸</span></a>
+      <a class="ix-link" href="/mock/pick.html"><span class="t">테마 고르기</span><span class="d">왼쪽 분류 탭과 테마 카드 4열, 오른쪽에 고른 테마·직접 입력·시작</span></a>
+    </section>
+
+    <section class="ix-group">
+      <p class="label">연습 화면</p>
+      <a class="ix-link" href="/mock/session.html"><span class="t">대화 세션</span><span class="d">넓은 대화 칸 + 오른쪽 목표·표현·이번 세션, 마이크는 대화 칸 아래</span></a>
+      <a class="ix-link" href="/mock/shadowing.html"><span class="t">쉐도잉</span><span class="d">한 줄 카드를 크게, 오른쪽에 대본 전체와 진행</span></a>
+      <a class="ix-link" href="/mock/timed.html"><span class="t">1분 말하기 <small>상태 2개</small></span><span class="d">녹음 카드 + 질문 칸, 결과는 문장별 교정 / 원어민·회차 비교 두 칸</span></a>
+      <a class="ix-link" href="/mock/leveltest.html"><span class="t">레벨 테스트 <small>상태 2개</small></span><span class="d">시험은 가운데 한 장, 결과는 레벨·점수 / 따라 말하기·답하기 두 칸</span></a>
+    </section>
+
+    <section class="ix-group">
+      <p class="label">결과</p>
+      <a class="ix-link" href="/mock/report.html"><span class="t">세션 리포트</span><span class="d">고친 곳을 내 말 · 고친 문장 나란히, 표현 · 다음 초점, 오른쪽에 숫자</span></a>
+    </section>
+
+    <section class="ix-group">
+      <p class="label">마이페이지</p>
+      <a class="ix-link" href="/mock/mypage-a.html"><span class="t">마이페이지 A</span><span class="d">왼쪽에 성장 대시보드를 다 펼치고, 오른쪽 고정 칸에 복습·약점·기록 탭</span></a>
+      <a class="ix-link" href="/mock/mypage-b.html"><span class="t">마이페이지 B</span><span class="d">왼쪽 세로 메뉴(성장·복습·약점·기록) + 오른쪽 넓은 내용</span></a>
+    </section>
+
+    <section class="ix-group">
+      <p class="label">설정</p>
+      <a class="ix-link" href="/mock/settings.html"><span class="t">설정</span><span class="d">넓은 창 두 칸: 화면(테마·밝기·미리 보기) | 언어·음성·읽기 보조</span></a>
+    </section>
+  </div>
+
+  <p class="ix-foot">시안 파일은 static/mock/ 에만 있고, 앱은 이 파일들을 불러오지 않아요.</p>
+</main>
+</body>
+</html>

@@ -1,5 +1,5 @@
-/* The home screen: today's recommended theme, the three mode cards, 이어서 하기,
-   this week's practice, and the recent themes. Named in the Phase 2 design
+/* The home screen: today's recommendation and target sentence, the five mode tiles, 이어서 하기,
+   내 상태 (the week, the level), and the recent themes. Named in the Phase 2 design
    (docs/superpowers/specs/2026-08-29-monologue-phase2-design.md:325) as its own
    module and split out of session.js, which had grown to four screens. The
    dashboard itself is docs/superpowers/specs/2026-09-14-monologue-home-dashboard-design.md.
@@ -18,6 +18,8 @@ import { play } from './audio.js';
 import * as router from './router.js';
 import { addMessage } from './session.js';
 import { setSuggestVisible } from './suggest.js';
+// leveltest.js imports none of home, pick or session, so this closes no cycle.
+import { renderLevelResult, levelName, RESULT_TEXT } from './leveltest.js';
 
 // Filled by loadHome (Task 8) once a resumable session is found; read by
 // resumeSession (Task 8). Declared here, ahead of either function, so a
@@ -29,10 +31,19 @@ let resumeTarget = null;
 // playReviewHome -- same shape and same reason as resumeTarget above.
 let reviewFirst = null;
 
+// 오늘의 목표 문장 as last painted ({id, tag, text, fixed}), read by
+// playTargetHome -- same shape and reason as reviewFirst.
+let target = null;
+
+// This language's latest level test result as the last load found it: the
+// result itself, null (none yet), or undefined (unknown -- the request
+// failed). Read by showLevelResultHome.
+let levelResult;
+
 const GOAL_MIN = 1;
 const GOAL_MAX = 14;
 const START_LABELS = { script: '스크립트로 시작', free: '자유 대화로 시작' };
-const MODE_NAMES = { script: '스크립트', free: '자유 상황극', timed: '1분 말하기' };
+const MODE_NAMES = { script: '스크립트', free: '자유 상황극', lesson: '수업', timed: '1분 말하기' };
 
 // Reads an item off /stats/home's `recent_themes` (renderRecentThemes below).
 // A shadowing session there is stored as a flagged script session -- its
@@ -44,6 +55,13 @@ function modeName(item) {
   return item.shadowing ? '쉐도잉' : (MODE_NAMES[item.mode] || item.mode);
 }
 const REVIEW_PLAY_LABEL = '▶ 듣기';
+const TARGET_PLAY_LABEL = '▶ 들어 보기';
+const PREPARING = '음성 준비 중...';
+// Tile order in index.html's #modes; the key a recent theme is filed under.
+const TILE_MODES = ['free', 'script', 'shadow', 'lesson', 'timed'];
+const tileMode = (item) => (item.shadowing ? 'shadow' : item.mode);
+// The goal ring's circumference: r = 34 in index.html's #week-ring.
+const RING_C = 2 * Math.PI * 34;
 // A placeholder line needs a character to be a line at all: an empty or
 // space-only <p> is zero tall.
 const NBSP = String.fromCharCode(0xa0);   // a no-break space
@@ -51,6 +69,7 @@ const NBSP = String.fromCharCode(0xa0);   // a no-break space
 let today = [];            // [current, alternative?] -- swapToday trades them
 let week = null;           // { days, sessions, goal } as last painted, or null
 let streak = 0;
+let accuracy = null;       // { correct, graded } from /stats/home, or null
 let savingGoal = false;    // POST /settings/weekly-goal is out
 
 /* Everything on the home screen that depends on history. Fails quietly: a
@@ -94,6 +113,11 @@ export async function loadHome() {
     setShown($('today-alt'), false);   // its row is held from the start (R5)
     $('today-card').hidden = false;
     $('today-body').replaceChildren(loadingNote(), ...todaySkeleton());
+    // The target panel holds its place only when this language's last answer
+    // had a target: most answers have none, and a held panel that then goes
+    // away jumps the whole screen (on a phone, everything below it moves up
+    // by the panel's height). No memory: no panel, the hero full width.
+    if (hadTarget(lang)) targetSkeleton();
     weekSkeleton();
   }
 
@@ -126,18 +150,17 @@ export async function loadHome() {
       ? '오늘은 뭘 연습할까요?' : '첫 연습을 시작해 보세요';
 
     renderToday(stats.recommend);
-
-    const worst = stats.top_tags && stats.top_tags[0];
-    $('recommend').hidden = !worst;
-    if (worst) {
-      $('recommend').textContent =
-        `요즘 ${worst.tag}에서 자주 걸립니다. 오늘은 그쪽을 노려볼까요?`;
-    }
+    // "요즘 X에서 자주 걸립니다" said what the target panel now shows with the
+    // sentence itself, so the line stays shut either way.
+    $('recommend').hidden = true;
+    renderTarget(stats.target);
+    rememberTarget(lang, Boolean(target));
 
     // No numeric goal means the payload is not the one this card is drawn
     // from -- hide the card rather than invent a goal the learner never set.
     if (stats.has_history && stats.week && typeof stats.week.goal === 'number') {
-      renderWeek(stats.week, stats.streak);
+      renderWeek(stats.week, stats.streak, stats.accuracy);
+      renderLevel(latest);
       renderRecentThemes(stats.recent_themes);
     } else {
       // The content itself changed (no history under this language), so this
@@ -146,6 +169,7 @@ export async function loadHome() {
       clearWeekSkeleton();
       $('week-card').hidden = true;
       $('recent-themes-wrap').hidden = true;
+      renderModeRecents([]);
     }
 
     renderLibraryProgress(stats.library);
@@ -180,19 +204,21 @@ function hideHistory() {
   setCollapsedShown($('leveltest-home'), false);
   $('today-alt').hidden = true;
   $('recommend').hidden = true;
+  renderTarget(null);
   clearWeekSkeleton();
   $('week-card').hidden = true;
   $('recent-themes-wrap').hidden = true;
+  renderModeRecents([]);
   $('library-progress').hidden = true;
 }
 
 /* Everything loadHome repaints from the response. Dimmed on the cards
-   themselves rather than on .home-main/.home-aside: under 880px those two
+   themselves rather than on .home-main/.home-aside: under 900px those two
    are `display: contents` (so the phone order can interleave their children),
    and opacity on a box-less element does nothing. The mode cards are not
    here -- they never depend on the request. */
-const REFRESHED = ['today-card', 'today-alt', 'review-home', 'leveltest-home', 'recommend', 'resume-card',
-  'week-card', 'recent-themes-wrap', 'library-progress'];
+const REFRESHED = ['today-card', 'today-alt', 'home-target', 'review-home', 'leveltest-home', 'recommend',
+  'resume-card', 'week-card', 'recent-themes-wrap', 'library-progress'];
 
 /* Dimmed also means asleep. After a language switch the cards still show the
    previous language; 계속 on that resume card (or a start button on that
@@ -208,6 +234,10 @@ function setRefreshing(on) {
     card.classList.toggle('is-refreshing', on);
     card.inert = on || card.classList.contains('is-collapsed');
   }
+  // The tiles themselves never depend on the request, but their 최근 lines
+  // do: after a language switch they still name the previous language's
+  // themes, so they dim with the cards until the answer repaints them.
+  for (const mode of TILE_MODES) $(`mode-recent-${mode}`).classList.toggle('is-refreshing', on);
 }
 
 /* 이어서 하기 opens and shuts by class, never `hidden`, so CSS can slide it
@@ -259,20 +289,49 @@ export const LEVEL_TEST_CARD = {
   ja: '7분이면 내 수준과 JF 스탠다드 레벨을 알 수 있어요',
 };
 
-/* Offered only while this language has no finished test: `latest` is
-   /level-test/latest's answer, and only `{result: null}` -- the server saying
-   there is none -- opens the card. A result, or no answer at all (the request
-   failed), keeps it shut: a learner who has a level is not asked again here,
-   and a failed request is not taken as "never tested". 시작 is wired in
-   main.js (openLevelTest), like every start button on this screen. */
+export const LEVEL_TEST_DONE = {
+  last: '지난 테스트',
+  show: '결과 보기',
+  retake: '다시 테스트',
+  start: '시작',
+};
+
+/* `latest` is /level-test/latest's answer. `{result: null}` -- the server
+   saying there is none -- offers a test; a result says when the last one was
+   and what it gave, with 결과 보기 and 다시 테스트. No answer at all (the
+   request failed, or a reply without `result`) keeps the card shut: a failed
+   request is taken as neither "never tested" nor a level. 시작/다시 테스트
+   and 결과 보기 are wired in main.js, like every start button on this screen. */
 function renderLevelTestHome(latest, lang, { instant = false } = {}) {
-  const none = Boolean(latest) && latest.result === null;
-  if (none) {
-    const text = $('leveltest-home-text');
+  const known = Boolean(latest) && latest.result !== undefined;
+  const result = known ? latest.result : undefined;
+  levelResult = result;
+  const text = $('leveltest-home-text');
+  if (result) {
+    const when = new Date(result.finished_at);
+    const date = Number.isNaN(when.getTime()) ? '' : ` ${when.getMonth() + 1}월 ${when.getDate()}일`;
+    text.replaceChildren(el('b', '', LEVEL_TEST_DONE.last),
+      document.createTextNode(`${date} · ${levelName(result)}`));
+  } else if (result === null) {
     text.replaceChildren(el('b', '', LEVEL_TEST_CARD.title),
       document.createTextNode(` · ${lang === 'ja' ? LEVEL_TEST_CARD.ja : LEVEL_TEST_CARD.en}`));
   }
-  setCollapsedShown($('leveltest-home'), none, { instant });
+  if (known) {
+    $('leveltest-home-show').hidden = !result;
+    $('leveltest-home-start').textContent = result ? LEVEL_TEST_DONE.retake : LEVEL_TEST_DONE.start;
+    // 다시 테스트 is a second choice beside 결과 보기, not the card's one action.
+    $('leveltest-home-start').classList.toggle('primary', !result);
+    $('leveltest-home-start').classList.toggle('ghost', Boolean(result));
+  }
+  setCollapsedShown($('leveltest-home'), known, { instant });
+}
+
+/* 결과 보기: the result this load already has, drawn on the level test screen
+   the way my page's 결과 보기 draws it (renderLevelResult), with 홈으로 to come
+   back. A dimmed or shut card is asleep, as on every card here. */
+export function showLevelResultHome() {
+  if (!levelResult || $('leveltest-home').inert) return;
+  renderLevelResult(levelResult, { from: 'home' });
 }
 
 /* Shaped like paintToday's card -- title line (the wait's own words sit
@@ -284,10 +343,48 @@ function todaySkeleton() {
     p.textContent = NBSP;
     return p;
   };
+  const chips = el('ul', 'today-situations');
+  chips.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 3; i += 1) chips.append(el('li', 'skeleton today-skel-chip', NBSP));
   const actions = el('div', 'today-actions');
   actions.append(el('span', 'skeleton today-skel-btn'), el('span', 'skeleton today-skel-btn'));
   actions.setAttribute('aria-hidden', 'true');
-  return [line('today-situations'), line('today-reason'), actions];
+  return [chips, line('today-reason'), actions];
+}
+
+/* The target panel on a first load: its own lines as blank placeholders, so
+   the hero is already split the way a target will split it. */
+function targetSkeleton() {
+  const panel = $('home-target');
+  panel.hidden = false;
+  panel.setAttribute('aria-busy', 'true');
+  $('home-hero').classList.add('has-target');
+  for (const id of ['home-target-tag', 'home-target-fixed']) {
+    $(id).textContent = NBSP;
+    $(id).classList.add('skeleton');
+  }
+  setShown($('home-target-play'), false);   // its row is held: .is-invisible, not hidden
+}
+
+/* Whether this language's last answer had a target -- a per-viewer
+   convenience in localStorage, only ever used to decide whether the first
+   paint holds the panel's place. Storage that throws (a private window,
+   blocked site data) or is missing reads as "no". */
+const TARGET_KEY = (lang) => `home-target-${lang}`;
+
+function hadTarget(lang) {
+  try { return globalThis.localStorage?.getItem(TARGET_KEY(lang)) === '1'; } catch { return false; }
+}
+
+function rememberTarget(lang, has) {
+  try { globalThis.localStorage?.setItem(TARGET_KEY(lang), has ? '1' : '0'); } catch { /* fine */ }
+}
+
+function clearTargetSkeleton() {
+  const panel = $('home-target');
+  panel.removeAttribute('aria-busy');
+  for (const id of ['home-target-tag', 'home-target-fixed']) $(id).classList.remove('skeleton');
+  setShown($('home-target-play'), true);
 }
 
 /* The week card on a first load: seven day cells built like paintWeek's (a
@@ -307,16 +404,17 @@ function weekSkeleton() {
     cell.append(el('span', 'dl', NBSP), el('i', 'dot'));
     days.append(cell);
   }
-  // The streak line's row is held as well: it comes and goes with the data,
-  // and a row that only appears once a streak exists grew the card.
-  const streakLine = $('week-streak');
-  setShown(streakLine, true);
-  streakLine.textContent = NBSP;
-  streakLine.classList.add('skeleton');
-  $('week-progress').textContent = NBSP;
-  $('week-progress').classList.add('skeleton');
-  $('week-bar').style.width = '0%';
+  // The numbers and the level lines hold their rows with a blank character;
+  // the ring shows its empty track.
+  for (const id of SKELETON_LINES) {
+    setShown($(id), true);
+    $(id).textContent = NBSP;
+    $(id).classList.add('skeleton');
+  }
+  paintRing(0, null);
 }
+
+const SKELETON_LINES = ['week-streak', 'home-accuracy', 'home-level', 'home-level-scale'];
 
 function clearWeekSkeleton() {
   const card = $('week-card');
@@ -324,10 +422,10 @@ function clearWeekSkeleton() {
   card.classList.remove('is-skeleton');
   card.removeAttribute('aria-busy');
   $('week-days').replaceChildren();
-  $('week-streak').classList.remove('skeleton');
-  $('week-streak').textContent = '';
-  $('week-progress').classList.remove('skeleton');
-  $('week-progress').textContent = '';
+  for (const id of SKELETON_LINES) {
+    $(id).classList.remove('skeleton');
+    $(id).textContent = '';
+  }
 }
 
 function loadingNote() {
@@ -350,7 +448,8 @@ function el(tag, className = '', text = '') {
    구현하지 않고 항상 null 을 돌려주므로, 선택자로 쓰면 이 함수는 테스트에서
    조용히 아무것도 안 하게 된다. */
 function syncAside() {
-  const empty = resumeCollapsed() && $('week-card').hidden;
+  const shut = (id) => $(id).classList.contains('is-collapsed');
+  const empty = resumeCollapsed() && $('week-card').hidden && shut('review-home') && shut('leveltest-home');
   $('home').classList.toggle('no-aside', empty);
 }
 
@@ -403,9 +502,12 @@ function paintToday() {
     actions.append(button);
     if (!ready) actions.append(el('span', 'today-note', '대본 준비 중'));
   }
+  const chips = el('ul', 'today-situations');
+  chips.setAttribute('aria-label', '상황');
+  for (const s of (current.situations || []).slice(0, 3)) chips.append(el('li', '', s));
   body.replaceChildren(
     el('p', 'today-title', current.title),
-    el('p', 'today-situations', (current.situations || []).slice(0, 3).join(' · ')),
+    chips,
     ...(current.reason ? [el('p', 'today-reason', current.reason)] : []),
     actions,
   );
@@ -421,12 +523,70 @@ function paintToday() {
   }
 }
 
-/* ---------- 이번 주 ---------- */
+/* ---------- 오늘의 목표 문장 ---------- */
 
-export function renderWeek(data, streakDays) {
+/* `t` is /stats/home's `target`: the newest sentence under the learner's most
+   frequent mistake tag, or null (no tag has come up three times yet). With
+   one, the hero splits in two; without, the recommendation has all of it. */
+export function renderTarget(t) {
+  clearTargetSkeleton();
+  const show = Boolean(t && t.fixed);
+  target = show ? t : null;
+  $('home-target').hidden = !show;
+  $('home-hero').classList.toggle('has-target', show);
+  if (show) {
+    $('home-target-tag').textContent = `초점: ${t.tag}`;
+    $('home-target-fixed').textContent = t.fixed;
+  } else {
+    $('home-target-tag').textContent = '';
+    $('home-target-fixed').textContent = '';
+  }
+}
+
+/* ▶ 들어 보기: the same path as the review card's ▶ 듣기 (playFixed below), for
+   the target's own message. */
+export function playTargetHome() {
+  if (!target || $('home-target').hidden || $('home-target').inert) return undefined;
+  return playFixed($('home-target-play'), TARGET_PLAY_LABEL, `/messages/${target.id}/fixed-audio`, target.fixed);
+}
+
+/* ---------- 내 상태 ---------- */
+
+export function renderWeek(data, streakDays, acc = null) {
   week = { days: data.days || [], sessions: data.sessions || 0, goal: data.goal };
   streak = streakDays || 0;
+  accuracy = acc && typeof acc.graded === 'number' ? acc : null;
   paintWeek();
+}
+
+/* The level beside the ring: the latest level test's CEFR and step with the
+   scale it comes to (JF for Japanese, IELTS for English), `레벨 테스트 전`
+   with no test yet, and a dash when the request failed -- not knowing is not
+   the same as "not tested". The scale line keeps its row either way; its
+   IELTS wording is the result screen's own (leveltest.js RESULT_TEXT). */
+const NO_TEST = '레벨 테스트 전';
+// Not known, or nothing to show: the level on a failed request, and the
+// accuracy with nothing graded.
+const DASH = '—';
+
+export function renderLevel(latest) {
+  const known = Boolean(latest) && latest.result !== undefined;
+  const r = known ? latest.result : undefined;
+  $('home-level').textContent = r ? levelName(r) : (known ? NO_TEST : DASH);
+  const scale = r ? (r.jf || (r.ielts ? RESULT_TEXT.ielts(r.ielts) : '')) : '';
+  $('home-level-scale').textContent = scale || NBSP;
+}
+
+/* The goal ring: an arc of `ratio` of the circle, drawn once per paint -- a
+   static shape, never animated. An empty arc is hidden rather than drawn at
+   zero length, which a round line cap would still show as a dot. */
+function paintRing(ratio, label) {
+  const fill = $('week-ring-fill');
+  const r = Math.max(0, Math.min(ratio, 1));
+  fill.setAttribute('stroke-dasharray', `${(RING_C * r).toFixed(2)} ${RING_C.toFixed(2)}`);
+  // classList, not className: an SVG element's className is not a string.
+  fill.classList.toggle('is-empty', r === 0);
+  if (label) $('week-ring').setAttribute('aria-label', label);
 }
 
 function paintWeek() {
@@ -443,14 +603,15 @@ function paintWeek() {
     cell.append(el('span', 'dl', d.label), el('i', 'dot'));
     days.append(cell);
   }
-  // Kept in place with no streak (R5): the progress line below must not move
-  // up and down as a streak starts and breaks. NBSP so the empty row is still
-  // one line tall.
-  setShown($('week-streak'), Boolean(streak));
-  $('week-streak').textContent = streak ? `연속 ${streak}일` : NBSP;
+  // Both numbers always have their cell: a zero streak is 0일, and a month
+  // with nothing graded is a dash rather than a made-up 0%.
+  $('week-streak').textContent = `${streak}일`;
+  $('home-accuracy').textContent = accuracy && accuracy.graded > 0
+    ? `${Math.round((accuracy.correct / accuracy.graded) * 100)}%` : DASH;
   const { sessions: n, goal } = week;
-  $('week-progress').textContent = `이번 주 ${n}/${goal} 세션${n >= goal ? ' · 목표 달성!' : ''}`;
-  $('week-bar').style.width = `${Math.min(n / goal, 1) * 100}%`;
+  $('week-ring-num').textContent = `${n}/${goal}`;
+  $('week-ring-sub').textContent = n >= goal ? '목표 달성!' : '이번 주';
+  paintRing(n / goal, `이번 주 목표 ${goal}세션 중 ${n}세션`);
   $('goal-value').textContent = String(goal);
   paintGoalButtons();
 }
@@ -499,9 +660,10 @@ export async function changeGoal(delta) {
 /* ---------- 최근 테마, 대본 준비 상태 ---------- */
 
 export function renderRecentThemes(items) {
+  renderModeRecents(items);
   const list = $('recent-themes');
   list.replaceChildren();
-  for (const item of (items || []).slice(0, 4)) {
+  for (const item of (items || []).slice(0, 6)) {
     const card = el('button', 'recent-theme');
     card.type = 'button';
     card.dataset.theme = item.theme_id;
@@ -513,6 +675,19 @@ export function renderRecentThemes(items) {
     list.append(card);
   }
   $('recent-themes-wrap').hidden = list.children.length === 0;
+}
+
+/* Each mode tile's last line: the newest recent theme practised in that mode,
+   or nothing. Only what `recent_themes` already says -- a mode with no entry
+   there gets no line (CSS holds the line's height either way, so the tiles
+   never change size). */
+export function renderModeRecents(items) {
+  for (const mode of TILE_MODES) {
+    const line = $(`mode-recent-${mode}`);
+    const item = (items || []).find((i) => tileMode(i) === mode);
+    if (item) line.replaceChildren(document.createTextNode('최근 '), el('b', '', item.title));
+    else line.replaceChildren();
+  }
 }
 
 export function renderLibraryProgress(library) {
@@ -557,22 +732,29 @@ export function renderReviewHome(review, { instant = false } = {}) {
    same way resumeSession reads #resume-card's -- a dimmed card is one
    loadHome is about to repaint, possibly for another language. */
 export async function playReviewHome() {
-  const btn = $('review-home-play');
-  if (!reviewFirst || btn.disabled || $('review-home').inert) return;
+  if (!reviewFirst || $('review-home').inert) return;
   const item = reviewFirst;
+  await playFixed($('review-home-play'), REVIEW_PLAY_LABEL, `/review/${item.id}/audio`, item.fixed);
+}
+
+/* One press of a ▶ button that speaks a fixed sentence: the label says
+   음성 준비 중... while `url` makes (or reuses) the clip, then goes back. The
+   button is .btn-stable, so the label change does not move it. */
+async function playFixed(btn, label, url, text) {
+  if (btn.disabled) return;
   btn.disabled = true;
-  btn.textContent = '음성 준비 중...';
+  btn.textContent = PREPARING;
   try {
     let key = null;
     try {
-      ({ audio_key: key } = await postJSON(`/review/${item.id}/audio`, {}));
+      ({ audio_key: key } = await postJSON(url, {}));
     } catch {
       key = null;   // play(null, …) is the browser's voice
     }
-    play(key || null, item.fixed);
+    play(key || null, text);
   } finally {
     btn.disabled = false;
-    btn.textContent = REVIEW_PLAY_LABEL;
+    btn.textContent = label;
   }
 }
 

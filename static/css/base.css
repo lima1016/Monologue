@@ -19,9 +19,9 @@ body {
   line-height: 1.55;
 }
 
-/* 1100px so the two-column screens (#home, #report) can reach their designed
-   width; the session screen narrows itself back down below. */
-main { max-width: 1100px; margin: 0 auto; }
+/* --content-w (1200px) so the wide screens (#home, #report) can reach their
+   designed width; the one-column screens narrow themselves back down. */
+main { max-width: var(--content-w); margin: 0 auto; }
 
 h1 { font-size: var(--text-lg); margin: 0; letter-spacing: -.3px; }
 h2 { font-size: var(--text-base); color: var(--text-dim); margin: 0 0 var(--space-3); letter-spacing: -.2px; }

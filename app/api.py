@@ -1701,7 +1701,7 @@ def resumable(language: Language):
 _WEEKDAY_LABELS = "월화수목금토일"
 _WEEKLY_GOAL_KEY = "weekly_goal"
 _WEEKLY_GOAL_DEFAULT = 5
-_RECENT_THEMES = 4
+_RECENT_THEMES = 6   # the home grid: two rows of three
 
 
 def _today() -> date:
@@ -1762,6 +1762,12 @@ def home_stats(language: Language):
     first = db.due_reviews(language, today, limit=1)
     stats["review"] = {"due": counts["due"],
                        "first": {"id": first[0]["id"], "fixed": first[0]["fixed"]} if first else None}
+    # 오늘의 목표 문장: the newest sentence under the tag the learner trips on
+    # most -- top_tags' three-times rule decides whether there is one at all.
+    top = stats["top_tags"][0]["tag"] if stats["top_tags"] else None
+    stats["target"] = db.newest_tag_example(language, top) if top else None
+    # Same 30-day window as 마이페이지, so the two screens never disagree.
+    stats["accuracy"] = db.accuracy_since(language, today - timedelta(days=_ACCURACY_DAYS - 1))
     return stats
 
 
@@ -2005,6 +2011,20 @@ def review_audio(review_id: int):
         raise HTTPException(404, "no such review")
     message = db.get_message(review["message_id"])
     return {"audio_key": _speak(message["fixed"], review["language"]) if message and message["fixed"] else None}
+
+
+@router.post("/messages/{message_id}/fixed-audio")
+def fixed_audio(message_id: int):
+    """The home screen's 오늘의 목표 문장, heard: a learner message's own fixed
+    sentence, synthesised like a review card's (review_audio above). Only
+    text already in the database is ever spoken -- the client names a message,
+    never a sentence."""
+    message = db.get_message(message_id)
+    if message is None or message["speaker"] != "user":
+        raise HTTPException(404, "no such message")
+    session = db.get_session(message["session_id"])
+    fixed = (message["fixed"] or "").strip()
+    return {"audio_key": _speak(fixed, session["language"]) if fixed and session else None}
 
 
 @router.get("/sessions/history")

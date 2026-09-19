@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 홈 C</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* 홈 C · 시작 중심형. 맨 위 넓은 히어로 = 오늘의 추천(왼쪽 제목·시작, 오른쪽 오늘의 목표 문장과
+     파형). 아래는 연습 방법 타일 | 오른쪽 340px 칸(이어서 하기·내 상태·오늘 복습·레벨 테스트),
+     맨 아래 최근 테마 한 줄. 색은 전부 토큰. */
+  .hc { display: flex; flex-direction: column; gap: var(--space-6); }
+  .hc > * { min-width: 0; }
+  .hc .label { margin: 0; }
+  .hc .section-label { margin: 0 0 var(--space-3); }
+
+  .hc-greet { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  .hc-greet .home-date { margin: 0; }
+  .hc-greet h2 { margin: 0; font-size: var(--text-2xl); font-weight: 750; color: var(--text); letter-spacing: -.04em; }
+  .hc-greet .g { display: flex; flex-direction: column; gap: 2px; }
+
+  /* 히어로 */
+  .hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-6);
+    background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius-lg);
+    box-shadow: var(--shadow); padding: var(--space-8); }
+  .hero-main { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+  .hero-kicker { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center;
+    font-size: var(--text-sm); color: var(--text-dim); }
+  .hero-kicker .label { color: var(--accent-ink); }
+  .hero-title { margin: 0; font-size: calc(var(--text-3xl) * 1.3); font-weight: 780; color: var(--text);
+    letter-spacing: -.05em; line-height: 1.15; }
+  .hero-desc { margin: 0; color: var(--text-dim); font-size: var(--text-lg); line-height: 1.55; max-width: 34em; }
+  .hero-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+  .hero-chips li { font-size: var(--text-sm); background: var(--surface-sunken); color: var(--text);
+    border-radius: var(--radius-pill); padding: var(--space-1) var(--space-3); }
+  .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-top: var(--space-3); }
+  .hero-actions .big { font-size: var(--text-lg); font-weight: 700; padding: var(--space-3) var(--space-8);
+    border-radius: var(--radius); min-width: 11em; }
+  .hero-actions .or { font-size: var(--text-sm); color: var(--text-faint); }
+  .hero-actions .alt { font-size: var(--text-sm); }
+  .hero-more { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+  .hero-more button { font-size: var(--text-sm); padding: var(--space-1) var(--space-2); border: 0; }
+  .hero-more button:hover { color: var(--accent-ink); }
+
+  .target { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0;
+    background: var(--accent-soft); border-radius: var(--radius); padding: var(--space-5); }
+  .target .label { color: var(--accent-ink); }
+  .target .en { margin: 0; font-size: var(--text-xl); font-weight: 700; color: var(--text); line-height: 1.4; }
+  .target .en b { color: var(--accent-ink); font-weight: 750; }
+  .target .ko { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+  .wave { display: block; width: 100%; height: 72px; }
+  .wave .b { fill: var(--accent); }
+  .wave .b.q { fill: var(--accent); fill-opacity: .35; }
+  .wave .mark { stroke: var(--accent-ink); stroke-width: 1.5; stroke-dasharray: 3 3; }
+  .wave .t { fill: var(--accent-ink); font-size: 11px; font-weight: 700; font-family: var(--font-sans); }
+  .target .row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+  .target .row .hint { font-size: var(--text-xs); }
+  .target button { background: var(--surface); font-size: var(--text-sm); padding: var(--space-1) var(--space-3); }
+
+  /* 아래: 모드 타일(+최근 테마) | 오른쪽 칸. 최근 테마를 왼쪽 칸 안에 두어
+     두 칸의 바닥이 비슷한 높이에서 끝나게 한다(중간이 비어 보이지 않도록). */
+  .hc-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--space-6); align-items: start; }
+  .hc-body > * { min-width: 0; }
+  .hc-main { display: flex; flex-direction: column; gap: var(--space-6); }
+  .tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-3); }
+  .tile { grid-column: span 2; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2);
+    text-align: left; padding: var(--space-5); border-radius: var(--radius); min-height: 190px;
+    background: var(--surface); border: 1px solid var(--line); color: var(--text); }
+  .tile.wide { grid-column: span 3; }
+  .tile:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .tile .ic { width: 52px; height: 52px; border-radius: var(--radius); display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); }
+  .tile:hover .ic { background: var(--surface); }
+  .tile .ic svg { width: 30px; height: 30px; }
+  .tile .n { margin-top: var(--space-1); font-size: var(--text-xl); font-weight: 750; letter-spacing: -.03em; }
+  .tile .d { font-size: var(--text-sm); color: var(--text-dim); line-height: 1.5; flex: 1; }
+  .tile .m { font-size: var(--text-xs); color: var(--text-faint); }
+  .tile .m b { color: var(--text-dim); font-weight: 650; }
+
+  .hc-aside { display: flex; flex-direction: column; gap: var(--space-4); }
+  .state { display: flex; flex-direction: column; gap: var(--space-3); }
+  .state-top { display: flex; align-items: center; gap: var(--space-4); }
+  .ring { flex: 0 0 auto; width: 84px; height: 84px; }
+  .ring .track { fill: none; stroke: var(--line); stroke-width: 8; }
+  .ring .fill { fill: none; stroke: var(--accent); stroke-width: 8; stroke-linecap: round; }
+  .ring .num { fill: var(--text); font-size: 20px; font-weight: 750; font-family: var(--font-sans); }
+  .ring .sub { fill: var(--text-dim); font-size: 10px; font-family: var(--font-sans); }
+  .state-lv { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .state-lv .lv { margin: 0; font-size: var(--text-2xl); font-weight: 750; color: var(--text); letter-spacing: -.03em; line-height: 1.2; }
+  .state-lv .sc { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+  .state-nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2);
+    padding-top: var(--space-3); border-top: 1px solid var(--line); }
+  .state-nums div { display: flex; flex-direction: column; gap: 2px; }
+  .state-nums .k { font-size: var(--text-xs); color: var(--text-dim); }
+  .state-nums .v { font-size: var(--text-lg); font-weight: 750; color: var(--text); font-variant-numeric: tabular-nums; }
+  .state-nums .v.up { color: var(--suggest-ink); }
+  .hc .week-days { margin-top: 0; }
+  .hc .review-home-first { font-size: var(--text-base); }
+  .hc .review-home-ko { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+  .lt { display: flex; flex-direction: column; gap: var(--space-2); }
+  .lt p { margin: 0; }
+  .lt .t { font-weight: 700; color: var(--text); }
+  .lt .d { font-size: var(--text-sm); color: var(--text-dim); }
+  .lt .row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: var(--space-1); }
+
+  /* 왼쪽 칸 안에서는 한 줄에 2장씩 3줄로 쌓는다 -- 오른쪽 칸(이어서 하기·
+     내 상태·오늘 복습·레벨 테스트)만큼 키를 채워 중간이 비어 보이지 않게. */
+  .hc .recent-themes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hc .recent-theme .p { font-size: var(--text-xs); color: var(--accent-ink); font-weight: 650; }
+
+  @media (max-width: 1100px) {
+    .hc-body { grid-template-columns: minmax(0, 1fr) 300px; }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tile, .tile.wide { grid-column: span 1; }
+    .tile:last-child { grid-column: 1 / -1; }
+  }
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; padding: var(--space-5); }
+    .hero-title { font-size: var(--text-3xl); }
+    .hc-body { grid-template-columns: 1fr; }
+    .tiles { grid-template-columns: 1fr; }
+    .tile, .tile.wide, .tile:last-child { grid-column: auto; min-height: 0; }
+    .hc .recent-themes { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">홈 C · 시작 중심형. 오늘의 추천이 화면 맨 위를 크게 차지하고, 상태는 오른쪽 칸으로</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<main class="mock-main">
+  <section class="hc" aria-label="홈">
+
+    <div class="hc-greet">
+      <div class="g">
+        <p class="home-date">9월 19일 토요일</p>
+        <h2>오늘은 뭘 연습할까요?</h2>
+      </div>
+      <span class="seg">
+        <button type="button" class="on">English</button>
+        <button type="button">日本語</button>
+      </span>
+    </div>
+
+    <div class="hero">
+      <div class="hero-main">
+        <p class="hero-kicker"><span class="label">오늘의 추천</span><span>· 자유 대화 · 약 10분</span></p>
+        <p class="hero-title">공항 체크인에서<br>짐 문제 해결하기</p>
+        <p class="hero-desc">짐이 3kg 넘었고, 창가 자리도 부탁하고 싶어요. 직원과 이야기하며 어제 예약한 일, 이미 일어난 일을 과거형으로 설명해 보세요.</p>
+        <ul class="hero-chips" aria-label="상황">
+          <li>수하물 무게 초과</li><li>창가 자리 부탁</li><li>탑승구 변경 안내</li>
+        </ul>
+        <div class="hero-actions">
+          <button type="button" class="primary big">시작하기</button>
+          <span class="or">또는</span>
+          <button type="button" class="alt">스크립트로</button>
+          <button type="button" class="alt">쉐도잉으로</button>
+        </div>
+        <p class="hero-more">다른 추천: <button type="button" class="ghost">카페에서 주문 바꾸기</button> <button type="button" class="ghost">동료에게 주말 이야기</button></p>
+      </div>
+
+      <div class="target">
+        <div class="row"><p class="label">오늘의 목표 문장</p><span class="hint">초점: 과거형</span></div>
+        <p class="en">I <b>booked</b> a window seat yesterday, but it <b>wasn't</b> on my ticket.</p>
+        <p class="ko">어제 창가 자리를 예약했는데 표에는 안 나와 있어요.</p>
+        <svg class="wave" viewBox="0 0 320 72" preserveAspectRatio="none" role="img" aria-label="목표 문장의 소리 모양: 강세가 오는 booked 와 wasn't 에서 높아져요">
+          <rect class="b q" x="0" y="30" width="6" height="12" rx="3"/>
+          <rect class="b q" x="10" y="26" width="6" height="20" rx="3"/>
+          <rect class="b" x="20" y="10" width="6" height="52" rx="3"/>
+          <rect class="b" x="30" y="4" width="6" height="64" rx="3"/>
+          <rect class="b" x="40" y="14" width="6" height="44" rx="3"/>
+          <rect class="b q" x="50" y="26" width="6" height="20" rx="3"/>
+          <rect class="b q" x="60" y="22" width="6" height="28" rx="3"/>
+          <rect class="b q" x="70" y="18" width="6" height="36" rx="3"/>
+          <rect class="b q" x="80" y="24" width="6" height="24" rx="3"/>
+          <rect class="b q" x="90" y="20" width="6" height="32" rx="3"/>
+          <rect class="b q" x="100" y="26" width="6" height="20" rx="3"/>
+          <rect class="b q" x="110" y="22" width="6" height="28" rx="3"/>
+          <rect class="b q" x="120" y="28" width="6" height="16" rx="3"/>
+          <rect class="b q" x="130" y="32" width="6" height="8" rx="3"/>
+          <rect class="b q" x="140" y="24" width="6" height="24" rx="3"/>
+          <rect class="b q" x="150" y="20" width="6" height="32" rx="3"/>
+          <rect class="b q" x="160" y="26" width="6" height="20" rx="3"/>
+          <rect class="b q" x="170" y="22" width="6" height="28" rx="3"/>
+          <rect class="b q" x="180" y="28" width="6" height="16" rx="3"/>
+          <rect class="b" x="190" y="12" width="6" height="48" rx="3"/>
+          <rect class="b" x="200" y="6" width="6" height="60" rx="3"/>
+          <rect class="b" x="210" y="16" width="6" height="40" rx="3"/>
+          <rect class="b q" x="220" y="24" width="6" height="24" rx="3"/>
+          <rect class="b q" x="230" y="20" width="6" height="32" rx="3"/>
+          <rect class="b q" x="240" y="26" width="6" height="20" rx="3"/>
+          <rect class="b q" x="250" y="22" width="6" height="28" rx="3"/>
+          <rect class="b q" x="260" y="18" width="6" height="36" rx="3"/>
+          <rect class="b q" x="270" y="24" width="6" height="24" rx="3"/>
+          <rect class="b q" x="280" y="28" width="6" height="16" rx="3"/>
+          <rect class="b q" x="290" y="30" width="6" height="12" rx="3"/>
+          <rect class="b q" x="300" y="33" width="6" height="6" rx="3"/>
+          <rect class="b q" x="310" y="34" width="6" height="4" rx="2"/>
+        </svg>
+        <div class="row">
+          <button type="button">▶ 들어 보기</button>
+          <span class="hint">진한 막대 = 강세 · booked, wasn't</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hc-body">
+      <div class="hc-main">
+        <div>
+        <p class="label section-label">연습 방법</p>
+        <div class="tiles">
+          <button type="button" class="tile wide">
+            <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h15a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 4v-4H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><path d="M24 12h4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1v4l-5-4h-6a2 2 0 0 1-2-2v-1"/></svg></span>
+            <span class="n">자유 상황극</span>
+            <span class="d">상황을 정하면 상대 역할이 대화를 이끌어요. 말할 때마다 고친 문장과 더 자연스러운 표현을 보여 줘요</span>
+            <span class="m">최근 <b>면접 자기소개</b> · 9/14 · 세션 23번</span>
+          </button>
+          <button type="button" class="tile wide">
+            <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h12l6 6v18a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M20 3v6h6"/><path d="M11 15h10M11 19h10M11 23h6"/></svg></span>
+            <span class="n">스크립트</span>
+            <span class="d">대본을 한 줄씩 소리 내 읽어요. 막힌 줄은 표시해 두었다가 복습으로 보내요</span>
+            <span class="m">최근 <b>호텔 체크인</b> · 어제 · 7/12줄에서 멈춤</span>
+          </button>
+          <button type="button" class="tile">
+            <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 12v4M8 9v10M12 11v6M16 7v14"/><path d="M20 12v4M24 9v10M28 11v6" opacity=".5"/></svg></span>
+            <span class="n">쉐도잉</span>
+            <span class="d">원어민 소리를 듣고 바로 뒤따라 말해요</span>
+            <span class="m">최근 <b>식당 주문</b> · 9/16</span>
+          </button>
+          <button type="button" class="tile">
+            <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="26" height="16" rx="2"/><path d="M9 11h8M9 15h12"/><path d="M12 21l-3 7M20 21l3 7"/></svg></span>
+            <span class="n">수업</span>
+            <span class="d">선생님이 주제 하나를 설명하고 문장을 만들게 해요</span>
+            <span class="m">최근 <b>현재완료 vs 과거</b> · 9/12</span>
+          </button>
+          <button type="button" class="tile">
+            <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="16" cy="18" r="10"/><path d="M16 18V12M13 3h6M16 3v5M25 8l2-2"/></svg></span>
+            <span class="n">1분 말하기</span>
+            <span class="d">질문 하나에 1분 말하고, 다시 말해 비교해요</span>
+            <span class="m">최근 <b>주말에 뭐 했어요?</b> · 87단어/분</span>
+          </button>
+        </div>
+        </div>
+
+        <div>
+          <p class="label section-label">최근 테마</p>
+          <div class="recent-themes">
+            <button type="button" class="recent-theme"><span class="t">호텔 체크인</span><span class="m">스크립트 · 어제</span><span class="p">7/12줄 · 이어서</span></button>
+            <button type="button" class="recent-theme"><span class="t">주말에 뭐 했어요?</span><span class="m">1분 말하기 · 9/17</span><span class="p">87단어/분</span></button>
+            <button type="button" class="recent-theme"><span class="t">식당 주문</span><span class="m">쉐도잉 · 9/16</span><span class="p">10줄 완료</span></button>
+            <button type="button" class="recent-theme"><span class="t">면접 자기소개</span><span class="m">자유 상황극 · 9/14</span><span class="p">정확도 70%</span></button>
+            <button type="button" class="recent-theme"><span class="t">현재완료 vs 과거</span><span class="m">수업 · 9/12</span><span class="p">문장 9개</span></button>
+            <button type="button" class="recent-theme"><span class="t">여행 계획 세우기</span><span class="m">자유 상황극 · 9/9</span><span class="p">정확도 68%</span></button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="hc-aside">
+        <div class="resume-box">
+          <div class="resume-text">
+            <p id="resume-title">호텔 체크인 · 스크립트</p>
+            <p id="resume-sub" class="hint">12줄 중 7줄까지 · 어제 밤 10:40</p>
+          </div>
+          <button id="btn-resume" type="button">계속 →</button>
+        </div>
+
+        <div class="panel state">
+          <p class="label">내 상태</p>
+          <div class="state-top">
+            <svg class="ring" viewBox="0 0 84 84" role="img" aria-label="이번 주 목표 5세션 중 4세션">
+              <circle class="track" cx="42" cy="42" r="34"/>
+              <!-- 둘레 213.6, 80% = 170.9. 12시에서 시작하도록 -90도 회전(정적인 도형 배치, 애니메이션 아님) -->
+              <circle class="fill" cx="42" cy="42" r="34" stroke-dasharray="170.9 213.6" transform="rotate(-90 42 42)"/>
+              <text class="num" x="42" y="45" text-anchor="middle">4/5</text>
+              <text class="sub" x="42" y="59" text-anchor="middle">이번 주</text>
+            </svg>
+            <div class="state-lv">
+              <span class="hint">현재 레벨</span>
+              <p class="lv">B1 상위</p>
+              <p class="sc">IELTS 4.5–5.0 예상</p>
+            </div>
+          </div>
+          <div class="week-days" aria-label="이번 주 연습한 날">
+            <span class="day"><span class="dl">월</span><i class="dot"></i></span>
+            <span class="day practiced"><span class="dl">화</span><i class="dot"></i></span>
+            <span class="day"><span class="dl">수</span><i class="dot"></i></span>
+            <span class="day practiced"><span class="dl">목</span><i class="dot"></i></span>
+            <span class="day practiced"><span class="dl">금</span><i class="dot"></i></span>
+            <span class="day practiced today"><span class="dl">토</span><i class="dot"></i></span>
+            <span class="day future"><span class="dl">일</span><i class="dot"></i></span>
+          </div>
+          <div class="state-nums">
+            <div><span class="k">연속</span><span class="v">3일</span></div>
+            <div><span class="k">정확도</span><span class="v up">72% ▲</span></div>
+            <div><span class="k">분당 단어</span><span class="v">87</span></div>
+          </div>
+        </div>
+
+        <div class="panel review-home-box">
+          <div class="panel-head"><p class="label">오늘 복습 16개</p><span class="hint">약 8분</span></div>
+          <p class="review-home-first">I went to the airport yesterday, and my flight was delayed.</p>
+          <p class="review-home-ko">어제 공항에 갔는데 비행기가 늦어졌어요.</p>
+          <div class="review-home-actions">
+            <button type="button" class="ghost btn-stable">▶ 듣기</button>
+            <button type="button" class="ghost">복습하러 가기 →</button>
+          </div>
+        </div>
+
+        <div class="panel lt">
+          <p class="label">레벨 테스트</p>
+          <p class="t">2주 뒤 다시 재 보세요</p>
+          <p class="d">지난 테스트 9/19 · B1 상위. 7분이면 레벨과 IELTS·TOEFL 예상 점수가 다시 나와요.</p>
+          <div class="row"><span class="hint">다음 추천 10월 3일</span><button type="button">결과 보기</button></div>
+        </div>
+      </aside>
+    </div>
+
+  </section>
+</main>
+</body>
+</html>

@@ -194,6 +194,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   transition: opacity var(--dur-fast) ease;
 }
 .is-refreshing { opacity: .55; transition-delay: 200ms; pointer-events: none; }
+/* Home's target panel (desktop layout) dims with the cards above, the same way. */
+:where(#home-target) { transition: opacity var(--dur-fast) ease; }
 
 /* A placeholder sized like the real content it stands in for (spec R3), so
    nothing resizes once the content it was standing in for arrives. */
@@ -213,6 +215,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .is-refreshing, :where(#today-card, #today-alt, #review-home, #leveltest-home, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
     transition: none; transition-delay: 0s;
   }
+  :where(#home-target), :where(.mode .m) { transition: none; }
 }
 
 .chip-row { max-width: 78%; margin: calc(var(--space-1) * -1) 0 var(--space-3) auto; }
@@ -734,23 +737,58 @@ button.danger:hover:not(:disabled) { border-color: var(--correct-ink); }
 
 /* --- home ---
 
-   왼쪽은 할 일(오늘의 추천 → 모드 → 최근 테마), 오른쪽은 맥락(이어서 하기·이번 주).
-   좁은 화면에서는 한 줄로 쌓되 순서는 추천 다음에 맥락이 온다 -- 아래
-   880px 블록. */
+   데스크톱 홈(시안 static/mock/home-c.html): 맨 위 인사줄, 그 아래 한 칸 전체의
+   히어로(오늘의 추천 | 오늘의 목표 문장), 그 아래 두 칸 -- 왼쪽은 할 일(연습
+   방법 타일 → 최근 테마), 오른쪽은 맥락(이어서 하기·내 상태·오늘 복습·레벨
+   테스트). 900px 아래에서는 한 줄로 쌓되 순서는 추천 다음에 맥락이 온다 --
+   아래 900px 블록. */
 #home {
-  max-width: 1100px; margin: 0 auto;
-  display: grid; grid-template-columns: 1fr var(--aside-w);
-  gap: var(--space-8); align-items: start;
+  max-width: var(--content-w); margin: 0 auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) var(--home-aside-w);
+  column-gap: var(--space-6); row-gap: var(--space-4); align-items: start;
 }
-/* 설치 첫날: 이어서 하기도 이번 주도 없다. grid 트랙은 자식이 전부
-   [hidden] 이어도 330px 를 그대로 차지하므로, 접지 않으면 화면이 왼쪽으로 쏠린
-   채 오른쪽이 텅 빈다. flex 였던 예전 #home 에는 없던 문제다 -- gap 까지 함께
-   사라졌기 때문이다. loadHome() 이 이 클래스를 붙이고 뗀다. */
-#home.no-aside { grid-template-columns: 1fr; max-width: 640px; }
+#home-date, #home .home-head, .home-hero { grid-column: 1 / -1; }
+/* 설치 첫날: 오른쪽 칸에 보일 것이 없다. grid 트랙은 자식이 전부 [hidden] 이어도
+   그 폭을 그대로 차지하므로, 접지 않으면 화면이 왼쪽으로 쏠린 채 오른쪽이 텅
+   빈다. loadHome() 이 이 클래스를 붙이고 뗀다(home.js syncAside). */
+#home.no-aside { grid-template-columns: minmax(0, 1fr); }
 #home.no-aside .home-aside { display: none; }
 
-.home-main { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
-.home-aside { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.home-main { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0;
+             margin-top: var(--space-2); }
+.home-aside { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0;
+              margin-top: var(--space-2); }
+#home .section-label { margin: 0 0 var(--space-3); }
+
+/* 히어로: the frame only. #today-card and #home-target inside it dim and hide
+   on their own; a hero whose recommendation is gone (a failed first load) has
+   nothing left to frame. .has-target (home.js renderTarget) splits it. */
+.home-hero {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-8);
+  background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow); padding: var(--space-8); margin-top: var(--space-2);
+}
+.home-hero.has-target { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+.home-hero:has(#today-card[hidden]) { display: none; }
+.hero-main { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+
+/* 오늘의 목표 문장: the sentence to aim at today, on the accent's soft tint --
+   the hero's second half, never a second call to action. */
+.home-target { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0;
+               align-self: start; background: var(--accent-soft); border-radius: var(--radius);
+               padding: var(--space-5); }
+.target-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+               gap: var(--space-2); }
+.home-target .label { margin: 0; color: var(--accent-ink); }
+#home-target-tag { color: var(--accent-ink); }
+#home-target-tag.skeleton { width: 6em; }
+.target-fixed { margin: 0; font-size: var(--text-xl); font-weight: 700; color: var(--text); line-height: 1.4; }
+.target-fixed.skeleton { width: 90%; min-height: calc(2 * var(--text-xl) * 1.4); }
+.target-actions { display: flex; align-items: center; gap: var(--space-2); }
+.target-actions button { background: var(--surface); color: var(--text); font-size: var(--text-sm);
+                         padding: var(--space-1) var(--space-3); }
+/* ▶ 들어 보기 <-> 음성 준비 중... keeps one width (spec R7). */
+.target-actions .btn-stable { min-width: calc(7.5em + var(--space-3) * 2 + 2px); }
 
 .home-date { font-size: var(--text-sm); font-weight: 650; color: var(--accent);
              letter-spacing: .04em; margin: 0; }
@@ -804,29 +842,50 @@ button.danger:hover:not(:disabled) { border-color: var(--correct-ink); }
 
 #home .hint, #pick .hint { font-size: var(--text-sm); margin: 0; }
 
-/* 모드 3개는 상자 셋이 아니라 세그먼트 하나다. 상자 셋일 때는 시작 버튼과
-   무게를 다퉜다. */
-.modes {
-  display: flex; gap: 2px; background: var(--surface-sunken);
-  padding: var(--space-1); border-radius: var(--radius); margin-top: var(--space-2);
+/* 연습 방법: five tiles, the two conversation modes wide (2 + 3 on a six-column
+   grid). Each tile's last line (.m) is the latest theme practised in that mode
+   or nothing, and holds one line either way, so tiles never change height. */
+.modes { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-3); }
+.mode { grid-column: span 2; display: flex; flex-direction: column; align-items: flex-start;
+        gap: var(--space-2); min-width: 0; text-align: left; padding: var(--space-5);
+        border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line);
+        color: var(--text); }
+.mode.wide { grid-column: span 3; }
+.mode .ic { display: grid; place-items: center; width: var(--tile-icon); height: var(--tile-icon);
+            border-radius: var(--radius); background: var(--accent-soft); color: var(--accent); }
+.mode .ic svg { width: calc(var(--tile-icon) * .58); height: calc(var(--tile-icon) * .58); }
+.mode .n { margin-top: var(--space-1); font-size: var(--text-xl); font-weight: 750; letter-spacing: -.03em; }
+.mode .d { flex: 1; font-size: var(--text-sm); color: var(--text-dim); line-height: 1.5; }
+.mode .m { display: block; max-width: 100%; min-height: calc(var(--text-xs) * 1.45);
+           font-size: var(--text-xs); line-height: 1.45; color: var(--text-faint);
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mode .m b { color: var(--text-dim); font-weight: 650; }
+/* The 최근 lines dim with home's cards during a reload (home.js setRefreshing):
+   they name the previous language's themes until the answer lands. Zero
+   specificity, like the cards' own rule, so .is-refreshing's delay applies. */
+:where(.mode .m) { transition: opacity var(--dur-fast) ease; }
+/* The tiles go straight to #pick, so none of them is ever "the selected one"
+   -- a hover tint is the whole of their state. */
+#home .modes .mode:hover { background: var(--accent-soft); border-color: var(--accent); }
+#home .modes .mode:hover .ic { background: var(--surface); }
+/* A narrower window: two tiles a row, the fifth, 1분 말하기, with the last row
+   to itself rather than half of it. */
+@media (max-width: 1100px) {
+  .modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mode, .mode.wide { grid-column: span 1; }
+  .modes .mode:nth-child(5) { grid-column: 1 / -1; }
 }
-.mode { display: flex; flex-direction: column; gap: var(--space-1);
-        flex: 1; border: 0; background: transparent; text-align: center;
-        padding: var(--space-3) var(--space-2); border-radius: var(--radius-sm); }
-.mode .n { font-size: var(--text-base); font-weight: 650; }
-.mode .d { font-size: var(--text-xs); color: var(--text-faint); line-height: 1.4; }
-/* The cards on #home go straight to #pick, so none of them is ever "the
-   selected one" -- a hover tint is the whole of their state. border 0 makes a
-   border-color hover a no-op, hence the background. */
-#home .modes .mode:hover { background: var(--accent-soft); }
 /* Four modes at phone width left each 78px -- 자유 상황극 broke mid-word.
    Two by two there instead. */
 /* The fifth, 1분 말하기, has the last row to itself rather than half of it. */
 @media (max-width: 480px) {
   .modes { display: grid; grid-template-columns: 1fr 1fr; }
   .modes .mode:nth-child(5) { grid-column: 1 / -1; }
+  .mode { padding: var(--space-3); }
+  .mode .ic { width: calc(var(--tile-icon) * .7); height: calc(var(--tile-icon) * .7); }
+  .mode .ic svg { width: calc(var(--tile-icon) * .42); height: calc(var(--tile-icon) * .42); }
+  .mode .n { font-size: var(--text-base); }
 }
-#home .modes .mode:hover .d { color: var(--text-dim); }
 
 /* --- pick ---
 
@@ -986,34 +1045,43 @@ button.danger:hover:not(:disabled) { border-color: var(--correct-ink); }
            line-height: 1.15; }
 .stat .k { font-size: var(--text-xs); color: var(--text-dim); }
 
-/* 오늘의 추천: the screen's first answer to "what now", so it is the one card on
-   home with an accent border -- the resume card has only a 3px accent bar, and
-   the week card none. */
-.today-card { background: var(--surface); border: 1px solid var(--accent);
-              border-radius: var(--radius); padding: var(--space-4);
-              box-shadow: var(--shadow); }
-.today-card .label { margin: 0 0 var(--space-2); }
+/* 오늘의 추천: the screen's first answer to "what now". On a wide screen the
+   hero around it is the one accent-bordered card on home (the resume card has
+   only a 3px accent bar, the others none); under 900px the hero dissolves and
+   the card wears that border itself (the 900px block below). */
+.today-card .label { margin: 0 0 var(--space-2); color: var(--accent-ink); }
 #today-body > p { margin: 0; }
-.today-title { font-size: var(--text-xl); font-weight: 700; color: var(--text); line-height: 1.3; }
-.today-situations, .today-reason { font-size: var(--text-sm); color: var(--text-dim); margin-top: var(--space-1); }
-.today-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
-                 margin-top: var(--space-3); }
+.today-title { font-size: var(--text-3xl); font-weight: 780; color: var(--text);
+               letter-spacing: -.05em; line-height: 1.2; }
+/* The first three situations, one chip each. */
+.today-situations { display: flex; flex-wrap: wrap; gap: var(--space-2);
+                    list-style: none; margin: var(--space-4) 0 0; padding: 0; }
+.today-situations li { font-size: var(--text-sm); line-height: 1.55; color: var(--text);
+                       background: var(--surface-sunken); border-radius: var(--radius-pill);
+                       padding: var(--space-1) var(--space-3); }
+.today-reason { font-size: var(--text-base); color: var(--text-dim); line-height: 1.55;
+                max-width: 36em; margin-top: var(--space-3); }
+/* The start buttons at the hero's size. The font size sits on the row so the
+   skeleton buttons' em widths match the real ones'. */
+.today-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
+                 margin-top: var(--space-5); font-size: var(--text-lg); }
+.today-actions button { padding: var(--space-3) var(--space-5); border-radius: var(--radius); font-weight: 650; }
 .today-note { font-size: var(--text-xs); color: var(--text-faint); }
 .today-empty { font-size: var(--text-sm); color: var(--text-dim); }
 /* On the first load the wait's words stand where the title will be, and
    are the title line's height; the placeholders below use the real lines'
    own classes. */
 .today-loading { display: flex; align-items: center; gap: var(--space-2);
-                 min-height: calc(var(--text-xl) * 1.3);
+                 min-height: calc(var(--text-3xl) * 1.2);
                  color: var(--text-dim); font-size: var(--text-sm); }
-.today-situations.skeleton { width: 70%; }
+.today-skel-chip { width: 6em; }
 .today-reason.skeleton { width: 45%; }
 .today-skel-btn { display: inline-block; width: calc(8.5em + var(--space-4) * 2 + 2px);
-                  height: calc(1.55em + var(--space-2) * 2 + 2px); }
+                  height: calc(1.55em + var(--space-3) * 2 + 2px); border-radius: var(--radius); }
 .today-loading .thinking { padding: 0; }
-/* Held one button tall even with no alternative (R5), so the lines below do
-   not move between a one-card and a two-card answer. */
-.today-alt { margin: calc(var(--space-2) * -1) 0 0;
+/* Held one button tall even with no alternative (R5), so nothing below it
+   moves between a one-card and a two-card answer. */
+.today-alt { margin: 0;
              min-height: calc(var(--text-sm) * 1.55 + var(--space-1) * 2); }
 .today-alt button { font-size: var(--text-sm); padding: var(--space-1) var(--space-2); border: 0; }
 .today-alt button:hover { color: var(--accent-ink); }
@@ -1062,15 +1130,41 @@ button.danger:hover:not(:disabled) { border-color: var(--correct-ink); }
 @media (prefers-reduced-motion: reduce) {
   #leveltest-home { transition: none; }
 }
-.leveltest-home-box { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-                      gap: var(--space-3); }
-.leveltest-home-text { margin: 0; flex: 1 1 16rem; color: var(--text-dim); }
+.leveltest-home-box { display: flex; flex-direction: column; gap: var(--space-3); }
+.leveltest-home-text { margin: 0; color: var(--text-dim); }
 .leveltest-home-text b { color: var(--text); font-weight: 700; }
+.leveltest-home-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.leveltest-home-actions button { font-size: var(--text-sm); padding: var(--space-1) var(--space-3); }
 
-/* 이번 주: seven day cells, a streak line, progress, and the goal stepper. */
-#week-card { display: flex; flex-direction: column; gap: var(--space-2); }
-#week-card .label, #week-progress { margin: 0; }
-#week-progress { font-size: var(--text-sm); font-weight: 650; }
+/* 내 상태: the week's goal ring beside the level, seven day cells, two numbers
+   (연속, 정확도), and the goal stepper. */
+#week-card { display: flex; flex-direction: column; gap: var(--space-3); }
+#week-card .label { margin: 0; }
+.state-top { display: flex; align-items: center; gap: var(--space-4); }
+/* A static shape: the arc's length is set once per paint (home.js paintRing),
+   never animated. An empty week hides the arc -- a zero-length dash with a
+   round cap would still draw a dot. */
+.ring { flex: 0 0 auto; width: var(--ring); height: var(--ring); }
+/* Stroke widths and text sizes are the SVG's own attributes (index.html), in
+   its 84-unit viewBox, so they scale with --ring instead of being fixed px. */
+.ring-track { fill: none; stroke: var(--line); }
+.ring-fill { fill: none; stroke: var(--accent); stroke-linecap: round; }
+.ring-fill.is-empty { visibility: hidden; }
+.ring-num { fill: var(--text); font-weight: 750; font-family: var(--font-sans); }
+.ring-sub { fill: var(--text-dim); font-family: var(--font-sans); }
+.state-level { display: flex; flex-direction: column; gap: calc(var(--space-1) / 2); min-width: 0; }
+.state-level-name { margin: 0; font-size: var(--text-2xl); font-weight: 750; color: var(--text);
+                    letter-spacing: -.03em; line-height: 1.2; }
+.state-level-scale { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+.state-level-name.skeleton { width: 5em; }
+.state-level-scale.skeleton { width: 9em; }
+.state-nums { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2);
+              padding-top: var(--space-3); border-top: 1px solid var(--line); }
+.state-nums > div { display: flex; flex-direction: column; gap: calc(var(--space-1) / 2); min-width: 0; }
+.state-nums .k { font-size: var(--text-xs); color: var(--text-dim); }
+.state-nums .v { font-size: var(--text-lg); font-weight: 750; color: var(--text); line-height: 1.3;
+                 font-variant-numeric: tabular-nums; }
+.state-nums .v.skeleton { width: 3em; }
 .week-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--space-1); }
 .week-days .day { display: flex; flex-direction: column; align-items: center; gap: var(--space-1);
                   padding: var(--space-1) 0; border: 1px solid transparent;
@@ -1079,14 +1173,10 @@ button.danger:hover:not(:disabled) { border-color: var(--correct-ink); }
 .week-days .day.practiced .dot { background: var(--accent); }
 .week-days .day.today { border-color: var(--accent); color: var(--text); font-weight: 650; }
 .week-days .day.future { opacity: .45; }
-.week-bar { height: 6px; background: var(--line); border-radius: var(--radius-pill); overflow: hidden; }
-#week-bar { height: 100%; width: 0; background: var(--accent); border-radius: var(--radius-pill); }
 /* The first load's placeholder (home.js weekSkeleton): real day cells with a
-   blank label, a one-line progress bar, and the stepper's space held but not
-   shown -- there is no goal to step yet. */
+   blank label, the numbers' and the level's rows held, the ring's bare track,
+   and the stepper's space held but not shown -- there is no goal to step yet. */
 .week-days .day.skeleton .dot { visibility: hidden; }
-#week-progress.skeleton { width: 60%; }
-#week-streak.skeleton { width: 30%; }
 #week-card.is-skeleton .goal { visibility: hidden; }
 #week-card.is-skeleton #week-more { visibility: hidden; }
 .goal { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
@@ -1103,7 +1193,7 @@ button.danger:hover:not(:disabled) { border-color: var(--correct-ink); }
 /* 최근 테마: the same tile as a theme card on #pick, so one press here reads as
    the same thing as picking it there. */
 #recent-themes-wrap .label { margin: 0 0 var(--space-2); }
-.recent-themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--space-2); }
+.recent-themes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
 .recent-theme { display: flex; flex-direction: column; gap: var(--space-1); text-align: left;
                 border: 0; background: var(--surface-sunken); border-radius: var(--radius-sm);
                 padding: var(--space-3); }
@@ -1115,35 +1205,42 @@ button.danger:hover:not(:disabled) { border-color: var(--correct-ink); }
    `hidden` once the library is complete, when the row is never coming back. */
 #library-progress { min-height: calc(var(--text-sm) * 1.55); }
 
-/* One column in the spec's order -- 추천, 오늘 복습, 이어서 하기, 이번 주, 약점 줄,
-   모드, 최근 테마, 준비 상태 줄. Same breakpoint #home itself collapses to one
-   column at (880px, just below): a separate, narrower breakpoint for the
-   order fix-up left 721-880px showing the still-two-column DOM order
-   (resume/week below recent themes) with nothing to reorder it. The two
-   column wrappers dissolve (display: contents) so their children become
-   #home's own grid items and `order` can interleave them; the DOM is
-   written once.
+/* One column in the spec's order -- 추천, 목표 문장, 오늘 복습, 레벨 테스트,
+   이어서 하기, 내 상태, 모드, 최근 테마, 준비 상태 줄. Below 900px the column
+   wrappers and the hero frame dissolve (display: contents) so their children
+   become #home's own grid items and `order` can interleave them; the DOM is
+   written once. The recommendation then wears the hero's accent border itself.
    No clash with .no-aside: `#home.no-aside .home-aside { display: none }` is
    more specific than the rule below, so an empty aside stays gone -- and it is
-   only empty when both of its cards are hidden anyway. */
-@media (max-width: 880px) {
+   only empty when every card in it is shut anyway. The same for a hero whose
+   recommendation is hidden: `.home-hero:has(...)` outranks it. */
+@media (max-width: 900px) {
   #home { grid-template-columns: 1fr; max-width: 640px; gap: var(--space-4); }
-  #home .home-main, #home .home-aside { display: contents; }
-  #home .home-main > *, #home .home-aside > * { min-width: 0; }
+  #home .home-main, #home .home-aside, #home .home-hero, #home .hero-main { display: contents; }
+  #home .home-main > *, #home .home-aside > *, #home .home-hero > *, #home .hero-main > * { min-width: 0; }
   #home-date { order: 1; }
   #home .home-head { order: 2; }
   #today-card { order: 3; }
-  #today-alt { order: 4; }
+  #today-alt { order: 4; margin-top: calc(var(--space-2) * -1); }
+  /* Same order as #today-alt, which it follows in the markup. */
+  #home-target { order: 4; }
   #review-home { order: 5; }
-  /* Same order as #review-home: it follows it in the markup, and a tie keeps
-     the markup's order. */
-  #leveltest-home { order: 5; }
   #resume-card { order: 6; }
   #week-card { order: 7; }
+  /* Same order as #week-card, which it follows in the markup (a tie keeps the
+     markup's order): after 내 상태, as in the wide aside. It is open for every
+     tested learner, so it must not sit above 이어서 하기. */
+  #leveltest-home { order: 7; }
   #recommend { order: 8; }
-  #modes { order: 9; }
+  #home .modes-wrap { order: 9; }
   #recent-themes-wrap { order: 10; }
   #library-progress { order: 11; }
+  #today-card { background: var(--surface); border: 1px solid var(--accent);
+                border-radius: var(--radius); padding: var(--space-4); box-shadow: var(--shadow); }
+  .today-title { font-size: var(--text-xl); letter-spacing: -.03em; line-height: 1.3; }
+  .today-loading { min-height: calc(var(--text-xl) * 1.3); }
+  .today-situations { margin-top: var(--space-2); }
+  .recent-themes { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 }
 
 /* 읽기 보조. 루비는 브라우저 기본 기능이라 라이브러리가 필요 없다.
@@ -1174,13 +1271,22 @@ button.meaning:hover { color: var(--accent-ink); }
 
 /* --- my page ---
 
-   One column, the width #pick and a one-column #home use, so moving between
-   them does not make the column jump. Built to the stability rules: the
-   sections dim in place on a reload (R2), each holds a skeleton of its own
-   size on the first load (R3), rows that come and go keep their place (R5),
-   and anything that opens folds by grid rows (R8). Opacity only on #mypage
-   itself -- nothing here may put a transform on the screen (R1). */
-#mypage { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+   Wide (docs/superpowers/specs/2026-09-19-monologue-desktop-layout-design.md,
+   시안 static/mock/mypage-b.html): a menu down the left -- the head, the
+   level and the four tabs, held in view while the panel scrolls (sticky) --
+   and the panel filling the rest of --content-w. Below 900px (the block
+   near the end of this section) the menu is back above the panel in the
+   640px column #pick uses, with the tabs as one row. Built to the stability
+   rules: the sections dim in place on a reload (R2), each holds a skeleton
+   of its own size on the first load (R3), rows that come and go keep their
+   place (R5), and anything that opens folds by grid rows (R8). Opacity only
+   on #mypage itself -- nothing here may put a transform on the screen (R1),
+   which would also break the menu's sticky. */
+#mypage { max-width: var(--content-w); margin: 0 auto; display: grid;
+  grid-template-columns: var(--mypage-nav-w) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.mypage-nav { position: sticky; top: var(--space-4); min-width: 0;
+  display: flex; flex-direction: column; gap: var(--space-4); }
+.mypage-panels { min-width: 0; }
 .mypage-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .mypage-head h2 { flex: 1; margin: 0; font-size: var(--text-2xl); font-weight: 750; color: var(--text); }
 @media (max-width: 480px) {
@@ -1193,7 +1299,7 @@ button.meaning:hover { color: var(--accent-ink); }
 
 /* Same easing both ways as home's refreshed cards: the delay on .is-refreshing
    only dims a slow reload, and un-dimming eases back. */
-:where(#level-card, #growth-card, #review-section, #weak-section, #history-section) {
+:where(#level-card, #growth-section, #review-section, #weak-section, #history-section) {
   transition: opacity var(--dur-fast) ease;
 }
 
@@ -1208,36 +1314,45 @@ button.meaning:hover { color: var(--accent-ink); }
 .mypage-error { color: var(--text-dim); font-size: var(--text-sm); margin: 0; }
 
 /* Level */
-/* The level is one line in the head, not a card: it is a fact to glance at,
-   and the room it took is what the tabs below need. */
-.level-strip { flex-basis: 100%; }
+/* In the menu, a small card: 내 레벨, the level on its own line, what it
+   comes to under it, and its buttons below. Below 900px it is one line in
+   the head again, not a card: a fact to glance at, with the room it took
+   left to the tabs. */
+.level-strip { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: var(--space-3) var(--space-4); }
+.level-strip > .level-label { margin: 0 0 var(--space-1); }
 :where(#level-body) > p { margin: 0; }
-/* One line with its small buttons on it (결과 보기 · 다시 테스트, or 레벨
-   테스트 (7분)). Every level line -- the skeleton included -- holds the room
-   of one button row, so the buttons arriving grow nothing; on a phone the
-   buttons may wrap below the words, so there every line holds two rows. */
+/* Words, then the small buttons (결과 보기 · 다시 테스트, or 레벨 테스트
+   (7분)). Every level line -- the skeleton included -- holds the room the
+   loaded one takes, so the answer arriving grows nothing: in the menu the
+   level, a line under it and the button row; one line with its buttons on
+   it below 900px; two rows on a phone, where the buttons may wrap. */
 .level-line { font-size: var(--text-sm); color: var(--text-dim);
-              display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--space-3);
-              row-gap: var(--space-1); min-height: calc(var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px); }
-.level-actions { display: inline-flex; gap: var(--space-2); }
+              display: flex; flex-direction: column; align-items: flex-start; row-gap: var(--space-2);
+              min-height: calc(var(--text-lg) * 1.3 + var(--text-sm) * 1.55 + (var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px) + var(--space-2) * 2); }
+.level-line b { display: block; font-size: var(--text-lg); line-height: 1.3; }
+.level-sep { display: none; }
+.level-scale { display: block; }
+.level-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); }
 .level-actions button { font-size: var(--text-xs); padding: var(--space-1) var(--space-2); }
-@media (max-width: 560px) {
-  .level-line { min-height: calc((var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px) + var(--text-sm) * 1.55 + var(--space-1)); }
-}
 .level-line b { color: var(--text); font-weight: 700; }
-.level-line.skeleton { width: 40%; }
+.level-line.skeleton { width: 70%; }
 
-/* Tabs: 복습 | 약점 | 기록 */
-.mypage-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--line); }
-.mypage-tabs [role="tab"] { background: none; border: 0; border-bottom: 2px solid transparent;
-  margin-bottom: -1px; padding: var(--space-2) var(--space-3); font-size: var(--text-base);
-  color: var(--text-dim); font-weight: 600; border-radius: 0; }
-.mypage-tabs [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+/* Tabs: 성장 | 복습 | 약점 | 기록 -- in the menu, a column of rows, the
+   selected one on the accent's soft wash (the mockup's menu). */
+.mypage-tabs { display: flex; flex-direction: column; gap: 2px; }
+.mypage-tabs [role="tab"] { display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-2); background: none; border: 0; border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3); font-size: var(--text-base); text-align: left;
+  color: var(--text-dim); font-weight: 600; }
+.mypage-tabs [role="tab"]:hover:not([aria-selected="true"]) { background: var(--surface-sunken); color: var(--text); }
+.mypage-tabs [role="tab"][aria-selected="true"] { background: var(--accent-soft); color: var(--accent-ink); }
 .mypage-tabs [role="tab"]:focus-visible { outline-offset: -2px; }
 /* The count sits in a reserved box, so 복습 3 -> 복습 (none left) does not
-   move 약점 and 기록 sideways. */
+   move anything: at the row's end in the menu, beside 복습 in the row. */
 .tab-n { display: inline-block; min-width: 1.5em; margin-left: var(--space-1);
-  font-size: var(--text-sm); color: var(--accent); text-align: left; }
+  font-size: var(--text-sm); color: var(--accent); text-align: right; }
+.mypage-tabs [aria-selected="true"] .tab-n { color: var(--accent-ink); }
 
 /* One height for every tab: switching to a short one must not pull the page
    up under the pointer. Opacity only (no transform -- R1). */
@@ -1249,7 +1364,14 @@ button.meaning:hover { color: var(--accent-ink); }
 /* Today's review */
 .review-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .review-head .label { margin: 0 0 var(--space-2); }
-#review-list { display: flex; flex-direction: column; gap: var(--space-2); }
+/* Two cards a row when the panel has room for two whole ones (their buttons
+   on one line), else one. The cards of a row are one height (stretch), each
+   with its buttons at its foot (.actions' margin-top: auto), so a row reads
+   as a row, not a ragged edge. A card's own content sets the row: the verdict
+   line holds its room (.review-result), so answering grows nothing. */
+#review-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+               gap: var(--space-2); align-items: stretch; }
+.review-empty { grid-column: 1 / -1; }
 .review-card { border: 1px solid var(--line); border-radius: var(--radius-sm);
                padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-1); }
 .review-card > p { margin: 0; }
@@ -1270,7 +1392,7 @@ button.meaning:hover { color: var(--accent-ink); }
 .review-card button.explain:hover { color: var(--accent-ink); }
 .explain-body p { margin: var(--space-1) 0 0; font-size: var(--text-sm); color: var(--text); }
 .review-card .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
-                        margin-top: var(--space-2); }
+                        margin-top: auto; padding-top: var(--space-2); }
 .review-card .actions button { font-size: var(--text-sm); padding: var(--space-1) var(--space-3); }
 /* ▶ 듣기 <-> 음성 준비 중... and 🎤 말해보기 <-> 🎤 그만 말하기 keep one width
    (R7): the longer label, 음성 준비 중..., at this row's smaller type. */
@@ -1302,9 +1424,14 @@ button.meaning:hover { color: var(--accent-ink); }
 .tag-bar .n { font-size: var(--text-xs); color: var(--text-dim); }
 .tag-bar.is-skeleton .n { width: 2.5em; }
 
-/* 약점 -- the coach first: what to do next time, from the learner's own lines. */
+/* 약점 -- the coach first: what to do next time, from the learner's own lines.
+   Wide, the coach and the tags are two columns; one below 900px. */
+#weak-section { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5); align-items: start; }
+.weak-tags { min-width: 0; }
+.weak-tags > .label { margin: 0 0 var(--space-2); }
 .coach { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-3);
-  margin-bottom: var(--space-4); background: var(--surface-sunken); }
+  background: var(--surface-sunken); min-width: 0; }
 .coach-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .coach-head .label { margin: 0 0 var(--space-2); }
 #coach-day { font-size: var(--text-xs); }
@@ -1344,52 +1471,88 @@ button.tag-bar:hover .name { color: var(--accent-ink); }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tag-ex-why.is-open { -webkit-line-clamp: unset; display: block; }
 
-/* 성장: the summary card above the tabs, and the charts under its
-   자세히 보기 fold (growth.js). Opacity only, no transform (R1).
+/* 성장: the first tab, all of it open (growth.js) -- four number tiles,
+   the calendar with its side column, then accuracy and 1분 말하기 side by
+   side with the level tests under accuracy. Whether blocks sit two by two
+   is growth.js's call (.is-wide, from the panel's own width), so the
+   columns here and the widths the charts are drawn at agree; a block's
+   padding and border and the gaps are the numbers it counts with
+   (BLOCK_PAD, COL_GAP). Opacity only, no transform (R1).
    Marks wear the theme's --accent through these classes; text wears text
    tokens, never the series colour. The calendar is one hue, sequential:
    nothing is the sunken surface, then four steps of --accent mixed into
    --surface, so the ramp follows every theme and flips with dark mode (the
    mix runs toward the surface, whichever way the surface lies). */
-#growth-card {
+#growth-section {
   --heat-1: color-mix(in oklab, var(--accent) 25%, var(--surface));
   --heat-2: color-mix(in oklab, var(--accent) 45%, var(--surface));
   --heat-3: color-mix(in oklab, var(--accent) 70%, var(--surface));
   --heat-4: color-mix(in oklab, var(--accent) 100%, var(--surface));
 }
-#growth-body { position: relative; }
+#growth-body { position: relative; display: flex; flex-direction: column; gap: var(--space-4); }
 #growth-body:focus { outline: none; }
-/* The skeleton reserves three lines (streak, accuracy, 1분 말하기), but a
-   fresh card may only ever draw the streak -- floor the box at three lines'
-   worth (plus the gaps between them) so the answer landing doesn't shrink it. */
-.growth-lines { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3);
-  min-height: calc(3 * var(--text-sm) * 1.55 + 2 * var(--space-1)); }
-.growth-line { margin: 0; font-size: var(--text-sm); color: var(--text-dim); min-height: calc(var(--text-sm) * 1.55); }
-.growth-line.growth-streak { color: var(--text); font-weight: 600; }
-.growth-summary-box.is-skeleton .growth-line { width: 50%; }
-/* No practice at all: one line saying what will fill the card, and the card
-   keeps a modest floor instead of shrinking to that one line. */
-.growth-guide { display: flex; align-items: center; min-height: calc(4 * var(--text-sm) * 1.55); }
-/* 자세히 보기 ▾ / 접기 ▴: one width for both labels, so the toggle never
-   changes size under the pointer. */
-.growth-more { margin-top: var(--space-3); font-size: var(--text-sm);
-  min-width: calc(6.5em + var(--space-3) * 2 + 2px); }
-/* The fold's own inner box is clipped while shut, so the room above the
-   first block is a margin on it, not padding the collapsed row would keep. */
-#growth-details-body { display: flex; flex-direction: column; gap: var(--space-5); }
-#growth-details-body > :first-child { margin-top: var(--space-4); }
+
+/* The tiles: a key, the value, one line. Each line is held to one line
+   (nowrap, a floor, an ellipsis for a long one), so the four are one height
+   loading, loaded or empty. */
+.growth-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
+.growth-tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.growth-tile > p { margin: 0; }
+.growth-tile .k { font-size: var(--text-xs); color: var(--text-dim); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: calc(var(--text-xs) * 1.55); }
+.growth-tile .v { font-size: var(--text-2xl); font-weight: 750; color: var(--text); line-height: 1.2;
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+  min-height: calc(var(--text-2xl) * 1.2); }
+.growth-tile .v small { font-size: var(--text-base); font-weight: 650; color: var(--text-dim);
+  margin: 0 var(--space-1) 0 2px; }
+.growth-tile .d { font-size: var(--text-xs); color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: calc(var(--text-xs) * 1.55); }
+.growth-tiles.is-skeleton .k { width: 40%; }
+.growth-tiles.is-skeleton .v { width: 55%; }
+.growth-tiles.is-skeleton .d { width: 70%; }
+@media (max-width: 600px) {
+  .growth-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* A block is a card, the same box as .panel. */
+.growth-block { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: var(--space-4); min-width: 0; }
 .growth-block > .label { margin: 0 0 var(--space-2); }
 .growth-block > p { margin: 0; }
-/* A brand-new learner sees this instead of a chart on every block -- without
-   a floor, four one-line hints in a row read as the tab collapsing, not as
-   "practise a bit and this fills in". Modest on purpose: still far short of
-   a loaded chart's own height (ACC_H/SMALL_H in growth.js), just enough that
-   the page doesn't visibly shrink. */
+
+/* The calendar and its side column (key, this week, 표로 보기): beside it
+   when wide, under it when not. */
+.growth-cal-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+.growth-cal-body.is-wide { grid-template-columns: minmax(0, 1fr) var(--growth-cal-side); align-items: end; }
+.growth-cal-side { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); min-width: 0; }
+.growth-cal-side .heat-key { margin-top: 0; }
+.growth-line { margin: 0; font-size: var(--text-sm); color: var(--text-dim); min-height: calc(var(--text-sm) * 1.55); }
+.growth-line.growth-week { color: var(--text); font-weight: 600; }
+
+/* Accuracy and 1분 말하기 side by side, the tests under accuracy; the
+   second row takes what is left, so the tests sit right under accuracy
+   however tall 1분 말하기 is. */
+.growth-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.growth-grid.is-wide { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto 1fr;
+  grid-template-areas: "acc timed" "tests timed"; }
+.growth-grid.is-wide > .growth-acc-block { grid-area: acc; }
+.growth-grid.is-wide > .growth-timed-block { grid-area: timed; }
+.growth-grid.is-wide > .growth-tests-block { grid-area: tests; }
+
+/* No practice at all: one line saying what will fill the tab, and it keeps
+   a modest floor instead of shrinking to that line. */
+.growth-guide { display: flex; align-items: center; min-height: calc(4 * var(--text-sm) * 1.55); }
+/* A learner with a little practice sees this instead of a chart on a block
+   -- without a floor, one-line hints in a row read as the tab collapsing,
+   not as "practise a bit and this fills in". Modest on purpose: still far
+   short of a loaded chart's own height (ACC_H/SMALL_H in growth.js), just
+   enough that the page doesn't visibly shrink. */
 .growth-empty { padding: var(--space-2) 0; min-height: calc(3 * var(--text-sm) * 1.55); }
-.growth-block > .growth-summary { margin-top: var(--space-2); font-size: var(--text-sm); color: var(--text-dim);
-  min-height: calc(var(--text-sm) * 1.55); }
-.growth-block.is-skeleton .growth-summary { width: 45%; }
-.growth-test.skeleton { width: 70%; margin: var(--space-1) 0; }
+.growth-block.is-skeleton .growth-line { width: 50%; }
+.growth-block.is-skeleton .growth-sub { width: 30%; }
+/* The loading row is a real .growth-test (its padding and line) holding this. */
+.growth-test-skel { width: 70%; }
 .growth-sub { margin: 0 0 var(--space-1); font-size: var(--text-sm); color: var(--text-dim); font-weight: 600; }
 .growth-fail { display: flex; align-items: center; gap: var(--space-2); }
 
@@ -1442,11 +1605,16 @@ button.tag-bar:hover .name { color: var(--accent-ink); }
 .growth-table { margin-top: var(--space-2); font-size: var(--text-sm); }
 .growth-table summary { cursor: pointer; color: var(--text-dim); font-size: var(--text-xs); width: fit-content; }
 .growth-table summary:hover { color: var(--accent-ink); }
+/* The summary's line while loading: its size, so the row does not change. */
+.growth-table-skel { margin: 0; font-size: var(--text-xs); width: 5em; }
 .growth-table table { border-collapse: collapse; margin-top: var(--space-2); font-variant-numeric: tabular-nums; }
 .growth-table th, .growth-table td { text-align: left; padding: 2px var(--space-3) 2px 0; border-bottom: 1px solid var(--line); }
 .growth-table th { color: var(--text-dim); font-weight: 600; font-size: var(--text-xs); }
 
-.growth-tests { list-style: none; margin: 0; padding: 0; }
+/* The list holds the empty hint's floor (.growth-empty: three lines), so no
+   test, one, two, and the one-row loading state are all one height; a
+   third test and on grow it, as data does. */
+.growth-tests { list-style: none; margin: 0; padding: 0; min-height: calc(3 * var(--text-sm) * 1.55); }
 .growth-test { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-3);
   padding: var(--space-2) 0; border-bottom: 1px solid var(--line); font-size: var(--text-sm); }
 .growth-test:last-child { border-bottom: 0; }
@@ -1496,5 +1664,33 @@ button.history-head:hover { background: var(--surface-sunken); }
 
 @media (prefers-reduced-motion: reduce) {
   .fold, .fold-inner { transition: none; }
-  :where(#level-card, #growth-card, #review-section, #weak-section, #history-section) { transition: none; }
+  :where(#level-card, #growth-section, #review-section, #weak-section, #history-section) { transition: none; }
+}
+
+/* Below 900px: the menu goes back above the panel in the 640px column, the
+   level is one line in the head again and the tabs are one row, underlined
+   -- the phone's page as it was. 성장 lays itself out as one column there
+   (growth.js's WIDE_MIN is above 640). */
+@media (max-width: 900px) {
+  #mypage { max-width: 640px; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .mypage-nav { position: static; }
+  .level-strip { background: none; border: 0; border-radius: 0; padding: 0; }
+  .level-strip > .level-label { display: none; }
+  .level-line { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: var(--space-3);
+    row-gap: var(--space-1); min-height: calc(var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px); }
+  .level-line b { display: inline; font-size: inherit; line-height: inherit; }
+  .level-sep, .level-scale { display: inline; }
+  .level-line.skeleton { width: 40%; }
+  .mypage-tabs { flex-direction: row; gap: var(--space-1); border-bottom: 1px solid var(--line); }
+  .mypage-tabs [role="tab"] { display: inline-block; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    border-radius: 0; }
+  .mypage-tabs [role="tab"]:hover:not([aria-selected="true"]) { background: none; }
+  .mypage-tabs [role="tab"][aria-selected="true"] { background: none; color: var(--text); border-bottom-color: var(--accent); }
+  .mypage-tabs [aria-selected="true"] .tab-n { color: var(--accent); }
+  .tab-n { text-align: left; }
+  #weak-section { display: block; }
+  .coach { margin-bottom: var(--space-4); }
+}
+@media (max-width: 560px) {
+  .level-line { min-height: calc((var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px) + var(--text-sm) * 1.55 + var(--space-1)); }
 }

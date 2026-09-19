@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 마이페이지 A</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* A: 왼쪽 넓은 성장 대시보드(전부 펼침) + 오른쪽 400px 고정 칸(복습·약점·기록 탭). */
+  .mp-level { display: flex; align-items: center; }
+  .mp-level .level-line { min-height: 0; }
+  .mp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: var(--space-6); align-items: start; }
+  .mp-dash { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+  .mp-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); }
+  .mp-pair > .panel { min-width: 0; }
+  .mp-cal-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+  .mp-cal-foot .heat-key { margin-top: var(--space-2); }
+  .mp-small + .mp-small { margin-top: var(--space-3); }
+
+  /* 오른쪽 칸: 화면에 붙어 있고, 안쪽만 스크롤한다. */
+  .mp-aside { position: sticky; top: var(--space-4); padding: 0; display: flex; flex-direction: column;
+    max-height: calc(100vh - 2 * var(--space-4)); overflow: hidden; }
+  .mp-aside .mypage-tabs { padding: var(--space-2) var(--space-3) 0; flex: none; }
+  .mp-aside-body { overflow-y: auto; padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+  .mp-aside .review-card .btn-stable { min-width: 0; }
+  .mp-aside .review-head .label { margin: 0; }
+
+  @media (max-width: 900px) {
+    .mp-grid { grid-template-columns: 1fr; }
+    .mp-aside { position: static; max-height: none; }
+    .mp-pair { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">마이페이지 A · 성장은 왼쪽에 다 펼치고, 복습은 오른쪽 칸에 붙여 둠</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<main class="mock-main">
+  <div class="mock-head">
+    <button class="ghost" type="button">← 홈</button>
+    <h2>마이페이지</h2>
+    <span class="seg">
+      <button type="button" class="on">English</button>
+      <button type="button">日本語</button>
+    </span>
+    <span class="spacer"></span>
+    <div class="mp-level">
+      <p class="level-line"><span><b>레벨 B1 상위</b> · IELTS 말하기 4.5–5.0 예상</span>
+        <span class="level-actions"><button type="button" class="ghost">결과 보기</button><button type="button" class="ghost">다시 테스트</button></span>
+      </p>
+    </div>
+  </div>
+
+  <div class="mp-grid">
+    <!-- 왼쪽: 성장, 접지 않고 전부 -->
+    <section class="mp-dash mock-growth" aria-label="성장">
+      <div class="stat-tiles">
+        <div class="stat-tile"><span class="k">연속</span><span class="v">3<small>일</small></span><span class="d">최장 9일</span></div>
+        <div class="stat-tile"><span class="k">총 연습</span><span class="v">12<small>시간</small> 40<small>분</small></span><span class="d">세션 58번</span></div>
+        <div class="stat-tile"><span class="k">이번 주 정확도</span><span class="v">72<small>%</small></span><span class="d up">▲ 지난주보다 3%p</span></div>
+        <div class="stat-tile"><span class="k">1분 말하기</span><span class="v">87<small>단어/분</small></span><span class="d up">▲ 지난번보다 6</span></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><p class="label">연습 잔디 · 최근 16주</p><p class="hint">6월 1일부터 · 64일 연습</p></div>
+        <div class="mock-chart" data-cal data-maxstep="44"></div>
+        <div class="mp-cal-foot">
+          <div class="heat-key"><span>적음</span><span class="heat-swatch lv1"></span><span class="heat-swatch lv2"></span><span class="heat-swatch lv3"></span><span class="heat-swatch lv4"></span><span>많음</span></div>
+          <p class="chart-note">이번 주 4일 · 문장 71개 · 8월 첫 주는 쉬었어요</p>
+        </div>
+      </div>
+
+      <div class="mp-pair">
+        <div class="panel">
+          <div class="panel-head"><p class="label">정확도 변화</p><p class="hint">주별 · 고친 곳 없이 말한 문장</p></div>
+          <div class="mock-chart" data-line="58,61,63,,60,64,66,65,68,69,72" data-ymax="100" data-ticks="0,50,100" data-suffix="%" data-labels="7/6,,7/20,,8/3,,8/17,,8/31,,9/14" data-h="268"></div>
+          <p class="chart-note">한 달 전 64% → 이번 주 72%</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><p class="label">1분 말하기</p><p class="hint">최근 8번</p></div>
+          <div class="mp-small">
+            <p class="chart-sub">분당 단어</p>
+            <div class="mock-chart" data-line="62,66,64,71,75,78,81,87" data-ymax="120" data-ticks="0,60,120" data-labels="7/12,,7/29,,8/19,,9/9,9/18" data-h="118"></div>
+          </div>
+          <div class="mp-small">
+            <p class="chart-sub">긴 멈춤</p>
+            <div class="mock-chart" data-line="9,8,8,7,6,6,5,4" data-ymax="10" data-ticks="0,5,10" data-suffix="번" data-labels="7/12,,7/29,,8/19,,9/9,9/18" data-h="118"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><p class="label">레벨 테스트 기록</p><p class="hint">4번</p></div>
+        <ul class="growth-tests">
+          <li class="growth-test"><span class="growth-test-date">9/19</span><span class="growth-test-level">B1 상위</span><span class="growth-test-scale">IELTS 4.5–5.0 · TOEFL 19–21</span><span class="growth-delta up">▲ 한 단계</span></li>
+          <li class="growth-test"><span class="growth-test-date">9/5</span><span class="growth-test-level">B1 하위</span><span class="growth-test-scale">IELTS 4.0–4.5 · TOEFL 17–19</span><span class="growth-delta up">▲ 한 단계</span></li>
+          <li class="growth-test"><span class="growth-test-date">8/8</span><span class="growth-test-level">A2 상위</span><span class="growth-test-scale">IELTS 3.5–4.0 · TOEFL 14–16</span><span class="growth-delta">그대로</span></li>
+          <li class="growth-test"><span class="growth-test-date">7/11</span><span class="growth-test-level">A2 상위</span><span class="growth-test-scale">IELTS 3.5–4.0 · TOEFL 14–16</span><span class="growth-delta">첫 테스트</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 오른쪽: 복습 | 약점 | 기록 -->
+    <aside class="panel mp-aside" aria-label="복습·약점·기록">
+      <div class="mypage-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected="true">복습<span class="tab-n">16</span></button>
+        <button type="button" role="tab" aria-selected="false">약점</button>
+        <button type="button" role="tab" aria-selected="false">기록</button>
+      </div>
+      <div class="mp-aside-body" role="tabpanel">
+        <div class="review-head"><p class="label">오늘 복습 16개</p><span class="hint">익힌 문장 24개</span></div>
+
+        <div class="review-card">
+          <p class="said"><span class="label">내가 한 말</span> <span class="said-text">I go to the airport yesterday and my flight was delay.</span></p>
+          <p class="fixed"><span class="label">고친 문장</span> <b>I went to the airport yesterday, and my flight was delayed.</b></p>
+          <span class="tag">시제</span>
+          <button type="button" class="explain">▾ 설명</button>
+          <div class="explain-body"><p>어제 일이니 go → went. 'delay'는 '지연되다'일 때 was delayed 로 써요.</p></div>
+          <div class="actions">
+            <button type="button" class="ghost btn-stable">▶ 듣기</button>
+            <button type="button" class="btn-stable">🎤 말해보기</button>
+            <button type="button" class="ghost">다음에</button>
+            <p class="review-result good">잘했어요 — 고친 문장 그대로 말했어요</p>
+          </div>
+        </div>
+
+        <div class="review-card">
+          <p class="said"><span class="label">내가 한 말</span> <span class="said-text">She don't like spicy food.</span></p>
+          <p class="fixed"><span class="label">고친 문장</span> <b>She doesn't like spicy food.</b></p>
+          <span class="tag">수 일치</span>
+          <button type="button" class="explain">▸ 설명</button>
+          <div class="actions">
+            <button type="button" class="ghost btn-stable">▶ 듣기</button>
+            <button type="button" class="btn-stable">🎤 말해보기</button>
+            <button type="button" class="ghost">다음에</button>
+            <p class="review-result"></p>
+          </div>
+        </div>
+
+        <div class="review-card">
+          <p class="said"><span class="label">내가 한 말</span> <span class="said-text">I'm interesting in this position.</span></p>
+          <p class="fixed"><span class="label">고친 문장</span> <b>I'm interested in this position.</b></p>
+          <span class="tag">형용사</span>
+          <button type="button" class="explain">▸ 설명</button>
+          <div class="actions">
+            <button type="button" class="ghost btn-stable">▶ 듣기</button>
+            <button type="button" class="btn-stable">🎤 말해보기</button>
+            <button type="button" class="ghost">다음에</button>
+            <p class="review-result"></p>
+          </div>
+        </div>
+
+        <div class="review-card">
+          <p class="said"><span class="label">내가 한 말</span> <span class="said-text">Can you recommend me a good restaurant near here?</span></p>
+          <p class="fixed"><span class="label">고친 문장</span> <b>Could you recommend a good restaurant near here?</b></p>
+          <span class="tag">어순</span>
+          <button type="button" class="explain">▸ 설명</button>
+          <div class="actions">
+            <button type="button" class="ghost btn-stable">▶ 듣기</button>
+            <button type="button" class="btn-stable">🎤 말해보기</button>
+            <button type="button" class="ghost">다음에</button>
+            <p class="review-result"></p>
+          </div>
+        </div>
+
+        <div class="review-card">
+          <p class="said"><span class="label">내가 한 말</span> <span class="said-text">I have been to Osaka last summer.</span></p>
+          <p class="fixed"><span class="label">고친 문장</span> <b>I went to Osaka last summer.</b></p>
+          <span class="tag">시제</span>
+          <button type="button" class="explain">▸ 설명</button>
+          <div class="actions">
+            <button type="button" class="ghost btn-stable">▶ 듣기</button>
+            <button type="button" class="btn-stable">🎤 말해보기</button>
+            <button type="button" class="ghost">다음에</button>
+            <p class="review-result"></p>
+          </div>
+        </div>
+
+        <div class="review-card">
+          <p class="said"><span class="label">내가 한 말</span> <span class="said-text">How much is it the ticket to downtown?</span></p>
+          <p class="fixed"><span class="label">고친 문장</span> <b>How much is the ticket to downtown?</b></p>
+          <span class="tag">군더더기</span>
+          <button type="button" class="explain">▸ 설명</button>
+          <div class="actions">
+            <button type="button" class="ghost btn-stable">▶ 듣기</button>
+            <button type="button" class="btn-stable">🎤 말해보기</button>
+            <button type="button" class="ghost">다음에</button>
+            <p class="review-result"></p>
+          </div>
+        </div>
+
+        <button type="button" class="ghost">더 보기 (10개 남음)</button>
+      </div>
+    </aside>
+  </div>
+</main>
+</body>
+</html>

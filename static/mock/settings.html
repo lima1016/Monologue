@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 설정</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* 설정 창을 넓게: 왼쪽 '화면', 오른쪽 '언어·음성'. 열린 모습을 그대로 두려고
+     모달 대신 페이지 위에 고정해서 그린다. */
+  .st-backdrop { position: fixed; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+    padding: var(--space-6); background: color-mix(in oklab, var(--text) 45%, transparent); overflow-y: auto; }
+  dialog.st { position: static; margin: 0; width: min(880px, 100%); max-height: none; display: flex; flex-direction: column; gap: var(--space-5); }
+  .st-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  .st-head h2 { margin: 0; font-size: var(--text-xl); font-weight: 750; color: var(--text); }
+  .st-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-6); }
+  .st-col { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+  .st-col + .st-col { border-left: 1px solid var(--line); padding-left: var(--space-6); }
+  .st-title { margin: 0; font-size: var(--text-sm); font-weight: 700; color: var(--text); }
+  .st .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+  .st #screen-prefs { margin: 0; }
+  .st-preview { border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); padding: var(--space-3);
+    display: flex; flex-direction: column; gap: var(--space-2); }
+  .st-preview .msg { margin: 0; font-size: var(--text-sm); animation: none; }
+  .st-preview .row-end { display: flex; justify-content: flex-end; }
+  .st label { margin-bottom: 0; }
+  .st .voices { display: flex; flex-direction: column; }
+  .st .voice { border-bottom: 1px solid var(--line); padding: var(--space-2) 0; }
+  .st .voice:last-child { border-bottom: 0; }
+  .st .voice button { font-size: var(--text-xs); padding: var(--space-1) var(--space-2); }
+  .st .voice .engine { font-size: var(--text-xs); color: var(--text-faint); }
+  .st #reading-prefs { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-3); margin: 0; }
+  .st #reading-prefs legend { font-size: var(--text-sm); padding: 0 var(--space-1); }
+  .st #reading-prefs label { margin-bottom: var(--space-2); }
+  .st #reading-prefs .hint { font-size: var(--text-xs); margin: 0; }
+  .st-foot { display: flex; justify-content: flex-end; gap: var(--space-2); }
+
+  @media (max-width: 900px) {
+    .st-cols { grid-template-columns: 1fr; }
+    .st-col + .st-col { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: var(--space-4); }
+    .st-backdrop { align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구" style="position: relative; z-index: 6;">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">설정 · 두 칸. 이 창의 테마·밝기 버튼도 실제로 바뀌어요</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<div class="st-backdrop">
+  <dialog open class="st" aria-label="설정">
+    <div class="st-head">
+      <h2>설정</h2>
+      <button type="button" class="ghost" aria-label="닫기">✕</button>
+    </div>
+
+    <div class="st-cols">
+      <div class="st-col">
+        <fieldset id="screen-prefs">
+          <legend class="st-title">화면</legend>
+          <div class="swatches" role="group" aria-label="테마">
+            <button type="button" class="swatch" data-mock-theme="default" style="--sw-bg: #faf5ef; --sw-accent: #a85a3c;"><span class="swatch-chip" aria-hidden="true"></span>기본</button>
+            <button type="button" class="swatch" data-mock-theme="forest" style="--sw-bg: #f2f3ea; --sw-accent: #56733a;"><span class="swatch-chip" aria-hidden="true"></span>숲</button>
+            <button type="button" class="swatch" data-mock-theme="sea" style="--sw-bg: #f0f3f5; --sw-accent: #2a767b;"><span class="swatch-chip" aria-hidden="true"></span>바다</button>
+            <button type="button" class="swatch" data-mock-theme="lavender" style="--sw-bg: #f2f0f6; --sw-accent: #7155a6;"><span class="swatch-chip" aria-hidden="true"></span>보라</button>
+            <button type="button" class="swatch" data-mock-theme="ink" style="--sw-bg: #f5f1e7; --sw-accent: #262522;"><span class="swatch-chip" aria-hidden="true"></span>먹</button>
+            <button type="button" class="swatch" data-mock-theme="white" style="--sw-bg: #f4f5f7; --sw-accent: #1a66d6;"><span class="swatch-chip" aria-hidden="true"></span>하양</button>
+          </div>
+          <span class="seg" role="group" aria-label="밝기">
+            <button type="button" data-mock-mode="auto">자동</button>
+            <button type="button" data-mock-mode="light">밝게</button>
+            <button type="button" data-mock-mode="dark">어둡게</button>
+          </span>
+        </fieldset>
+        <div>
+          <p class="label">미리 보기</p>
+          <div class="st-preview">
+            <p class="msg bot">Where would you like to sit today?</p>
+            <p class="msg user">A window seat, please.</p>
+            <div class="row-end"><span class="chip ok">✓ 문장 정확</span></div>
+            <button type="button" class="primary">시작</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="st-col">
+        <p class="st-title">언어 · 음성</p>
+        <label>언어
+          <select>
+            <option value="en">English</option>
+            <option value="ja" selected>日本語</option>
+          </select>
+        </label>
+        <div>
+          <p class="label">목소리</p>
+          <div class="voices">
+            <div class="voice"><input type="radio" name="voice-ja" id="v1" checked><label for="v1">四国めたん <span class="engine">VOICEVOX · 차분함</span></label><button type="button">▶ 미리듣기</button></div>
+            <div class="voice"><input type="radio" name="voice-ja" id="v2"><label for="v2">春日部つむぎ <span class="engine">VOICEVOX · 밝음</span></label><button type="button">▶ 미리듣기</button></div>
+            <div class="voice"><input type="radio" name="voice-ja" id="v3"><label for="v3">青山龍星 <span class="engine">VOICEVOX · 낮은 목소리</span></label><button type="button">▶ 미리듣기</button></div>
+          </div>
+        </div>
+        <fieldset id="reading-prefs">
+          <legend>일본어 읽기 보조</legend>
+          <label><input type="checkbox" checked> 후리가나 (한자 위 히라가나)</label>
+          <label><input type="checkbox" checked> 발음</label>
+          <div class="pron-script" role="radiogroup" aria-label="발음 표기">
+            <label><input type="radio" name="pron" checked> 한글 (아리가토오)</label>
+            <label><input type="radio" name="pron"> 로마자 (arigatou)</label>
+          </div>
+          <p class="hint">일본어 세션에만 적용됩니다. 가나를 읽을 수 있게 되면 발음부터 끄세요.</p>
+        </fieldset>
+      </div>
+    </div>
+
+    <div class="st-foot">
+      <button type="button">닫기</button>
+    </div>
+  </dialog>
+</div>
+</body>
+</html>

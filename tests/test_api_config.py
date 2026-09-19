@@ -228,19 +228,20 @@ def test_home_stats_recommend_recent_themes_library_and_history(client, monkeypa
     assert body["recommend"] == [] and body["recent_themes"] == []
     assert body["library"] == {"scripts": 0, "target": 20 * 30}
     assert body["has_history"] is False
-    for theme in ("hotel", "meetings", "cafe-restaurant", "shopping", "hobbies"):
+    for theme in ("hotel", "meetings", "cafe-restaurant", "shopping", "hobbies", "standup", "clients"):
         db.add_library_scenario({"id": f"lib-{theme}-en-01", "theme_id": theme, "situation": "s", "language": "en",
                                  "type": "script", "title": "t",
                                  "lines": [{"speaker": "bot", "text": "Hi."}, {"speaker": "user", "text": "Hey."}]})
     for sid in ("lib-hotel-en-01", "lib-meetings-en-01", "lib-hotel-en-01", "lib-cafe-restaurant-en-01",
-                "lib-shopping-en-01", "lib-hobbies-en-01"):
+                "lib-shopping-en-01", "lib-standup-en-01", "lib-clients-en-01", "lib-hobbies-en-01"):
         db.create_session("en", "script", scenario_id=sid)
     body = client.get("/api/stats/home?language=en").json()
     assert body["has_history"] is True
-    assert body["library"]["scripts"] == 5
+    assert body["library"]["scripts"] == 7
     assert 1 <= len(body["recommend"]) <= 2
     themes = [r["theme_id"] for r in body["recent_themes"]]
-    assert len(themes) == 4 and len(set(themes)) == 4
+    # Seven themes practised, six shown (the home grid's two rows of three).
+    assert len(themes) == 6 and len(set(themes)) == 6
     assert body["recent_themes"][0] == {"theme_id": "hobbies", "title": "취미·관심사", "mode": "script",
                                         "shadowing": False}
 

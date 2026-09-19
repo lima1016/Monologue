@@ -20,7 +20,7 @@ import { play } from './audio.js';
 import * as router from './router.js';
 import { startRespeak, renderReport, canDo, cancelTurn } from './session.js';
 import { openLevelTest, renderLevelResult, levelName } from './leveltest.js';
-import { GROWTH_TEXT, summarySkeleton, renderSummary, renderDetails, hasPractice } from './growth.js';
+import { GROWTH_TEXT, WIDE_MIN, growthSkeleton, renderGrowth } from './growth.js';
 
 const LEVEL_NAMES = { beginner: '초급', intermediate: '중급', advanced: '고급' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극', lesson: '수업', timed: '1분 말하기' };
@@ -43,7 +43,7 @@ const PASS_HOLD_MS = 1500;
 // A placeholder line needs a character to be a line at all.
 const NBSP = String.fromCharCode(0xa0);
 
-const SECTIONS = ['level-card', 'growth-card', 'review-section', 'weak-section', 'history-section'];
+const SECTIONS = ['level-card', 'growth-section', 'review-section', 'weak-section', 'history-section'];
 const BUSY = '지금은 다른 연습이 진행 중이에요';
 
 // Bumped by every openMypage. A language check alone cannot tell en -> ja ->
@@ -60,31 +60,47 @@ let reportOut = false;           // a 리포트 보기 is waiting for its answer
 
 /* ---------- tabs ---------- */
 
-/* Three tabs, one visible at a time: the page no longer fit on one screen
-   with all of it stacked. The last one looked at is remembered (a private
-   window or blocked storage just starts on 복습 every time). How practice
-   is going is not a tab: it is the card above them (see 성장 below). */
-const TABS = ['review', 'weak', 'history'];
+/* Four tabs, one visible at a time: 성장 (how practice is going, all of it
+   open), 복습, 약점, 기록. On a wide screen they are a menu down the left
+   (aria-orientation vertical); on a narrow one a row above the panel. The
+   last one looked at is remembered (a private window or blocked storage
+   just starts on 성장 every time). */
+const TABS = ['growth', 'review', 'weak', 'history'];
 const TAB_KEY = 'mypage-tab';
-const PANEL = { review: 'review-section', weak: 'weak-section', history: 'history-section' };
+const PANEL = { growth: 'growth-section', review: 'review-section', weak: 'weak-section', history: 'history-section' };
+// Where the menu stops being a column (components.css's 900px fold).
+const NARROW = '(max-width: 900px)';
 
 // The tab on screen, for when storage cannot say: a language switch on 기록
-// reopens the page, and must not drop the learner back on 복습.
+// reopens the page, and must not drop the learner back on 성장.
 let shownTab = null;
 
 function rememberedTab() {
   try {
     const t = globalThis.localStorage?.getItem(TAB_KEY);
     if (TABS.includes(t)) return t;
-    // 'growth' (the tab that became the card above) or anything else stored:
-    // the page's first tab, not whichever one happened to be on screen.
-    if (t) return 'review';
+    // Anything else stored: the page's first tab, not whichever one happened
+    // to be on screen.
+    if (t) return TABS[0];
   } catch { /* blocked storage: fall through */ }
-  return shownTab || 'review';
+  return shownTab || TABS[0];
 }
 
-export function selectTab(name, { focus = false } = {}) {
-  if (!TABS.includes(name)) name = 'review';
+/* The menu is a column beside the panels on a wide screen, a row above them
+   on a narrow one; aria-orientation says which to a screen reader. Without
+   matchMedia (the tests), the wide layout. main.js calls it again when the
+   window crosses the fold. */
+export function syncTabOrientation() {
+  let narrow = false;
+  try { narrow = Boolean(globalThis.matchMedia?.(NARROW).matches); } catch { /* no media queries */ }
+  $('mypage-tabs').setAttribute('aria-orientation', narrow ? 'horizontal' : 'vertical');
+}
+
+/* `scroll`: a press or a key on the menu. Deep in a long panel, the new one
+   starts at its top -- and on a wide screen the sticky menu stays where the
+   pointer is, instead of the page shortening under it. */
+export function selectTab(name, { focus = false, scroll = false } = {}) {
+  if (!TABS.includes(name)) name = TABS[0];
   for (const t of TABS) {
     const on = t === name;
     const tab = $(`tab-${t}`);
@@ -94,8 +110,26 @@ export function selectTab(name, { focus = false } = {}) {
   }
   shownTab = name;
   if (focus) $(`tab-${name}`).focus();
+  if (scroll) keepPanelsInView();
   try { globalThis.localStorage?.setItem(TAB_KEY, name); } catch { /* private window: fine */ }
   if (name === 'weak') onWeakShown();
+  if (name === 'growth') onGrowthShown();
+}
+
+// The sticky menu's `top` (var(--space-4) in components.css).
+const STICKY_TOP = 16;
+
+/* Scrolled past the top of the panels (the tab row's top below 900px, where
+   the tabs sit above the panel and do not stick), the page goes back to it
+   at once -- no smooth scroll, nothing to watch. */
+function keepPanelsInView() {
+  const narrow = $('mypage-tabs').getAttribute('aria-orientation') === 'horizontal';
+  const anchor = $(narrow ? 'mypage-tabs' : 'mypage-panels');
+  const rect = typeof anchor.getBoundingClientRect === 'function' ? anchor.getBoundingClientRect() : null;
+  if (!rect || typeof globalThis.scrollTo !== 'function') return;
+  const y = Number(globalThis.scrollY) || 0;
+  const top = Math.max(0, Math.round(y + rect.top - STICKY_TOP));
+  if (y > top) globalThis.scrollTo({ top, behavior: 'auto' });
 }
 
 /* The coach is asked for only when 약점 is looked at -- it is the one slow
@@ -104,19 +138,23 @@ export function selectTab(name, { focus = false } = {}) {
    and a reopen or a language switch on 약점 asks again, once. */
 function onWeakShown() { loadCoach(); }
 
-/* main.js's keydown on #mypage-tabs: the arrows move along the row (and wrap),
-   Home and End go to the ends; the tab moved to is selected and focused.
-   The tab is read off its id (tab-<name>), not data-tab: dom-shim builds
-   elements from ids alone, and the id is the same fact in a browser. */
+/* main.js's keydown on #mypage-tabs: the arrows move along the menu (and
+   wrap) -- down and right to the next tab, up and left to the one before,
+   whichever way the menu runs -- Home and End go to the ends; the tab moved
+   to is selected and focused. The tab is read off its id (tab-<name>), not
+   data-tab: dom-shim builds elements from ids alone, and the id is the same
+   fact in a browser. */
 export function onTabKey(e) {
   const current = String(e.target?.id || '').replace(/^tab-/, '');
   const i = TABS.indexOf(current);
   if (i < 0) return;
-  const next = { ArrowRight: (i + 1) % TABS.length, ArrowLeft: (i + TABS.length - 1) % TABS.length,
+  const forward = (i + 1) % TABS.length;
+  const back = (i + TABS.length - 1) % TABS.length;
+  const next = { ArrowRight: forward, ArrowDown: forward, ArrowLeft: back, ArrowUp: back,
                  Home: 0, End: TABS.length - 1 }[e.key];
   if (next === undefined) return;
   e.preventDefault();
-  selectTab(TABS[next], { focus: true });
+  selectTab(TABS[next], { focus: true, scroll: true });
 }
 
 /* ---------- opening ---------- */
@@ -132,10 +170,18 @@ export async function openMypage({ tab } = {}) {
   if (canDo('cancel')) cancelTurn();
   router.show('mypage');
   syncLanguageButtons();
+  syncTabOrientation();
   // Captured at call time: a language switch or a second open meanwhile
   // starts a newer load, and this one's answers must not paint over it.
   const lang = state.language;
   const token = ++loadToken;
+  // Another language's answer is never drawn: 성장 shown before this load's
+  // answer lands keeps what is on screen (dimmed) rather than drawing it.
+  if (lang !== growthLang) {
+    growthData = null;
+    growthDrawn = false;
+  }
+  growthLang = lang;
   // After the bump, not before: selecting 약점 starts its own load (Task 4's
   // coach), keyed to this token -- selected earlier, it would be stale at once.
   selectTab(tab || rememberedTab());
@@ -216,8 +262,7 @@ function paintSkeletons() {
 
   $('level-body').replaceChildren(loadingNote(), skeletonLine('p', 'level-line'));
 
-  $('growth-body').replaceChildren(loadingNote(GROWTH_TEXT.wait), ...summarySkeleton(growthWidth()));
-  setShown($('btn-growth-more'), false);
+  paintGrowthSkeleton();
 
   $('review-count').textContent = NBSP;
   $('review-mastered').textContent = '';
@@ -288,7 +333,7 @@ export function renderLevel(level) {
     const words = el('span', 'level-text');
     const scale = test.jf || (test.ielts ? LEVEL_TEXT.ielts(test.ielts) : '');
     words.append(el('b', '', `레벨 ${levelName(test)}`));
-    if (scale) words.append(document.createTextNode(` · ${scale}`));
+    if (scale) words.append(...scaleParts(scale));
     const show = button('level-show', LEVEL_TEXT.show);
     show.addEventListener('click', () => { dropListen(); return showLevelResult(show); });
     const retake = button('level-retake', LEVEL_TEXT.retake);
@@ -299,8 +344,7 @@ export function renderLevel(level) {
   }
   const words = el('span', 'level-text');
   if (level && level.value) {
-    words.append(el('b', '', `레벨 ${LEVEL_NAMES[level.value] || level.value}`),
-      document.createTextNode(' · 최근 세션 판정'));
+    words.append(el('b', '', `레벨 ${LEVEL_NAMES[level.value] || level.value}`), ...scaleParts('최근 세션 판정'));
   } else {
     // Stops at the target: 세션 5/3 next to 발화 9/15 reads as a typo.
     const needSessions = level?.need_sessions ?? 3;
@@ -314,6 +358,13 @@ export function renderLevel(level) {
   const line = el('p', 'level-line');
   line.append(words, actions(take));
   body.replaceChildren(line);
+}
+
+/* ` · IELTS …` after the level, in two spans: in the wide menu the level and
+   what it comes to are two lines and the dot goes (components.css); in the
+   narrow head it is one line, as it reads here. */
+function scaleParts(scale) {
+  return [el('span', 'level-sep', ' · '), el('span', 'level-scale', scale)];
 }
 
 /* The level line's buttons leave my page, as ← 홈 does: a review card's
@@ -807,28 +858,32 @@ function coachSkeleton() {
   return box;
 }
 
-/* ---------- 성장: the summary card ---------- */
+/* ---------- 성장: the first tab ---------- */
 
 /* Loaded with the rest of the page (openMypage), under the same load token
-   and language: a first load holds summarySkeleton, the calendar's own box
-   and the card's lines; a reload dims what is painted (SECTIONS) and
-   replaces it in place. The charts wait under 자세히 보기 and are drawn when
-   the fold is open -- the first time it is opened for this answer, or at
-   once when the answer lands with it already open -- at the width they are
-   shown at. */
-let growthData = null;      // the answer on the card, for the fold to draw
-let growthDrawn = false;    // renderDetails has run for growthData
+   and language, whatever tab is on: a first load holds growthSkeleton, a
+   reload dims what is painted (SECTIONS). Everything in it is width-bound
+   (the calendar, the charts, whether blocks go two by two), and a hidden
+   panel has no width -- so an answer is drawn when it lands if 성장 is on
+   screen, or else the first time 성장 is shown (onGrowthShown), at the
+   width it is shown at. */
+let growthData = null;      // the answer for this load, for a later draw
+let growthDrawn = false;    // renderGrowth has run for growthData
 let growthCall = 0;         // the latest ask: a 다시 시도 outruns one still out
+let skeletonWidth = 0;      // the width the skeleton on screen was built at; 0 once replaced
+let growthLang = '';        // the language growthData is (or is about to be) for
+let drawnWidth = 0;         // the width the answer on screen was drawn at
 
-/* The width the charts are drawn at: the card body's own. dom-shim has none,
-   so a sensible default. */
+/* The width the panel is drawn at: the body's own. dom-shim has none (and a
+   hidden panel has none), so a sensible default. */
 function growthWidth() {
   const w = Number($('growth-body').clientWidth) || 0;
   return w > 0 ? w : 560;
 }
 
-function growthOpen() {
-  return $('btn-growth-more').getAttribute('aria-expanded') === 'true';
+function paintGrowthSkeleton() {
+  skeletonWidth = growthWidth();
+  $('growth-body').replaceChildren(loadingNote(GROWTH_TEXT.wait), ...growthSkeleton(skeletonWidth));
 }
 
 export async function loadGrowth({ force = false } = {}) {
@@ -837,67 +892,69 @@ export async function loadGrowth({ force = false } = {}) {
   const call = ++growthCall;
   const stale = () => token !== loadToken || state.language !== lang || call !== growthCall;
   const body = $('growth-body');
-  const more = $('btn-growth-more');
   if (force) {
-    // 다시 시도: the failure row goes, the card's own skeleton holds its room.
-    body.replaceChildren(loadingNote(GROWTH_TEXT.wait), ...summarySkeleton(growthWidth()));
+    // 다시 시도: the failure row goes, the panel's own skeleton holds its room.
+    paintGrowthSkeleton();
     body.setAttribute('aria-busy', 'true');
-    setShown(more, false);
   }
   try {
     const g = await getJSON(`/stats/growth?language=${lang}`);
     if (stale()) return;
     growthData = g;
     growthDrawn = false;
-    body.replaceChildren(...renderSummary(g, growthWidth()));
-    if (hasPractice(g)) {
-      setShown(more, true);
-      setGrowthOpen(growthOpen());      // its label, from the fold's state
-      if (growthOpen()) drawDetails();
-      else $('growth-details-body').replaceChildren();
-    } else {
-      // Nothing under the fold but four empty states: no 자세히 보기.
-      setGrowthOpen(false);
-      more.hidden = true;
-    }
+    if (!$('growth-section').hidden) drawGrowth();
   } catch {
     if (stale()) return;
     growthData = null;
-    setGrowthOpen(false);
-    more.hidden = true;
+    growthDrawn = false;
     const row = el('div', 'growth-fail');
     row.append(el('p', 'mypage-error', FAILED), button('growth-retry', '다시 시도'));
+    skeletonWidth = 0;
     body.replaceChildren(row);
   } finally {
     if (!stale()) {
-      settle('growth-card');
+      settle('growth-section');
       body.removeAttribute('aria-busy');
       if (force) body.focus();
     }
   }
 }
 
-function drawDetails() {
+function drawGrowth() {
   if (!growthData || growthDrawn) return;
   growthDrawn = true;
-  const inner = $('growth-details-body');
-  const w = Number(inner.clientWidth) || growthWidth();
-  inner.replaceChildren(...renderDetails(growthData, w));
+  skeletonWidth = 0;
+  drawnWidth = growthWidth();
+  $('growth-body').replaceChildren(...renderGrowth(growthData, drawnWidth));
 }
 
-function setGrowthOpen(open) {
-  const more = $('btn-growth-more');
-  more.setAttribute('aria-expanded', String(open));
-  more.textContent = open ? GROWTH_TEXT.less : GROWTH_TEXT.more;
-  $('growth-details').classList.toggle('is-collapsed', !open);
+/* main.js, when the window crosses the 900px fold: the panel's width has
+   changed, so the answer is drawn again at the new one -- now if 성장 is on
+   screen, else when it is next shown (onGrowthShown). */
+export function redrawGrowth() {
+  if (!growthData) return;
+  growthDrawn = false;
+  if (!$('growth-section').hidden) drawGrowth();
 }
 
-/* main.js's #btn-growth-more: 자세히 보기 ▾ opens the fold (drawing the
-   charts the first time, once it is open and has its width), 접기 ▴ shuts it. */
-export function toggleGrowthDetails() {
-  const open = !growthOpen();
-  setGrowthOpen(open);
-  if (open) drawDetails();
+/* main.js, on a (debounced) window resize: drawn again only when the panel
+   crosses WIDE_MIN, where its blocks go from one column to two or back --
+   inside one layout the charts scale by their viewBox. A hidden panel has
+   no width of its own; at worst it is drawn again when next shown. */
+export function onGrowthResize() {
+  if (!growthData || !drawnWidth) return;
+  if ((growthWidth() >= WIDE_MIN) !== (drawnWidth >= WIDE_MIN)) redrawGrowth();
+}
+
+/* 성장 on screen: an answer that landed while it was hidden is drawn now.
+   Still waiting, a skeleton built while hidden (at the default width) is
+   built again at the real one, so the answer does not resize it. */
+function onGrowthShown() {
+  if (growthData) {
+    drawGrowth();
+    return;
+  }
+  if (skeletonWidth && growthWidth() !== skeletonWidth) paintGrowthSkeleton();
 }
 
 /* ---------- history ---------- */

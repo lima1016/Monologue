@@ -2,7 +2,8 @@ import { $, postJSON, notify, state } from './api.js';
 import { play, stopPlayback, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
 import { refreshHealth, startHealthPoll, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
-import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome } from './home.js';
+import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome, playTargetHome,
+         showLevelResultHome } from './home.js';
 import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
          startFromPick, startTheme, syncLanguageButtons,
          selectQuestion, retryQuestions, onOwnInput } from './pick.js';
@@ -11,7 +12,8 @@ import { renderVoiceList, renderVoiceLists, previewVoice, loadReadingPrefs, save
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
-         selectTab, onTabKey, onTagClick, loadCoach, loadGrowth, toggleGrowthDetails,
+         selectTab, onTabKey, onTagClick, loadCoach, loadGrowth, syncTabOrientation,
+         redrawGrowth, onGrowthResize,
          showMoreReviews } from './mypage.js';
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
 import { leaveTimed, startNow, stopNow, retryTranscribe, backToPrep, again, endTimed, playMine,
@@ -77,16 +79,31 @@ $('btn-mypage-home').addEventListener('click', () => {
 $('mypage-tabs').addEventListener('click', (e) => {
   // closest, so a press on 복습's count (#tab-review-n) still finds its tab.
   const tab = e.target.closest?.('[role="tab"]');
-  if (tab) selectTab(tab.dataset.tab);
+  if (tab) selectTab(tab.dataset.tab, { scroll: true });
 });
 $('mypage-tabs').addEventListener('keydown', onTabKey);
+// The menu turns from a column into a row at the 900px fold; its
+// aria-orientation follows, and 성장 is drawn again at its new width
+// (guarded: no matchMedia, no listener).
+try {
+  globalThis.matchMedia?.('(max-width: 900px)')?.addEventListener?.('change', () => {
+    syncTabOrientation();
+    redrawGrowth();
+  });
+} catch { /* no media queries */ }
+// A resize that takes 성장 across two columns and one draws it again, once
+// the window has settled.
+let resizeTimer = 0;
+globalThis.addEventListener?.('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(onGrowthResize, 150);
+});
 $('review-list').addEventListener('click', onReviewClick);
 $('btn-review-more').addEventListener('click', () => showMoreReviews());
 $('history-list').addEventListener('click', onHistoryClick);
 $('tag-bars').addEventListener('click', onTagClick);
 $('coach-body').addEventListener('click', (e) => { if (e.target.closest('.coach-retry')) loadCoach({ force: true }); });
 $('growth-body').addEventListener('click', (e) => { if (e.target.closest('.growth-retry')) loadGrowth({ force: true }); });
-$('btn-growth-more').addEventListener('click', () => toggleGrowthDetails());
 $('btn-history-more').addEventListener('click', () => loadHistory({ append: true }));
 $('btn-report-back').addEventListener('click', () => {
   router.show('mypage');
@@ -118,6 +135,8 @@ $('week-more').addEventListener('click', () => openMypage({ tab: 'history' }));
    home.js must not import mypage.js (cycle), so this is wired here. */
 $('review-home-play').addEventListener('click', playReviewHome);
 $('review-home-go').addEventListener('click', () => openMypage({ tab: 'review' }));
+// 오늘의 목표 문장's ▶ 들어 보기: the review card's path, for the target's sentence.
+$('home-target-play').addEventListener('click', playTargetHome);
 
 $('notice-close').addEventListener('click', () => notify(''));
 
@@ -168,8 +187,9 @@ $('lt-result-back').addEventListener('click', () => {
     loadHome();
   }
 });
-/* Home's 레벨 테스트 card. */
+/* Home's 레벨 테스트 card: 시작 / 다시 테스트, and 결과 보기 once there is a result. */
 $('leveltest-home-start').addEventListener('click', () => openLevelTest());
+$('leveltest-home-show').addEventListener('click', () => showLevelResultHome());
 
 $('category-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-category]');

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 1분 말하기</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* 녹음: 왼쪽 큰 녹음 카드 + 오른쪽 380px 질문·힌트.
+     결과: 왼쪽 숫자·문장별 교정, 오른쪽 원어민이라면·회차 비교·버튼. */
+  #timed.tm { max-width: none; display: block; }
+  .tm-grid { display: grid; gap: var(--space-6); align-items: start; }
+  .tm-grid.rec { grid-template-columns: minmax(0, 1fr) 380px; }
+  .tm-grid.res { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+  .tm-grid > * { min-width: 0; }
+  .tm .timed-slot { min-height: 24rem; }
+  .tm .timed-big { font-size: 56px; }
+  .tm .timed-live { font-size: var(--text-lg); max-width: 36em; height: calc(3 * 1.6em); }
+  .tm-q { display: flex; flex-direction: column; gap: var(--space-3); position: sticky; top: var(--space-4); }
+  .tm-q .panel { display: flex; flex-direction: column; gap: var(--space-2); }
+  .tm-q .panel p { margin: 0; }
+  .tm-q .label { margin: 0; }
+  .tm-q ul { margin: 0; padding-left: 1.2em; font-size: var(--text-sm); color: var(--text-dim); display: grid; gap: var(--space-1); }
+  .tm-q .last { font-size: var(--text-sm); color: var(--text-dim); }
+
+  .tm-col { display: flex; flex-direction: column; gap: var(--space-4); }
+  .tm-col .panel > .label { margin: 0 0 var(--space-3); }
+  .tm .timed-lines { font-size: var(--text-base); }
+  .tm .timed-line p { margin: 0; }
+  .tm .timed-line .said { color: var(--text-dim); }
+  .tm .timed-verdict b { color: var(--text); font-weight: 650; }
+  .tm .timed-native { border-top: 0; padding-top: 0; }
+  .tm-compare { width: 100%; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+  .tm-compare th, .tm-compare td { text-align: left; padding: var(--space-2) var(--space-2) var(--space-2) 0; border-bottom: 1px solid var(--line); }
+  .tm-compare th { color: var(--text-dim); font-weight: 600; font-size: var(--text-xs); }
+  .tm-compare td:last-child { font-weight: 650; }
+  .tm-compare tr:last-child td { border-bottom: 0; }
+  .tm .timed-actions .primary { flex: 1 1 auto; }
+
+  @media (max-width: 900px) {
+    .tm-grid.rec, .tm-grid.res { grid-template-columns: 1fr; }
+    .tm-q { position: static; order: -1; }
+  }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">1분 말하기 · 위: 녹음 중 / 아래: 결과 (한 화면에 두 상태를 겹쳐 둠)</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<main class="mock-main">
+  <section id="timed" class="tm">
+    <div class="mock-head">
+      <button class="ghost" type="button">← 홈</button>
+      <h2>1분 말하기</h2>
+    </div>
+
+    <p class="mock-state">상태 1 · 녹음 중</p>
+    <div class="tm-grid rec">
+      <section class="timed-card">
+        <div class="timed-slot">
+          <p class="timed-clock-row"><span class="timed-dot" aria-hidden="true"></span><span class="timed-big">0:42</span></p>
+          <div class="timed-live"><p>…so I went to Busan with my friends by KTX, and we ate a lot of seafood near the beach. The weather was really good, and</p></div>
+          <button type="button" class="primary btn-stable">다 말했어요</button>
+        </div>
+      </section>
+      <aside class="tm-q" aria-label="질문">
+        <div class="panel">
+          <p class="label">질문 · 2번째 1분</p>
+          <p class="timed-topic">What did you do last weekend, and how did you feel about it?</p>
+          <p class="hint">지난 주말에 뭘 했고, 어땠나요?</p>
+        </div>
+        <div class="panel">
+          <p class="label">말할 거리</p>
+          <p class="hint">이렇게 시작해 보세요: <b>Last weekend, I …</b></p>
+          <ul>
+            <li>어디에, 누구와 갔는지</li>
+            <li>가장 기억에 남는 한 장면</li>
+            <li>다음에 또 한다면 무엇을 바꿀지</li>
+          </ul>
+        </div>
+        <p class="last">지난번(1번째 1분): 분당 81단어 · 긴 멈춤 6번</p>
+      </aside>
+    </div>
+
+    <p class="mock-state">상태 2 · 결과</p>
+    <div class="tm-grid res">
+      <div class="tm-col">
+        <div class="stat-tiles">
+          <div class="stat-tile"><span class="k">분당 단어</span><span class="v">87</span><span class="d up">▲ 6</span></div>
+          <div class="stat-tile"><span class="k">긴 멈춤</span><span class="v">4<small>번</small></span><span class="d up">▼ 2번 줄었어요</span></div>
+          <div class="stat-tile"><span class="k">말한 문장</span><span class="v">7</span><span class="d">1번째보다 1개 더</span></div>
+          <div class="stat-tile"><span class="k">고칠 곳</span><span class="v">3</span><span class="d">7문장 중</span></div>
+        </div>
+        <div class="panel">
+          <p class="label">문장마다</p>
+          <ol class="timed-lines">
+            <li class="timed-line"><p class="said">Last weekend I go to Busan with my friends by KTX.</p>
+              <div class="timed-verdict"><span><span class="timed-label">고친 문장</span> <b>Last weekend, I went to Busan with my friends by KTX.</b></span><span class="timed-why">지난 주말 일이니 went</span></div></li>
+            <li class="timed-line"><p class="said">We ate a lot of seafood near the beach.</p>
+              <div class="timed-verdict"><span class="timed-good">✓ 자연스러워요</span></div></li>
+            <li class="timed-line"><p class="said">The weather was really good, and the sea was so blue.</p>
+              <div class="timed-verdict"><span class="timed-good">✓ 자연스러워요</span></div></li>
+            <li class="timed-line"><p class="said">I felt very relax because I didn't think about work.</p>
+              <div class="timed-verdict"><span><span class="timed-label">고친 문장</span> <b>I felt really relaxed because I didn't think about work.</b></span><span class="timed-why">사람이 느끼는 것은 relaxed</span></div></li>
+            <li class="timed-line"><p class="said">But the train back was very crowded.</p>
+              <div class="timed-verdict"><span class="timed-good">✓ 자연스러워요</span></div></li>
+            <li class="timed-line"><p class="said">Next time I want to stay more longer.</p>
+              <div class="timed-verdict"><span><span class="timed-label">고친 문장</span> <b>Next time, I want to stay longer.</b></span><span class="timed-why">longer 에 이미 '더'가 들어 있어요</span></div></li>
+            <li class="timed-line"><p class="said">It was the best weekend this month.</p>
+              <div class="timed-verdict"><span class="timed-good">✓ 자연스러워요</span></div></li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="tm-col">
+        <div class="panel">
+          <div class="timed-native">
+            <p class="label">원어민이라면</p>
+            <div class="timed-native-text">Last weekend, I took the KTX down to Busan with a couple of friends. We spent most of the day by the beach eating seafood, and the weather was perfect. Honestly, I didn't think about work once — I came back feeling really recharged.</div>
+            <div class="timed-native-actions"><button type="button" class="ghost btn-stable">▶ 듣기</button></div>
+          </div>
+        </div>
+        <div class="panel">
+          <p class="label">회차 비교</p>
+          <table class="tm-compare">
+            <thead><tr><th></th><th>1번째</th><th>2번째</th></tr></thead>
+            <tbody>
+              <tr><td>분당 단어</td><td>81</td><td class="timed-better">87 ▲</td></tr>
+              <tr><td>긴 멈춤</td><td>6번</td><td class="timed-better">4번 ▼</td></tr>
+              <tr><td>말한 문장</td><td>6</td><td>7</td></tr>
+              <tr><td>고칠 곳</td><td>4</td><td class="timed-better">3</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="timed-actions">
+          <button type="button" class="ghost btn-stable">▶ 내 녹음</button>
+          <button type="button" class="primary btn-stable">같은 주제로 다시 1분</button>
+          <button type="button" class="btn-stable">끝내기</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

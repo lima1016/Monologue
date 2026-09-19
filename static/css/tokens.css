@@ -89,6 +89,18 @@
      different column on a different screen and keeps its own value. */
   --aside-w: 330px;
   --panel-w: 300px;
+  /* The desktop layout (docs/superpowers/specs/2026-09-19-monologue-desktop-layout-design.md):
+     the width every wide screen fills, and home's right-hand column, which
+     holds 이어서 하기, 내 상태, 오늘 복습 and 레벨 테스트. --tile-icon is the
+     mode tiles' icon square, --ring the week goal ring. */
+  --content-w: 1200px;
+  --home-aside-w: 360px;
+  --tile-icon: 52px;
+  --ring: 84px;
+  /* My page: the menu down the left (head, level, tabs), and the calendar's
+     side column on the 성장 tab (growth.js's CAL_SIDE_W is the same 200). */
+  --mypage-nav-w: 240px;
+  --growth-cal-side: 200px;
   /* The one duration every fade/enter/skeleton animation in this pass shares
      -- see tests/test_ui_stability_css.py and the design spec's R1-R9. */
   --dur-fast: 150ms;

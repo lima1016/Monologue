@@ -1244,15 +1244,33 @@ def wrong_tag_counts(language) -> list[dict]:
             " GROUP BY m.tag ORDER BY n DESC, m.tag", (language,)).fetchall()
         out = []
         for r in rows:
-            examples = conn.execute(
-                "SELECT m.text, m.fixed, m.correction, MAX(m.created_at) last"
-                " FROM messages m JOIN sessions s ON s.id = m.session_id"
-                " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0 AND m.tag = ?"
-                " GROUP BY m.text, m.fixed ORDER BY last DESC, MAX(m.id) DESC LIMIT ?",
-                (language, r["tag"], _TAG_EXAMPLES)).fetchall()
+            examples = _tag_examples(conn, language, r["tag"], _TAG_EXAMPLES)
             out.append({"tag": r["tag"], "n": r["n"],
                         "examples": [{k: e[k] for k in ("text", "fixed", "correction")} for e in examples]})
     return out
+
+
+def _tag_examples(conn, language, tag, limit):
+    """A tag's newest distinct wrong sentences -- wrong_tag_counts' examples
+    and the home screen's 오늘의 목표 문장 read the same rows in the same order."""
+    return conn.execute(
+        "SELECT m.text, m.fixed, m.correction, MAX(m.created_at) last, MAX(m.id) id"
+        " FROM messages m JOIN sessions s ON s.id = m.session_id"
+        " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0 AND m.tag = ?"
+        " GROUP BY m.text, m.fixed ORDER BY last DESC, MAX(m.id) DESC LIMIT ?",
+        (language, tag, limit)).fetchall()
+
+
+def newest_tag_example(language, tag) -> dict | None:
+    """The newest wrong sentence under `tag` -- wrong_tag_counts' examples[0]
+    for that tag -- as {id, tag, text, fixed}, or None when it has no fixed
+    sentence to show (the home panel is built around the fixed one). `id` is
+    the newest message that said it, for POST /messages/{id}/fixed-audio."""
+    with connect() as conn:
+        rows = _tag_examples(conn, language, tag, 1)
+    if not rows or not (rows[0]["fixed"] or "").strip():
+        return None
+    return {"id": rows[0]["id"], "tag": tag, "text": rows[0]["text"], "fixed": rows[0]["fixed"]}
 
 
 def _local_cutoff(since) -> str:

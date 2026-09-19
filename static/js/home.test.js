@@ -496,7 +496,21 @@ test('a newer switch that lands first clears the dimming even though the stale o
   state.language = 'en';
 });
 
-test('the first load shows skeletons where the cards will be', async () => {
+/* A stand-in localStorage for one test (dom-shim has none). */
+function withStorage(data = {}) {
+  globalThis.localStorage = {
+    getItem: (k) => (k in data ? data[k] : null),
+    setItem: (k, v) => { data[k] = String(v); },
+  };
+  return data;
+}
+
+test('the first load shows skeletons where the cards will be', async (t) => {
+  // This language's last answer had a target, so the panel's place is held
+  // (Task 1 review I1; the no-memory side is its own test below).
+  state.language = 'en';
+  const stored = withStorage({ 'home-target-en': '1' });
+  t.after(() => { delete globalThis.localStorage; });
   let release;
   const held = new Promise((r) => { release = r; });
   homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD()); } });
@@ -506,19 +520,101 @@ test('the first load shows skeletons where the cards will be', async () => {
   assert.equal($('week-card').hidden, false, 'the week card holds its place on the first load');
   assert.ok($('week-card').classList.contains('is-skeleton'));
   assert.equal($('week-days').children.filter((c) => c.classList.contains('skeleton')).length, 7);
-  // The streak line's row is held too, so a streak arriving does not grow the card.
-  assert.equal($('week-streak').hidden, false, 'the streak row is not held on the first load');
-  assert.ok($('week-streak').classList.contains('skeleton'));
-  assert.equal($('week-streak').textContent, String.fromCharCode(0xa0));
+  // The numbers' and the level's rows are held too, so their values arriving
+  // do not grow the card. (Desktop layout: 내 상태 replaced the streak line and
+  // progress bar with these cells and the ring.)
+  for (const id of ['week-streak', 'home-accuracy', 'home-level', 'home-level-scale']) {
+    assert.equal($(id).hidden, false, `#${id}'s row is not held on the first load`);
+    assert.ok($(id).classList.contains('skeleton'), `#${id} has no placeholder`);
+    assert.equal($(id).textContent, String.fromCharCode(0xa0));
+  }
+  // The target panel holds its half of the hero while it may be coming.
+  assert.equal($('home-target').hidden, false, 'a remembered target is not held');
+  assert.ok($('home-hero').classList.contains('has-target'));
+  assert.ok($('home-target-fixed').classList.contains('skeleton'));
+  assert.ok($('home-target-play').classList.contains('is-invisible'), 'the play row is not held while it loads');
+  assert.equal($('home-target-play').hidden, false);
   release();
   await loading;
   assert.equal($('week-streak').classList.contains('skeleton'), false);
   assert.equal($('week-streak').classList.contains('is-invisible'), false);
-  assert.equal($('week-streak').textContent, '연속 2일');
+  assert.equal($('week-streak').textContent, '2일');
   assert.equal(hasClass($('today-body'), 'skeleton'), false);
   assert.equal($('week-card').classList.contains('is-skeleton'), false);
   assert.equal(hasClass($('week-days'), 'skeleton'), false);
-  assert.equal($('week-progress').classList.contains('skeleton'), false);
+  for (const id of ['home-accuracy', 'home-level', 'home-level-scale', 'home-target-fixed']) {
+    assert.equal($(id).classList.contains('skeleton'), false, `#${id} kept its placeholder`);
+  }
+  // PAYLOAD has no target: the hero goes back to one column, and the next
+  // first load will not hold the panel.
+  assert.equal($('home-target').hidden, true);
+  assert.equal($('home-hero').classList.contains('has-target'), false);
+  assert.equal(stored['home-target-en'], '0');
+});
+
+/* Task 1 review I1: most answers carry no target, and a held panel that then
+   went away jumped the whole screen on every load. Only a language whose last
+   answer had one holds its place; the answer itself is remembered. */
+test('with no memory of a target the first load holds no target panel, and a target answer is remembered', async (t) => {
+  state.language = 'en';
+  const stored = withStorage();
+  t.after(() => { delete globalThis.localStorage; });
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD({ target: TARGET })); } });
+  const loading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal($('home-target').hidden, true, 'a panel was held with nothing saying a target is coming');
+  assert.equal($('home-hero').classList.contains('has-target'), false);
+  release();
+  await loading;
+  assert.equal($('home-target').hidden, false);
+  assert.equal(stored['home-target-en'], '1');
+});
+
+test('the memory is per language: English having a target holds nothing for Japanese', async (t) => {
+  state.language = 'ja';
+  withStorage({ 'home-target-en': '1' });
+  t.after(() => { delete globalThis.localStorage; state.language = 'en'; });
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD()); } });
+  const loading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal($('home-target').hidden, true);
+  release();
+  await loading;
+});
+
+test('blocked storage: no panel held, and home still loads', async (t) => {
+  state.language = 'en';
+  globalThis.localStorage = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
+  t.after(() => { delete globalThis.localStorage; });
+  homeRoutes(PAYLOAD({ target: TARGET }));
+  const loading = home.loadHome();
+  assert.equal($('home-target').hidden, true);
+  await loading;
+  assert.equal($('home-target').hidden, false);
+});
+
+/* Task 1 review M1: the tiles' 최근 lines name the previous language's
+   themes until the answer lands, so they dim with the cards. */
+test("the tiles' 최근 lines dim while home reloads and wake when it lands", async () => {
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD()); } });
+  const reloading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  for (const mode of ['free', 'script', 'shadow', 'lesson', 'timed']) {
+    assert.ok($(`mode-recent-${mode}`).classList.contains('is-refreshing'), `${mode}'s line did not dim`);
+  }
+  release();
+  await reloading;
+  for (const mode of ['free', 'script', 'shadow', 'lesson', 'timed']) {
+    assert.equal($(`mode-recent-${mode}`).classList.contains('is-refreshing'), false);
+  }
 });
 
 test('the alternative line keeps its place when there is no alternative', async () => {
@@ -540,7 +636,10 @@ test("today's card shows the reason, disables a mode that is not ready, and swap
   homeRoutes(PAYLOAD());
   await home.loadHome();
   assert.match(text($('today-body')), /아직 안 해본 테마예요/);
-  assert.match(text($('today-body')), /체크인 · 방 문제 알리기 · 짐 맡기기/);
+  // The first three situations, one chip each (the desktop hero shows them as
+  // chips rather than one ' · '-joined line).
+  const chips = $('today-body').children.find((c) => c.classList.contains('today-situations'));
+  assert.deepEqual(chips.children.map(text), ['체크인', '방 문제 알리기', '짐 맡기기']);
   assert.equal(text($('today-alt')), '또는: 회의 →');
   home.swapToday();
   assert.match(text($('today-body')), /회의/);
@@ -588,7 +687,13 @@ test('a failed home request hides the recommendation but not the modes', async (
   assert.equal($('library-progress').hidden, true);
 });
 
-test('the week card: seven days, streak, progress and bar', async () => {
+/* The ring's arc as a fraction of the circle, read off its dash pattern. */
+const ringRatio = () => {
+  const [on, whole] = $('week-ring-fill').getAttribute('stroke-dasharray').split(' ').map(Number);
+  return on / whole;
+};
+
+test('the week card: seven days, streak, and the goal ring', async () => {
   homeRoutes(PAYLOAD());
   await home.loadHome();
   const days = $('week-days').children;
@@ -596,21 +701,36 @@ test('the week card: seven days, streak, progress and bar', async () => {
   assert.ok(days[0].classList.contains('practiced'));
   assert.ok(days[2].classList.contains('today'));
   assert.ok(days[3].classList.contains('future'));
-  assert.equal($('week-streak').textContent, '연속 2일');
-  assert.equal($('week-progress').textContent, '이번 주 3/5 세션');
-  assert.equal($('week-bar').style.width, '60%');
+  assert.equal($('week-streak').textContent, '2일');
+  assert.equal($('week-ring-num').textContent, '3/5');
+  assert.equal($('week-ring-sub').textContent, '이번 주');
+  assert.ok(Math.abs(ringRatio() - 0.6) < 0.001, `ring at ${ringRatio()}, not 3/5`);
+  assert.equal($('week-ring').getAttribute('aria-label'), '이번 주 목표 5세션 중 3세션');
 });
 
-test('reaching the goal says so, and a zero streak keeps its line in place, invisible', async () => {
+test('reaching the goal says so and fills the ring; a zero streak is 0일, not a hole', async () => {
   const p = PAYLOAD({ streak: 0 });
   p.week.sessions = 6;
   homeRoutes(p);
   await home.loadHome();
-  assert.equal($('week-progress').textContent, '이번 주 6/5 세션 · 목표 달성!');
-  assert.equal($('week-bar').style.width, '100%');
-  assert.equal($('week-streak').hidden, false, 'a zero streak collapsed its row and moved the progress line');
-  assert.ok($('week-streak').classList.contains('is-invisible'));
-  assert.equal($('week-streak').getAttribute('aria-hidden'), 'true');
+  assert.equal($('week-ring-num').textContent, '6/5');
+  assert.equal($('week-ring-sub').textContent, '목표 달성!');
+  assert.ok(Math.abs(ringRatio() - 1) < 0.001, 'past the goal the ring is full, never more');
+  assert.equal($('week-streak').textContent, '0일');
+  assert.equal($('week-streak').classList.contains('is-invisible'), false);
+});
+
+test('no session yet this week: the ring has no arc at all, not a round-capped dot', async () => {
+  const p = PAYLOAD();
+  p.week.sessions = 0;
+  homeRoutes(p);
+  await home.loadHome();
+  assert.equal(ringRatio(), 0);
+  assert.ok($('week-ring-fill').classList.contains('is-empty'));
+  p.week.sessions = 1;
+  homeRoutes(p);
+  await home.loadHome();
+  assert.equal($('week-ring-fill').classList.contains('is-empty'), false);
 });
 
 test('the goal changes at once, is saved, stops at the bounds, and rolls back on failure', async () => {
@@ -638,7 +758,7 @@ test('while the goal saves both buttons are off, and the new value is already on
   await home.loadHome();
   const saving = home.changeGoal(-1);
   assert.equal($('goal-value').textContent, '4');
-  assert.equal($('week-progress').textContent, '이번 주 3/4 세션');
+  assert.equal($('week-ring-num').textContent, '3/4');   // the ring redrawn at once
   assert.equal($('goal-minus').disabled, true);
   assert.equal($('goal-plus').disabled, true);
   await home.changeGoal(-1);             // pressed again mid-save: ignored
@@ -871,13 +991,27 @@ test('no level test yet in this language: the card offers one, with IELTS and TO
   assert.equal(deepText($('leveltest-home-text')), '레벨 테스트 · 7분이면 내 수준과 IELTS·TOEFL 예상 점수를 알 수 있어요');
 });
 
-test('a finished level test in this language: no card', async () => {
+/* Desktop layout: the card no longer shuts once there is a result -- it says
+   when the last test was and what it gave, with 결과 보기 and 다시 테스트. */
+test('a finished level test in this language: the card says when and what, with 결과 보기 and 다시 테스트', async () => {
+  state.language = 'en';
+  homeRoutes(PAYLOAD(), { latest: LATEST({ en: { cefr: 'B1', step: '상위', finished_at: '2026-09-19T12:00:00+00:00' } }) });
+  await home.loadHome();
+  assert.ok(cardOpen());
+  assert.equal($('leveltest-home').inert, false);
+  assert.equal(deepText($('leveltest-home-text')), '지난 테스트 9월 19일 · B1 상위');
+  assert.equal($('leveltest-home-show').hidden, false);
+  assert.equal($('leveltest-home-start').textContent, '다시 테스트');
+});
+
+test('no test yet: 결과 보기 is not offered and the button says 시작', async () => {
   state.language = 'en';
   homeRoutes(PAYLOAD(), { latest: LATEST({ en: { cefr: 'B1', step: '상위' } }) });
   await home.loadHome();
-  assert.equal(cardOpen(), false);
-  assert.equal($('leveltest-home').getAttribute('aria-hidden'), 'true');
-  assert.equal($('leveltest-home').inert, true);
+  homeRoutes(PAYLOAD(), { latest: LATEST({ en: null }) });
+  await home.loadHome();
+  assert.equal($('leveltest-home-show').hidden, true);
+  assert.equal($('leveltest-home-start').textContent, '시작');
 });
 
 test('the card is decided again on a language switch, and Japanese names JF Standard', async () => {
@@ -888,7 +1022,8 @@ test('the card is decided again on a language switch, and Japanese names JF Stan
   assert.ok(cardOpen());
   state.language = 'ja';
   await home.loadHome();
-  assert.equal(cardOpen(), false, 'Japanese has a test: the card shuts');
+  assert.ok(cardOpen(), 'Japanese has a test: the card shows it');
+  assert.equal(deepText($('leveltest-home-text')), '지난 테스트 · A2 하위', 'no finished_at: no date, no stray space');
   homeRoutes(PAYLOAD(), { latest: LATEST({ en: null, ja: null }) });
   await home.loadHome();
   assert.ok(cardOpen());
@@ -903,4 +1038,154 @@ test('the latest-result request failing keeps the card shut and the rest of home
   assert.equal(cardOpen(), false);
   assert.equal($('review-home').classList.contains('is-collapsed'), false);
   assert.equal($('week-card').hidden, false);
+});
+
+/* ---------- desktop home: target panel, level line, tiles ---------- */
+
+const TARGET = { id: 77, tag: '시제', text: 'I buy it', fixed: 'I bought it.' };
+
+test('a target splits the hero: its tag and fixed sentence in the panel, and the 약점 line stays shut', async () => {
+  homeRoutes(PAYLOAD({ target: TARGET, top_tags: [{ tag: '시제', n: 4 }] }));
+  await home.loadHome();
+  assert.equal($('home-target').hidden, false);
+  assert.ok($('home-hero').classList.contains('has-target'));
+  assert.equal($('home-target-tag').textContent, '초점: 시제');
+  assert.equal($('home-target-fixed').textContent, 'I bought it.');
+  assert.equal($('home-target-play').hidden, false);
+  assert.equal($('home-target-play').classList.contains('is-invisible'), false);
+  assert.equal($('recommend').hidden, true, 'the panel says what 요즘 X에서 자주 걸립니다 said');
+});
+
+test('no target: no panel, the recommendation has the whole hero, and the 약점 line stays shut too', async () => {
+  homeRoutes(PAYLOAD({ target: TARGET }));
+  await home.loadHome();
+  homeRoutes(PAYLOAD({ target: null, top_tags: [{ tag: '시제', n: 4 }] }));
+  await home.loadHome();
+  assert.equal($('home-target').hidden, true);
+  assert.equal($('home-hero').classList.contains('has-target'), false);
+  assert.equal($('recommend').hidden, true);
+});
+
+test('the target panel dims with the other cards while home reloads', async () => {
+  homeRoutes(PAYLOAD({ target: TARGET }));
+  await home.loadHome();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD({ target: TARGET })); } });
+  const reloading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal($('home-target').hidden, false, 'the panel must not vanish during a reload');
+  assert.ok($('home-target').classList.contains('is-refreshing'));
+  assert.equal($('home-target').inert, true);
+  release();
+  await reloading;
+  assert.equal($('home-target').inert, false);
+});
+
+test('▶ 들어 보기 asks for the target message\'s clip and says 음성 준비 중... meanwhile', async () => {
+  const asked = [];
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(PAYLOAD({ target: TARGET }));
+  await home.loadHome();
+  stubFetch(async (url) => {
+    asked.push(url);
+    await held;
+    return jsonResponse({ audio_key: 'k1' });
+  });
+  const playing = home.playTargetHome();
+  assert.equal($('home-target-play').textContent, '음성 준비 중...');
+  // The shim does not parse markup classes, so the button's own tag is read:
+  // .btn-stable holds its width while the label changes.
+  const html = (await import('node:fs')).readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /<button id="home-target-play" class="[^"]*\bbtn-stable\b/);
+  release();
+  await playing;
+  assert.equal($('home-target-play').textContent, '▶ 들어 보기');
+  assert.deepEqual(asked, ['/api/messages/77/fixed-audio']);
+});
+
+test('the level beside the ring: the test\'s level and scale, 레벨 테스트 전, or a dash when unknown', async () => {
+  state.language = 'en';
+  homeRoutes(PAYLOAD(), { latest: LATEST({ en: { cefr: 'B1', step: '상위', ielts: '5.0' } }) });
+  await home.loadHome();
+  assert.equal($('home-level').textContent, 'B1 상위');
+  assert.equal($('home-level-scale').textContent, 'IELTS 말하기 5.0 예상');
+
+  homeRoutes(PAYLOAD(), { latest: LATEST({ en: null }) });
+  await home.loadHome();
+  assert.equal($('home-level').textContent, '레벨 테스트 전');
+  assert.equal($('home-level-scale').textContent, String.fromCharCode(0xa0), 'the scale row keeps its height');
+
+  homeRoutes(PAYLOAD(), { latest: LATEST({ en: new Error() }) });
+  await home.loadHome();
+  assert.equal($('home-level').textContent, '—', 'a failed request is not "not tested"');
+
+  state.language = 'ja';
+  homeRoutes(PAYLOAD(), { latest: LATEST({ ja: { cefr: 'A2', step: '하위', jf: 'JF A2 하위' } }) });
+  await home.loadHome();
+  assert.equal($('home-level-scale').textContent, 'JF A2 하위');
+  state.language = 'en';
+});
+
+test('accuracy is the 30-day percentage, and a dash when nothing was graded', async () => {
+  homeRoutes(PAYLOAD({ accuracy: { correct: 7, graded: 9 } }));
+  await home.loadHome();
+  assert.equal($('home-accuracy').textContent, '78%');
+  homeRoutes(PAYLOAD({ accuracy: { correct: 0, graded: 0 } }));
+  await home.loadHome();
+  assert.equal($('home-accuracy').textContent, '—');
+});
+
+test('결과 보기 opens the result this load found on the level test screen, with 홈으로', async () => {
+  router.register('leveltest', 'leveltest');
+  state.language = 'en';
+  const result = { cefr: 'B1', step: '상위', ielts: '5.0', finished_at: '2026-09-19T12:00:00+00:00' };
+  homeRoutes(PAYLOAD(), { latest: LATEST({ en: result }) });
+  await home.loadHome();
+  home.showLevelResultHome();
+  assert.equal(router.current(), 'leveltest');
+  assert.match(deepText($('lt-result-body')), /B1 상위/);
+  const { levelResultFrom } = await import('./leveltest.js');
+  assert.equal(levelResultFrom(), 'home');
+});
+
+test('a mode tile names its latest theme only when recent themes has one for that mode', async () => {
+  homeRoutes(PAYLOAD({ recent_themes: [
+    { theme_id: 'hotel', title: '호텔', mode: 'free', shadowing: false },
+    { theme_id: 'cafe-restaurant', title: '카페·음식점 주문', mode: 'script', shadowing: true },
+    { theme_id: 'meetings', title: '회의', mode: 'free', shadowing: false },
+  ] }));
+  await home.loadHome();
+  assert.equal(text($('mode-recent-free')), '최근 호텔', 'the newest free theme, not the older one');
+  assert.equal(text($('mode-recent-shadow')), '최근 카페·음식점 주문', 'a shadowing session is filed under 쉐도잉');
+  for (const mode of ['script', 'lesson', 'timed']) {
+    assert.equal(text($(`mode-recent-${mode}`)), '', `${mode} has no recent theme but got a line`);
+  }
+  homeRoutes(PAYLOAD({ has_history: false, recent_themes: [] }));
+  await home.loadHome();
+  assert.equal(text($('mode-recent-free')), '', 'another language\'s line stayed');
+});
+
+test('recent themes show up to six', async () => {
+  const six = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((t) => ({ theme_id: t, title: t, mode: 'free', shadowing: false }));
+  homeRoutes(PAYLOAD({ recent_themes: six }));
+  await home.loadHome();
+  assert.equal($('recent-themes').children.length, 6);
+});
+
+test('the aside stays when only the level test card is in it', async () => {
+  homeRoutes(PAYLOAD({ has_history: false }), { latest: LATEST({ en: null }) });
+  state.language = 'en';
+  await home.loadHome();
+  assert.equal($('week-card').hidden, true);
+  assert.ok(cardOpen());
+  assert.equal($('home').classList.contains('no-aside'), false,
+    'the level test card sits in the aside; folding it would hide the card');
+});
+
+test('a lesson recent theme reads 수업, not its mode key', async () => {
+  homeRoutes(PAYLOAD({ recent_themes: [{ theme_id: 'x', title: '현재완료', mode: 'lesson', shadowing: false }] }));
+  await home.loadHome();
+  assert.equal(text($('recent-themes').children[0]), '현재완료수업');
 });
