@@ -20,18 +20,24 @@ header {
 
 /* Sits over whatever is below the header rather than pushing it down --
    `header` is its containing block (position: relative below). Empty and
-   [hidden] while every service answers; refreshHealth (session.js) fills
-   the text and clears [hidden] the moment one doesn't. Opacity only, no
+   faded to nothing while every service answers; refreshHealth (session.js)
+   writes the text and adds .is-shown the moment one doesn't. A class drives
+   the fade, not the `hidden` attribute -- base.css's blanket `[hidden]` rule
+   (display: none, !important) always beat an opacity rule keyed on that same
+   attribute here, so it never actually faded, it just snapped away. Opacity only, no
    transform: nothing here needs to survive being a containing block for a
    fixed/sticky descendant, but a translate would still read as the bar
-   sliding in, and this is meant to read as a plain appear/disappear. */
+   sliding in, and this is meant to read as a plain appear/disappear. It
+   carries no controls of its own, so pointer-events stays off in both states
+   -- shown or not, it must never eat a click meant for the header below it. */
 .health-notice {
   position: absolute; left: 0; right: 0; top: 100%; z-index: 15;
   padding: var(--space-2) var(--space-3); text-align: center;
   background: var(--warn-bg); color: var(--warn-ink); font-size: var(--text-sm);
-  opacity: 1; transition: opacity var(--dur-fast) ease;
+  opacity: 0; transition: opacity var(--dur-fast) ease;
+  pointer-events: none;
 }
-.health-notice[hidden] { display: block; opacity: 0; pointer-events: none; }
+.health-notice.is-shown { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .health-notice { transition: none; } }
 
 .row { display: flex; gap: var(--space-4); }

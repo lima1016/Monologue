@@ -356,11 +356,22 @@ def test_health_notice_fades_without_transform():
     """#health-notice (session.js: refreshHealth) replaces the old status
     dots. It overlays the header rather than pushing the page below it, and
     fades by opacity alone -- a transform here would read as the bar sliding
-    in rather than the plain appear/disappear the header calls for."""
+    in rather than the plain appear/disappear the header calls for.
+
+    The fade is driven by a class (.is-shown), not the `hidden` attribute:
+    base.css's `[hidden] { display: none !important }` always wins over a
+    `.health-notice[hidden] { opacity: 0 }` rule, so that never actually
+    faded -- it just snapped. It also carries no controls of its own, so
+    pointer-events stays off in both states, or a shown-but-borderline bar
+    could eat a click meant for the header underneath it."""
     css = _all_css()
     body = _rule_body(css, ".health-notice {")
     assert "position: absolute" in body or "position: sticky" in body
     assert "opacity" in body
+    assert "transition" in body
     assert "transform" not in body
-    hidden = _rule_body(css, ".health-notice[hidden] {")
-    assert "transform" not in hidden
+    assert "pointer-events: none" in body
+    shown = _rule_body(css, ".health-notice.is-shown {")
+    assert "opacity: 1" in shown
+    assert "transform" not in shown
+    assert ".health-notice[hidden] {" not in css

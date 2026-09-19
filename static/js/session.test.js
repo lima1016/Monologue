@@ -1261,52 +1261,79 @@ test('1분 말하기 리포트의 첫 숫자는 문장, 다른 리포트로 돌�
 /* #health-notice replaces the old status dots: nothing shown while every
  * service answers, one plain-language line -- possibly several joined with
  * " · " -- the moment something doesn't, and gone again the moment it
- * recovers. */
-test('every service up: the health notice stays hidden and empty', async () => {
+ * recovers. The fade is a class now, not [hidden] (base.css's
+ * `[hidden] { display: none !important }` always beat the old
+ * `.health-notice[hidden] { opacity: 0 }` rule, so it never actually faded)
+ * -- shown/hidden is read off .is-shown and aria-hidden instead. */
+function isShown(id = 'health-notice') {
+  return $(id).classList.contains('is-shown');
+}
+
+test('every service up: the health notice stays faded out and empty', async () => {
   resetDom();
+  state.language = 'en';
   stubFetch(async () => jsonResponse({ ollama: true, voicevox: true, whisper: 'ready' }));
   await refreshHealth();
-  assert.equal($('health-notice').hidden, true);
+  assert.equal(isShown(), false);
+  assert.equal($('health-notice').getAttribute('aria-hidden'), 'true');
   assert.equal($('health-notice').textContent, '');
 });
 
 test('whisper "loading" reads the same as "ready": nothing shown', async () => {
   resetDom();
+  state.language = 'en';
   stubFetch(async () => jsonResponse({ ollama: true, voicevox: true, whisper: 'loading' }));
   await refreshHealth();
-  assert.equal($('health-notice').hidden, true);
+  assert.equal(isShown(), false);
   assert.equal($('health-notice').textContent, '');
 });
 
 test('ollama down: the AI line, and only it', async () => {
   resetDom();
+  state.language = 'en';
   stubFetch(async () => jsonResponse({ ollama: false, voicevox: true, whisper: 'ready' }));
   await refreshHealth();
-  assert.equal($('health-notice').hidden, false);
+  assert.equal(isShown(), true);
+  assert.equal($('health-notice').getAttribute('aria-hidden'), 'false');
   assert.equal($('health-notice').textContent, 'AI가 꺼져 있어요 — 대화·교정·리포트가 안 돼요');
 });
 
-test('voicevox down: the Japanese-voice line', async () => {
+test('voicevox down in a Japanese session: the Japanese-voice line', async () => {
   resetDom();
+  state.language = 'ja';
   stubFetch(async () => jsonResponse({ ollama: true, voicevox: false, whisper: 'ready' }));
   await refreshHealth();
-  assert.equal($('health-notice').hidden, false);
+  assert.equal(isShown(), true);
   assert.equal($('health-notice').textContent, '일본어 음성이 꺼져 있어요 — 일본어 문장을 들을 수 없어요');
+});
+
+// VOICEVOX only ever speaks Japanese -- an English learner never touches it,
+// so its being down means nothing to them (as it did before this branch;
+// the branch's own refreshHealth rewrite dropped the language check).
+test('voicevox down in an English session: no line at all', async () => {
+  resetDom();
+  state.language = 'en';
+  stubFetch(async () => jsonResponse({ ollama: true, voicevox: false, whisper: 'ready' }));
+  await refreshHealth();
+  assert.equal(isShown(), false);
+  assert.equal($('health-notice').textContent, '');
 });
 
 test('whisper unavailable: the dictation line', async () => {
   resetDom();
+  state.language = 'en';
   stubFetch(async () => jsonResponse({ ollama: true, voicevox: true, whisper: 'unavailable' }));
   await refreshHealth();
-  assert.equal($('health-notice').hidden, false);
+  assert.equal(isShown(), true);
   assert.equal($('health-notice').textContent, '받아쓰기가 꺼져 있어요 — 브라우저 인식으로 대신해요');
 });
 
 test('every one of the three down joins into one line with " · "', async () => {
   resetDom();
+  state.language = 'ja';
   stubFetch(async () => jsonResponse({ ollama: false, voicevox: false, whisper: 'unavailable' }));
   await refreshHealth();
-  assert.equal($('health-notice').hidden, false);
+  assert.equal(isShown(), true);
   assert.equal(
     $('health-notice').textContent,
     'AI가 꺼져 있어요 — 대화·교정·리포트가 안 돼요 · 일본어 음성이 꺼져 있어요 — 일본어 문장을 들을 수 없어요 · 받아쓰기가 꺼져 있어요 — 브라우저 인식으로 대신해요'
@@ -1315,12 +1342,76 @@ test('every one of the three down joins into one line with " · "', async () => 
 
 test('recovery: a later healthy poll hides the notice again', async () => {
   resetDom();
+  state.language = 'en';
   let ollama = false;
   stubFetch(async () => jsonResponse({ ollama, voicevox: true, whisper: 'ready' }));
   await refreshHealth();
-  assert.equal($('health-notice').hidden, false);
+  assert.equal(isShown(), true);
   ollama = true;
   await refreshHealth();
-  assert.equal($('health-notice').hidden, true);
+  assert.equal(isShown(), false);
   assert.equal($('health-notice').textContent, '');
+});
+
+test('a health check that succeeds clears a stale "서버에 연결할 수 없습니다" toast', async () => {
+  resetDom();
+  state.language = 'en';
+  stubFetch(async () => { throw new Error('offline'); });
+  await refreshHealth();
+  assert.equal($('notice-text').textContent, '서버에 연결할 수 없습니다.');
+  assert.equal($('notice').hidden, false);
+  stubFetch(async () => jsonResponse({ ollama: true, voicevox: true, whisper: 'ready' }));
+  await refreshHealth();
+  // notify('') starts the toast's own fade-out (api.js) rather than hiding it
+  // outright -- .is-leaving is that fade having actually been asked for.
+  assert.equal($('notice').classList.contains('is-leaving'), true);
+});
+
+test('an overlapping poll (the 30s timer landing mid-request, or a language switch right after) never starts a second fetch', async () => {
+  resetDom();
+  state.language = 'en';
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const release = [];
+  stubFetch(async () => {
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((r) => release.push(r));
+    inFlight -= 1;
+    return jsonResponse({ ollama: true, voicevox: true, whisper: 'ready' });
+  });
+  const first = refreshHealth();
+  const second = refreshHealth(); // fired while the first is still in flight
+  release.forEach((r) => r());
+  await Promise.all([first, second]);
+  assert.equal(maxInFlight, 1, 'the second call must never have started its own fetch');
+});
+
+test('startHealthPoll re-polls every 30s so a recovered/failed service updates without a reload, and only ever arms one interval', async () => {
+  resetDom();
+  state.language = 'en';
+  let ollama = false;
+  let fetches = 0;
+  stubFetch(async () => { fetches += 1; return jsonResponse({ ollama, voicevox: true, whisper: 'ready' }); });
+  let tick = null;
+  let everyCalls = 0;
+  const realEvery = session.healthClock.every;
+  const realCancel = session.healthClock.cancel;
+  session.healthClock.every = (fn, ms) => { everyCalls += 1; tick = fn; assert.equal(ms, 30000); return everyCalls; };
+  session.healthClock.cancel = () => {};
+  try {
+    session.startHealthPoll();
+    session.startHealthPoll(); // a second call must not arm a second interval
+    assert.equal(everyCalls, 1);
+    await refreshHealth(); // the page's own first check, same as main.js's
+    assert.equal(isShown(), true);
+    ollama = true;
+    await tick(); // 30s later
+    assert.equal(isShown(), false);
+    assert.equal(fetches, 2);
+  } finally {
+    session.stopHealthPoll();
+    session.healthClock.every = realEvery;
+    session.healthClock.cancel = realCancel;
+  }
 });

@@ -351,24 +351,93 @@ setInterimHandler((text) => {
 
 /* One plain-language line for whichever services are down, replacing the old
    status dots (the learner had no way to know what a red dot meant). Nothing
-   down -> the bar stays [hidden] and empty, faded out by
-   .health-notice[hidden] (components.css). Several down -> one line, parts
-   joined with " · " so it stays the single compact element the layout rule
-   calls for, instead of stacking separate notices that would each take their
-   own space. */
-export async function refreshHealth() {
+   down -> the bar fades out empty (hideHealthNotice below). Several down ->
+   one line, parts joined with " · " so it stays the single compact element
+   the layout rule calls for, instead of stacking separate notices that would
+   each take their own space.
+
+   The fade used to be driven by the `hidden` attribute
+   (.health-notice[hidden] in components.css), but base.css's
+   `[hidden] { display: none !important }` always wins over that rule, so the
+   bar snapped away instead of ever fading -- a class drives the opacity
+   transition instead now, and aria-hidden tells assistive tech the same
+   thing `hidden` used to. */
+function showHealthNotice(text) {
   const bar = $('health-notice');
+  // The text goes on before the class that fades the bar in, so
+  // aria-live="polite" (index.html) has the real message to announce, not
+  // whatever was left over from a moment before.
+  bar.textContent = text;
+  bar.classList.add('is-shown');
+  bar.setAttribute('aria-hidden', 'false');
+}
+
+function hideHealthNotice() {
+  const bar = $('health-notice');
+  bar.classList.remove('is-shown');
+  bar.setAttribute('aria-hidden', 'true');
+  bar.textContent = '';
+}
+
+// True while a /health request is in flight -- a slow answer must never let
+// a second call (the 30s timer below landing mid-request, or a language
+// switch right after) start its own overlapping fetch; the one already
+// running is left to finish and paint whatever it finds.
+let healthPolling = false;
+
+export async function refreshHealth() {
+  if (healthPolling) return;
+  healthPolling = true;
   try {
     const h = await getJSON('/health');
     const parts = [];
     if (!h.ollama) parts.push('AI가 꺼져 있어요 — 대화·교정·리포트가 안 돼요');
-    if (!h.voicevox) parts.push('일본어 음성이 꺼져 있어요 — 일본어 문장을 들을 수 없어요');
+    // Only in a Japanese session -- an English learner never touches
+    // VOICEVOX, so its being down means nothing to them.
+    if (!h.voicevox && state.language === 'ja') parts.push('일본어 음성이 꺼져 있어요 — 일본어 문장을 들을 수 없어요');
     if (h.whisper === 'unavailable') parts.push('받아쓰기가 꺼져 있어요 — 브라우저 인식으로 대신해요');
-    bar.textContent = parts.join(' · ');
-    bar.hidden = parts.length === 0;
+    if (parts.length) showHealthNotice(parts.join(' · '));
+    else hideHealthNotice();
+    // A successful check clears a stale "서버에 연결할 수 없습니다." left by an
+    // earlier failed one -- the server answered this time, so that toast no
+    // longer describes what's happening.
+    notify('');
   } catch {
     notify('서버에 연결할 수 없습니다.');
+  } finally {
+    healthPolling = false;
   }
+}
+
+/* The clock health polling reads, exactly like timed.js/leveltest.js's own
+   `clock` objects -- an object, not a bare setInterval/clearInterval pair, so
+   a test can stand a fake one in (an imported binding cannot be reassigned)
+   before arming the poll. */
+export const healthClock = {
+  every: (fn, ms) => setInterval(fn, ms),
+  cancel: (id) => clearInterval(id),
+};
+
+const HEALTH_POLL_MS = 30000;
+let healthPollTimer = null;
+
+/* Keeps the bar honest after the first paint: a service that recovers (or
+   goes down) while the learner just sits on a screen must still show up, or
+   disappear, without a reload. main.js calls this once, right after its own
+   first refreshHealth(); a second call here is a no-op so nothing already
+   running could ever be joined by a second interval. */
+export function startHealthPoll() {
+  if (healthPollTimer !== null) return;
+  healthPollTimer = healthClock.every(refreshHealth, HEALTH_POLL_MS);
+}
+
+// Tests only: undoes startHealthPoll so a fresh (fake) clock can be armed
+// between tests, the same way leaveTimed/leaveLevelTest cancel their own
+// tickers -- main.js never needs this while the page stays open.
+export function stopHealthPoll() {
+  if (healthPollTimer === null) return;
+  healthClock.cancel(healthPollTimer);
+  healthPollTimer = null;
 }
 
 /* ---------- session ---------- */
