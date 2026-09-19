@@ -239,6 +239,27 @@ def test_finish_twice_returns_the_same_result_without_asking_the_model_again(cli
     assert len(model.calls) == 1
 
 
+def test_a_second_finish_racing_the_first_cannot_overwrite_it(client, monkeypatch):
+    """Two /finish calls both pass the "no result yet" check while the model
+    judges; the one that stores first is the result, and the other gives it back."""
+    Heard(monkeypatch)
+    Segments(monkeypatch)
+    tid = _start(client)["test_id"]
+    _repeat(client, tid, perfect=7)
+    _answer(client, tid, 0)
+    first = {"test_id": tid, "cefr": "C2", "marker": "first"}
+
+    def judge_while_another_finish_lands(messages, schema, **kw):
+        db.finish_level_test(tid, first, "advanced")
+        return _judged("B1")
+    monkeypatch.setattr(llm, "chat_json", judge_while_another_finish_lands)
+    res = client.post(f"/api/level-test/{tid}/finish").json()
+    assert res["marker"] == "first" and res["cefr"] == "C2"
+    stored = db.get_level_test(tid)
+    assert stored["result"]["marker"] == "first"
+    assert db.latest_level_test("en")["result"] == res
+
+
 def test_stt_down_is_503_and_the_same_sentence_can_be_uploaded_again(client, monkeypatch):
     heard = Heard(monkeypatch)
     tid = _start(client)["test_id"]

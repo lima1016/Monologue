@@ -1371,13 +1371,18 @@ def set_level_answer(test_id, q, data: dict) -> None:
 
 def finish_level_test(test_id, result: dict, app_level) -> dict:
     """Stamps finished_at into the result too, so the stored result is the
-    whole answer a second /finish returns; gives that result back."""
+    whole answer a second /finish returns. Only the first finish writes
+    (finished_at IS NULL): two /finish calls racing through the model call
+    both land here, and the second must not overwrite the first. Gives back
+    what is stored, whichever call wrote it."""
     result = {**result, "finished_at": _now()}
     with connect() as conn:
         conn.execute(
-            "UPDATE level_tests SET finished_at = ?, result_json = ?, app_level = ? WHERE id = ?",
+            "UPDATE level_tests SET finished_at = ?, result_json = ?, app_level = ?"
+            " WHERE id = ? AND finished_at IS NULL",
             (result["finished_at"], json.dumps(result, ensure_ascii=False), app_level, test_id))
-    return result
+        row = conn.execute("SELECT result_json FROM level_tests WHERE id = ?", (test_id,)).fetchone()
+    return json.loads(row["result_json"])
 
 
 def latest_level_test(language) -> dict | None:
