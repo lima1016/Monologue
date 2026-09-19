@@ -150,6 +150,18 @@ def test_the_growth_tab_never_transforms():
     assert "opacity: 1" in tip
 
 
+def test_growth_empty_state_keeps_a_modest_floor():
+    """A brand-new learner sees .growth-empty on every one of the four
+    blocks instead of a chart -- without a floor, four one-line hints in a
+    row read as the tab collapsing. Token-built (calc from --text-sm), not a
+    literal pixel value, and still well short of a loaded chart's own height
+    (growth.js's ACC_H/SMALL_H), which is the point: modest, not a stand-in
+    for the chart itself."""
+    body = dict(_growth_rules())[".growth-empty"]
+    assert "min-height: calc(" in body
+    assert "var(--text-sm)" in body
+
+
 def test_the_calendar_is_one_hue_mixed_from_theme_tokens():
     """Sequential, one hue: nothing is the sunken surface, then four steps of
     --accent mixed into --surface, rising -- so it follows every theme and

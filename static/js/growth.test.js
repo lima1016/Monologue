@@ -2,7 +2,7 @@ import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { resetDom } from './dom-shim.js';
-import { renderGrowth, heatLevels, GROWTH_TEXT } from './growth.js';
+import { renderGrowth, heatLevels, GROWTH_TEXT, growthSkeleton } from './growth.js';
 
 beforeEach(() => resetDom());
 
@@ -54,6 +54,31 @@ const tipOf = (node) => { let n = node; while (n && !n.classList.contains('growt
 test('the four blocks come in order, each named', () => {
   assert.deepEqual(blocks(growthBody()).map((b) => one(b, 'label').textContent),
     ['연습 잔디', '정확도 변화', '1분 말하기', '레벨 테스트 기록']);
+});
+
+/* The loaded calendar carries a heat key row and a 표로 보기 line, and the
+ * loaded accuracy chart and each of the two 1분 말하기 charts each carry
+ * their own 표로 보기 line too -- none of which the skeleton used to
+ * reserve, so the tab visibly grew the moment the real answer replaced it.
+ * growthSkeleton must hold the same rows before the data ever lands. */
+test('the loading skeleton reserves the heat key row and every 표로 보기 line, so the tab does not grow once the answer lands', () => {
+  const skeleton = growthSkeleton(560);
+  assert.equal(skeleton.length, 4, 'still one skeleton block per section');
+
+  const heatKeys = skeleton.flatMap((b) => all(b, 'heat-key'));
+  assert.equal(heatKeys.length, 1, 'only the calendar block carries a heat key');
+
+  const tables = skeleton.flatMap((b) => all(b, 'growth-table'));
+  assert.equal(tables.length, 4, '표로 보기: calendar, accuracy, and each of the two 1분 말하기 charts');
+  // Each placeholder is the collapsed line itself (a <summary>표로 보기</summary>),
+  // not a whole rendered table -- reserving more height than the real,
+  // still-unopened <details> actually has would be its own kind of drift.
+  for (const t of tables) {
+    assert.equal(t.tagName, 'DETAILS');
+    assert.equal(t.children.length, 1, 'just the summary, no <table> yet');
+    assert.equal(t.children[0].tagName, 'SUMMARY');
+    assert.equal(t.children[0].textContent, GROWTH_TEXT.table);
+  }
 });
 
 test('the calendar has 112 cells, coloured by the quartiles of the days with turns', () => {

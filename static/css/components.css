@@ -1337,7 +1337,12 @@ button.tag-bar:hover .name { color: var(--accent-ink); }
 #growth-body:focus { outline: none; }
 .growth-block > .label { margin: 0 0 var(--space-2); }
 .growth-block > p { margin: 0; }
-.growth-empty { padding: var(--space-2) 0; }
+/* A brand-new learner sees this instead of a chart on every block -- without
+   a floor, four one-line hints in a row read as the tab collapsing, not as
+   "practise a bit and this fills in". Modest on purpose: still far short of
+   a loaded chart's own height (ACC_H/SMALL_H in growth.js), just enough that
+   the page doesn't visibly shrink. */
+.growth-empty { padding: var(--space-2) 0; min-height: calc(3 * var(--text-sm) * 1.55); }
 .growth-block > .growth-summary { margin-top: var(--space-2); font-size: var(--text-sm); color: var(--text-dim);
   min-height: calc(var(--text-sm) * 1.55); }
 .growth-block.is-skeleton .growth-summary { width: 45%; }

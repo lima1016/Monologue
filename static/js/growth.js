@@ -57,7 +57,9 @@ export function layout(width) {
 }
 
 /* The loading state: each block's label and a placeholder the height of the
-   chart that replaces it. */
+   chart that replaces it -- including the heat key row and the 표로 보기
+   line every loaded block below also carries, or the tab would grow the
+   moment the real answer lands and those rows appear for the first time. */
 export function growthSkeleton(width) {
   const L = layout(width);
   const chart = (w, h, cls = '') => {
@@ -66,11 +68,16 @@ export function growthSkeleton(width) {
     box.style.maxWidth = `${w}px`;
     return box;
   };
+  const small = () => {
+    const box = el('div', 'growth-small');
+    box.append(skelLine('growth-sub'), chart(L.small.width, L.small.height), tablePlaceholder());
+    return box;
+  };
   const pair = el('div', `growth-pair${L.small.split ? ' is-split' : ''}`);
-  pair.append(chart(L.small.width, L.small.height + 22), chart(L.small.width, L.small.height + 22));
+  pair.append(small(), small());
   return [
-    block('연습 잔디', chart(L.cal.width, L.cal.height), skelLine('growth-summary')),
-    block('정확도 변화', chart(L.acc.width, L.acc.height)),
+    block('연습 잔디', chart(L.cal.width, L.cal.height), heatKeyRow(), skelLine('growth-summary'), tablePlaceholder()),
+    block('정확도 변화', chart(L.acc.width, L.acc.height), tablePlaceholder()),
     block('1분 말하기', pair),
     block('레벨 테스트 기록', skelLine('growth-test'), skelLine('growth-test')),
   ].map((b) => { b.classList.add('is-skeleton'); return b; });
@@ -157,14 +164,9 @@ function calendarSection(g, L) {
   });
   wrap.classList.add('growth-cal');
 
-  const key = el('div', 'heat-key');
-  key.append(el('span', '', '적음'));
-  for (let n = 1; n <= 4; n += 1) key.append(el('span', `heat-swatch lv${n}`));
-  key.append(el('span', '', '많음'));
-
   const rows = cal.filter((d) => d.turns > 0).slice().reverse()
     .map((d) => [dayName(d.day), `${d.turns}문장`]);
-  return [wrap, key, summary, table(['날짜', '말한 문장'], rows)];
+  return [wrap, heatKeyRow(), summary, table(['날짜', '말한 문장'], rows)];
 }
 
 function summaryText(g) {
@@ -365,7 +367,29 @@ function chartSvg(width, height, label) {
   return root;
 }
 
+/* Shared with growthSkeleton (above), so the loading state reserves this
+   row's exact height instead of guessing at it -- the four steps are the
+   theme's own colours (--heat-1..4 in components.css), not data, so there is
+   nothing here to actually wait on. */
+function heatKeyRow() {
+  const key = el('div', 'heat-key');
+  key.append(el('span', '', '적음'));
+  for (let n = 1; n <= 4; n += 1) key.append(el('span', `heat-swatch lv${n}`));
+  key.append(el('span', '', '많음'));
+  return key;
+}
+
 /* ---------- 표로 보기 ---------- */
+
+/* A closed 표로 보기 line -- exactly what `table()` below renders before a
+   learner ever opens it. growthSkeleton (above) uses this to reserve that
+   one line's height, rather than the whole (still unknown) table under it,
+   which stays collapsed either way until clicked. */
+function tablePlaceholder() {
+  const box = el('details', 'growth-table');
+  box.append(el('summary', '', GROWTH_TEXT.table));
+  return box;
+}
 
 function table(head, rows) {
   const box = el('details', 'growth-table');
