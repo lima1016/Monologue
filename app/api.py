@@ -1557,7 +1557,9 @@ def _timed_report(session: dict) -> dict:
     alone: `turns` is every sentence round 1 produced (whether graded or
     not), `wrong` is how many of them came back marked wrong, and `minutes`
     sums every round's own seconds -- round 2+ took real time even though
-    only round 1 becomes messages rows.
+    only round 1 becomes messages rows. Minutes round half up (not Python's
+    banker's round(), which reads 30 s as 0) and are at least 1 once there is
+    a round.
     """
     rounds = db.get_rounds(session["id"])
     round_reports = [{
@@ -1578,7 +1580,7 @@ def _timed_report(session: dict) -> dict:
         "stats": {
             "turns": len(first_sentences),
             "wrong": sum(1 for s in first_sentences if s["ok"] is False),
-            "minutes": round(sum(r["seconds"] for r in rounds) / 60),
+            "minutes": max(int(sum(r["seconds"] for r in rounds) / 60 + 0.5), 1) if rounds else 0,
         },
     }
 

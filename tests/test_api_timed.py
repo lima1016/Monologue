@@ -737,3 +737,13 @@ def test_a_timed_session_with_a_recent_round_is_not_stale(client, monkeypatch):
     assert db.abandon_stale_sessions(hours=24) == 0
     assert db.get_session(sid)["ended_at"] is None
 
+
+@pytest.mark.parametrize("seconds,minutes", [("30", 1), ("90", 2), ("10", 1)])
+def test_report_minutes_round_half_up_and_any_round_is_at_least_one(client, monkeypatch, seconds, minutes):
+    """Python's round() is banker's rounding: 30 s would read 0 분 and 90 s 2
+    only by luck. Half rounds up, and a report with a round never says 0."""
+    Stt(monkeypatch)
+    sid = _timed()
+    _upload(client, sid, seconds=seconds)
+    Model(monkeypatch, RIGHT)
+    assert client.post(f"/api/sessions/{sid}/end").json()["stats"]["minutes"] == minutes
