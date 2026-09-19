@@ -105,6 +105,51 @@ test("home's 복습 card opens my page on 복습, and 기록 더 보기 on 기�
   }
 });
 
+/* Both languages' voice lists (#voice-list-en, #voice-list-ja) sit in the
+   settings dialog's DOM at once (settings.js's own header comment). A plain
+   `name="voice"` on every radio, in both lists, made them one native radio
+   group across the whole document -- whichever list rendered last silently
+   unchecked the other language's selected voice. settings.js now names each
+   list's radios voice-${language}, and the change handler below reads the
+   language out of that name instead of $('settings-language').value. */
+test('the two voice lists use different radio group names, and a change in either saves that language\'s own voice', async () => {
+  const { $ } = await import('./api.js');
+  const settings = await import('./settings.js');
+  stubFetch(async (url) => {
+    if (url.startsWith('/api/voices')) {
+      const language = new URL(url, 'http://x').searchParams.get('language');
+      const voices = language === 'en'
+        ? [{ id: 'en-a', label: 'A', gender: 'female' }]
+        : [{ id: 'ja-b', label: 'B', gender: 'male' }];
+      return jsonResponse({ voices, selected: voices[0].id });
+    }
+    return jsonResponse({});
+  });
+  await settings.renderVoiceLists();
+  assert.match($('voice-list-en').innerHTML, /name="voice-en"/);
+  assert.match($('voice-list-ja').innerHTML, /name="voice-ja"/);
+  assert.doesNotMatch($('voice-list-en').innerHTML, /name="voice-ja"/);
+  assert.doesNotMatch($('voice-list-ja').innerHTML, /name="voice-en"/);
+
+  const posted = [];
+  stubFetch(async (url, options) => {
+    if (options && options.method === 'POST') { posted.push(JSON.parse(options.body)); return jsonResponse({}); }
+    return jsonResponse({});
+  });
+  try {
+    const change = $('lang-sections').listeners.change[0];
+    await change({ target: { name: 'voice-en', value: 'en-a' } });
+    await change({ target: { name: 'voice-ja', value: 'ja-b' } });
+    await change({ target: { name: 'not-a-voice-field', value: 'x' } }); // e.g. a future field sharing the container
+    assert.deepEqual(posted, [
+      { language: 'en', voice: 'en-a' },
+      { language: 'ja', voice: 'ja-b' },
+    ]);
+  } finally {
+    stubFetch(async () => jsonResponse({}));
+  }
+});
+
 /* A Japanese IME confirms a conversion with Enter. That Enter arrives as a
    keydown with isComposing true, and must not start with half-typed text --
    in #pick-own (1분 말하기's own question) or #wish. */

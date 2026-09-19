@@ -26,14 +26,22 @@ export function syncLanguageSections() {
 }
 
 /* Renders one language's voice list into its own container so the other
-   language's list (and its height) is left untouched. */
+   language's list (and its height) is left untouched.
+
+   The radio group is named voice-${language}, not a bare "voice" -- both
+   lists sit in the dialog's DOM at once (see the header comment above), and
+   a plain `name="voice"` on both makes every one of these radios, across
+   both languages, one native radio group: the browser itself unchecks
+   whichever list's selection rendered first the moment the other list draws
+   its own `checked` radio. Naming each list's group after its own language
+   keeps the two groups apart the same way the containers already are. */
 export async function renderVoiceList(language) {
   try {
     const { voices, selected } = await getJSON(`/voices?language=${language}`);
     $(`voice-list-${language}`).innerHTML = voices
       .map(
         (v) => `<div class="voice">
-          <input type="radio" name="voice" id="v-${v.id}" value="${v.id}" ${v.id === selected ? 'checked' : ''}>
+          <input type="radio" name="voice-${language}" id="v-${v.id}" value="${v.id}" ${v.id === selected ? 'checked' : ''}>
           <label for="v-${v.id}">${v.label} <span class="hint">${v.gender === 'male' ? '남성' : '여성'}</span></label>
           <button data-preview="${v.id}">▶ 미리듣기</button>
         </div>`

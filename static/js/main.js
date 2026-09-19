@@ -1,6 +1,6 @@
 import { $, postJSON, notify, state } from './api.js';
 import { play, stopPlayback, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
-import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
+import { refreshHealth, startHealthPoll, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
 import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome } from './home.js';
 import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
@@ -331,6 +331,9 @@ $('panel-body').addEventListener('click', (e) => {
 });
 
 refreshHealth();
+// Re-polls every 30s so the bar reacts to a service recovering, or one going
+// down mid-session, without a reload -- started once, here, at load.
+startHealthPoll();
 loadHome();
 loadReadingPrefs();
 
@@ -356,8 +359,13 @@ $('lang-sections').addEventListener('click', (e) => {
 });
 $('reading-prefs').addEventListener('change', saveReadingPrefs);
 $('lang-sections').addEventListener('change', async (e) => {
-  if (e.target.name !== 'voice') return;
-  const language = $('settings-language').value;
+  // settings.js names each list's radios voice-${language} now (not one
+  // shared "voice" group across both lists -- see its own comment); the
+  // language rides in the name itself, not $('settings-language').value,
+  // which only ever names the *reachable* section (syncLanguageSections),
+  // not necessarily the one this particular change came from.
+  if (!/^voice-/.test(e.target.name || '')) return;
+  const language = e.target.name.slice('voice-'.length);
   try {
     await postJSON('/voices', { language, voice: e.target.value });
   } catch (err) {
