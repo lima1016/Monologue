@@ -73,6 +73,22 @@ def _judged(*cefrs, comment="주제를 잘 이었지만 표현이 조금 단순�
     return {"answers": [{"q": q, "cefr": c, "comment": comment} for q, c in enumerate(cefrs)]}
 
 
+class TranslationSpy:
+    """Stands in for api._cached_translation, the same checked ja->ko path the
+    ▸ 뜻 button uses. Records every call so a test can assert it was (or was
+    not) reached, without hitting the real model."""
+    def __init__(self, monkeypatch, result):
+        self.result = result
+        self.calls = []
+        monkeypatch.setattr(api, "_cached_translation", self)
+
+    def __call__(self, language, text):
+        self.calls.append((language, text))
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
 BANK = leveltest.load_bank("en")
 
 
@@ -462,6 +478,10 @@ def test_a_japanese_comment_is_asked_again_and_the_korean_retry_is_kept(client, 
 
 
 def test_a_comment_leaking_twice_is_blank_and_the_model_is_asked_only_twice(client, monkeypatch):
+    # The retry comment is still Japanese, so it now also goes through
+    # translation (below); mocking that to fail keeps this test about the
+    # chat_json call count, not translation.
+    TranslationSpy(monkeypatch, None)
     model, res = _ja_finish(client, monkeypatch, JA_COMMENT, JA_COMMENT)
     assert len(model.calls) == 2
     assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [("B1", "")]
@@ -479,6 +499,65 @@ def test_a_korean_comment_quoting_the_answer_is_kept_without_a_retry(client, mon
         {"q": 0, "cefr": "B1", "comment": "「週末」 이야기를 잘 전했지만 문장이 짧았어요."}]})
     assert len(model.calls) == 1
     assert res["answers"][0]["comment"] == "「週末」 이야기를 잘 전했지만 문장이 짧았어요."
+
+
+def test_a_japanese_retry_comment_is_translated_instead_of_dropped(client, monkeypatch):
+    """The bug this fixes, measured on the real model twice: a Japanese B1
+    answer pulls the comment into Japanese, and the Korean re-ask ALSO comes
+    back Japanese. The ▸ 뜻 button's checked ja->ko path translates it rather
+    than the comment being dropped."""
+    translate = TranslationSpy(monkeypatch, "주말 이야기를 잘 전했지만 문장이 짧았어요.")
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, JA_COMMENT)
+    assert translate.calls == [("ja", "週末の話はよくできましたが、文が短いです。")]
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [
+        ("B1", "주말 이야기를 잘 전했지만 문장이 짧았어요.")]
+
+
+def test_a_failed_translation_leaves_the_comment_blank(client, monkeypatch):
+    translate = TranslationSpy(monkeypatch, None)
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, JA_COMMENT)
+    assert translate.calls
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [("B1", "")]
+
+
+def test_a_translation_that_leaks_chinese_leaves_the_comment_blank(client, monkeypatch):
+    translate = TranslationSpy(monkeypatch, "周末的话说得不错，但是句子有点短。")
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, JA_COMMENT)
+    assert translate.calls
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [("B1", "")]
+
+
+ENGLISH_RETRY_COMMENT = {"answers": [
+    {"q": 0, "cefr": "B1", "comment": "Good weekend story but sentences were short."}]}
+
+
+def test_an_english_retry_comment_is_not_sent_to_translation(client, monkeypatch):
+    """Translation only fires for a comment that looks Japanese (has kana);
+    an English comment that merely fails the Korean check stays ""."""
+    translate = TranslationSpy(monkeypatch, "이 번역은 쓰이면 안 됩니다.")
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, ENGLISH_RETRY_COMMENT)
+    assert translate.calls == []
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [("B1", "")]
+
+
+def test_a_korean_retry_comment_is_never_passed_to_translation(client, monkeypatch):
+    translate = TranslationSpy(monkeypatch, "이 번역은 쓰이면 안 됩니다.")
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, {"answers": [
+        {"q": 0, "cefr": "B1", "comment": "주말 이야기는 잘 전했지만 문장이 짧았어요."}]})
+    assert translate.calls == []
+    assert res["answers"][0]["comment"] == "주말 이야기는 잘 전했지만 문장이 짧았어요."
+
+
+def test_a_korean_comment_quoting_a_kana_word_is_never_passed_to_translation(client, monkeypatch):
+    """The stronger case: a Korean comment that quotes a kana word from the
+    answer ("よく" is in JA_SEGMENTS) still has kana in it somewhere, so a
+    check that looks at the final comment text instead of gating on the
+    Korean check first could wrongly re-translate an already-good comment."""
+    translate = TranslationSpy(monkeypatch, "이 번역은 쓰이면 안 됩니다.")
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, {"answers": [
+        {"q": 0, "cefr": "B1", "comment": "「よく」라는 표현을 자연스럽게 썼어요."}]})
+    assert translate.calls == []
+    assert res["answers"][0]["comment"] == "「よく」라는 표현을 자연스럽게 썼어요."
 
 
 def test_the_answers_prompt_says_comments_are_korean_even_for_japanese():

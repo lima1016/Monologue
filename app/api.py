@@ -2118,7 +2118,9 @@ async def level_test_answer(test_id: int, q: int, seconds: float = Form(...),
 def _level_judgments(raw, answers: dict) -> dict:
     """{q: {"cefr", "comment"}} from one model answer. The comment is "" unless
     it is Korean; a word quoted from that learner's own answer (「週末」) is
-    not a leak."""
+    not a leak. "raw_comment" keeps the untranslated comment when it failed the
+    Korean check, so _judge_level_answers can try translating it instead of
+    dropping it outright."""
     items = raw.get("answers") if isinstance(raw, dict) else None
     out: dict = {}
     for item in items if isinstance(items, list) else []:
@@ -2130,7 +2132,8 @@ def _level_judgments(raw, answers: dict) -> dict:
         comment = item.get("comment")
         comment = _first_line(comment) if isinstance(comment, str) else None
         korean = comment and _is_korean_meaning(comment, source=answers[q]["text"] or "")
-        out[q] = {"cefr": cefr, "comment": comment if korean else ""}
+        out[q] = {"cefr": cefr, "comment": comment if korean else "",
+                  "raw_comment": None if korean else comment}
     return out
 
 
@@ -2157,8 +2160,11 @@ def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
                     exc_info=True)
         return {}
     out = _level_judgments(raw, answers)
-    if all(j["comment"] for j in out.values()):
-        return out
+    # raw_comment only matters for the merge below; strip it from what a
+    # caller sees so the {"cefr", "comment"} contract holds either way out.
+    result = {q: {"cefr": j["cefr"], "comment": j["comment"]} for q, j in out.items()}
+    if all(j["comment"] for j in result.values()):
+        return result
     try:
         retry = _level_judgments(llm.chat_json(
             prompts.build_level_answers_retry_messages(messages, json.dumps(raw, ensure_ascii=False)),
@@ -2167,9 +2173,21 @@ def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
         log.warning("level test comment re-ask failed; the first labels stand", exc_info=True)
         retry = {}
     for q, j in retry.items():
-        first = out.get(q, {})
-        out[q] = {"cefr": j["cefr"], "comment": j["comment"] or first.get("comment", "")}
-    return out
+        first = result.get(q, {})
+        comment = j["comment"] or first.get("comment", "")
+        # Measured on the real model twice: a Japanese B1 answer pulls the
+        # comment into Japanese, and the Korean re-ask ALSO comes back
+        # Japanese. Rather than drop it, translate it with the same checked
+        # ja->ko path the ▸ 뜻 button uses (_cached_translation) -- it already
+        # rejects Chinese leaks and returns None on failure. Only a comment
+        # that still fails the Korean check and looks Japanese (has kana) is
+        # translated; an English comment that merely isn't Korean is left "".
+        if not comment and j.get("raw_comment") and _KANA.search(j["raw_comment"]):
+            translated = _cached_translation(language, j["raw_comment"])
+            if translated and _is_korean_meaning(translated, source=answers[q]["text"] or ""):
+                comment = translated
+        result[q] = {"cefr": j["cefr"], "comment": comment}
+    return result
 
 
 @router.post("/level-test/{test_id}/finish")
