@@ -309,3 +309,13 @@ def test_the_shadowing_card_holds_its_height_and_never_transforms():
     actions = _rule_body(css, ".shadow-actions {")
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in actions
     assert "min-height:" in _rule_body(css, ".shadow-said {")
+
+
+def test_four_modes_go_two_by_two_on_a_phone():
+    css = _all_css()
+    phone = re.findall(r"@media \(max-width: 480px\)\s*\{(.*?)\n\}", css, re.S)
+    assert any(re.search(r"\.modes\s*\{[^}]*grid-template-columns:\s*1fr 1fr", b) for b in phone)
+
+
+def test_header_buttons_do_not_wrap():
+    assert re.search(r"\.status button\s*\{[^}]*white-space:\s*nowrap", _all_css())

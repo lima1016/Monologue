@@ -9,6 +9,12 @@ header {
          color: var(--text); text-decoration: none; border-radius: var(--radius-sm); }
 .brand-mark { color: var(--accent); flex-shrink: 0; }
 .status { display: flex; align-items: center; gap: var(--space-3); }
+/* A phone: 마이페이지 broke over two lines and the dots ran into the logo. */
+.status button { white-space: nowrap; }
+@media (max-width: 480px) {
+  .status { gap: var(--space-2); }
+  .brand { flex-shrink: 0; }
+}
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); }
 .dot.up { background: #2a9d5c; }
 .dot.down { background: #c0392b; }
@@ -598,6 +604,11 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    selected one" -- a hover tint is the whole of their state. border 0 makes a
    border-color hover a no-op, hence the background. */
 #home .modes .mode:hover { background: var(--accent-soft); }
+/* Four modes at phone width left each 78px -- 자유 상황극 broke mid-word.
+   Two by two there instead. */
+@media (max-width: 480px) {
+  .modes { display: grid; grid-template-columns: 1fr 1fr; }
+}
 #home .modes .mode:hover .d { color: var(--text-dim); }
 
 /* --- pick ---
