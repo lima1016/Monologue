@@ -1,15 +1,21 @@
-/* 마이페이지's summary card: "how is practice going?" drawn from GET
+/* 마이페이지's 성장 tab: "how is practice going?" drawn from GET
    /stats/growth -- no model call behind any of it. mypage.js owns when it
-   loads (with the rest of the page, per load and language) and when the
-   자세히 보기 fold opens; this module only turns one answer into nodes: the
-   card (renderSummary) and the charts under its fold (renderDetails).
+   loads (with the rest of the page, per load and language) and when it is
+   drawn (the first time the tab is on screen for an answer, at the width it
+   is shown at); this module only turns one answer into nodes: the whole
+   panel (renderGrowth) and its loading state (growthSkeleton).
+
+   The panel, top to bottom: four number tiles, the calendar (wide, with its
+   key and this week's count beside it), then accuracy and 1분 말하기 side
+   by side with the level tests under accuracy. Two by two only when the
+   panel is wide enough (layout().wide) -- the same flag sets .is-wide on the
+   grids, so the CSS columns and the widths the charts are drawn at agree.
 
    Charts are inline SVG built here, one axis each, no library. The viewBox
-   is the container's own width in pixels (`width`), so a label set at 11
-   units is 11px on screen. Colour is the theme's: marks wear var(--accent)
-   through classes in components.css, text wears text tokens, and the
-   calendar's four steps are color-mix of --accent into --surface -- nothing
-   here names a colour.
+   is the chart's own width in pixels, so a label set at 11 units is 11px on
+   screen. Colour is the theme's: marks wear var(--accent) through classes
+   in components.css, text wears text tokens, and the calendar's four steps
+   are color-mix of --accent into --surface -- nothing here names a colour.
 
    Every chart has a tooltip on each point or cell (hover, and keyboard focus
    with the arrow keys), and a 표로 보기 under it with the same numbers: the
@@ -25,8 +31,6 @@ const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 export const GROWTH_TEXT = {
   wait: '기록을 모으는 중이에요',
   guide: '연습하면 여기에 쌓여요',
-  more: '자세히 보기 ▾',
-  less: '접기 ▴',
   table: '표로 보기',
   calendarEmpty: '연습하면 여기에 날마다 한 칸씩 채워져요',
   accuracyEmpty: '채점된 문장이 쌓이면 주별 정확도가 보여요',
@@ -36,46 +40,83 @@ export const GROWTH_TEXT = {
 
 /* ---------- layout (shared by the skeleton, so loading and loaded agree) ---------- */
 
-const CAL = { left: 24, top: 18, weeks: 16, maxStep: 26, minStep: 12, gap: 3 };
+const CAL = { left: 24, top: 18, weeks: 16, maxStep: 40, minStep: 12, gap: 3 };
 const LINE = { left: 38, right: 14, top: 20, bottom: 24 };
 const ACC_H = 170;
 const SMALL_H = 130;
 // Below this the two 1분 말하기 charts stack instead of sitting side by side.
 const SPLIT_MIN = 480;
 const PAIR_GAP = 16;
+// The panel goes two by two from this width -- its own width, not the
+// window's, so the columns and the charts drawn into them always agree.
+// Above my page's 640px column below 900px: a phone or a narrow window is
+// always one column.
+export const WIDE_MIN = 700;
+// Between blocks: var(--space-4) in components.css (.growth-grid, .growth-cal-body).
+const COL_GAP = 16;
+// A block is a card: var(--space-4) padding and a 1px border on each side.
+const BLOCK_PAD = 34;
+// The calendar's side column (its key, this week, 표로 보기) when wide:
+// --growth-cal-side in components.css.
+const CAL_SIDE_W = 200;
 
 function calStep(width) {
   return Math.max(CAL.minStep, Math.min(CAL.maxStep, Math.floor((width - CAL.left) / CAL.weeks)));
 }
 
+/* `width` is the panel's; every chart width here is the inside of the block
+   it is drawn in. */
 export function layout(width) {
   const w = Math.max(280, Math.round(width));
-  const step = calStep(w);
-  const split = w >= SPLIT_MIN;
+  const wide = w >= WIDE_MIN;
+  const calArea = (wide ? w - CAL_SIDE_W - COL_GAP : w) - BLOCK_PAD;
+  const step = calStep(calArea);
+  const col = (wide ? Math.floor((w - COL_GAP) / 2) : w) - BLOCK_PAD;
+  const split = col >= SPLIT_MIN;
   return {
     width: w,
+    wide,
     cal: { step, width: CAL.left + CAL.weeks * step, height: CAL.top + 7 * step },
-    acc: { width: w, height: ACC_H },
-    small: { width: split ? Math.floor((w - PAIR_GAP) / 2) : w, height: SMALL_H, split },
+    acc: { width: col, height: ACC_H },
+    small: { width: split ? Math.floor((col - PAIR_GAP) / 2) : col, height: SMALL_H, split },
   };
 }
 
-/* The card's loading state: the calendar's own box, its key row, and the
-   three lines a practised learner's card carries -- so the answer lands
-   without the card growing under the tabs. */
-export function summarySkeleton(width) {
+/* The panel's loading state, built from the real panel's classes and sizes:
+   the four tiles, the calendar's own box with its key, the two chart blocks
+   at their charts' heights and the tests block -- so the answer lands
+   without the panel growing. */
+export function growthSkeleton(width) {
   const L = layout(width);
-  const cal = el('div', 'growth-chart skeleton');
-  cal.style.height = `${L.cal.height}px`;
-  cal.style.maxWidth = `${L.cal.width}px`;
-  const lines = el('div', 'growth-lines');
-  lines.append(skelLine('growth-line'), skelLine('growth-line'), skelLine('growth-line'));
-  const box = el('div', 'growth-summary-box is-skeleton');
-  box.append(cal, heatKeyRow(), lines);
-  return [box];
+  const tiles = el('div', 'growth-tiles is-skeleton');
+  for (let i = 0; i < 4; i += 1) {
+    const t = el('div', 'growth-tile');
+    t.append(skelLine('k'), skelLine('v'), skelLine('d'));
+    tiles.append(t);
+  }
+  const box = (h, w) => {
+    const b = el('div', 'growth-chart skeleton');
+    b.style.height = `${h}px`;
+    if (w) b.style.maxWidth = `${w}px`;
+    return b;
+  };
+  const side = el('div', 'growth-cal-side');
+  side.append(heatKeyRow(), skelLine('growth-line'));
+  const days = block('연습한 날', calBody(L, box(L.cal.height, L.cal.width), side));
+  const acc = block('정확도 변화', box(L.acc.height));
+  const pair = el('div', `growth-pair${L.small.split ? ' is-split' : ''}`);
+  for (let i = 0; i < 2; i += 1) {
+    const small = el('div', 'growth-small');
+    small.append(skelLine('growth-sub'), box(L.small.height));
+    pair.append(small);
+  }
+  const timed = block('1분 말하기', pair);
+  const tests = block('레벨 테스트 기록', skelLine('growth-test'), skelLine('growth-test'));
+  for (const b of [days, acc, timed, tests]) b.classList.add('is-skeleton');
+  return [tiles, days, chartsGrid(L, acc, timed, tests)];
 }
 
-/* ---------- the summary card (my page, above the tabs) ---------- */
+/* ---------- the panel ---------- */
 
 /* Anything to look back on at all: a day spoken on, a graded sentence, a
    1분 말하기, a level test, or time on the clock. */
@@ -84,45 +125,70 @@ export function hasPractice(g) {
     || (g.accuracy || []).some((w) => w.graded > 0) || (g.timed || []).length || (g.level_tests || []).length);
 }
 
-/* The calendar and the few lines under it. With nothing at all to show,
-   one line saying what will fill it -- no empty grid, no zeros. */
-export function renderSummary(g, width) {
+/* Everything, open: the tiles, the calendar, the charts and the tests. With
+   nothing at all to show, one line saying what will fill it -- no empty
+   grid, no zeros. */
+export function renderGrowth(g, width) {
   if (!hasPractice(g)) return [el('p', 'hint growth-empty growth-guide', GROWTH_TEXT.guide)];
   const L = layout(width);
-  const box = el('div', 'growth-summary-box');
-  const cal = g.calendar || [];
-  if (cal.some((c) => c.turns > 0)) box.append(calendarChart(g, L), heatKeyRow());
-  else box.append(el('p', 'hint growth-empty', GROWTH_TEXT.calendarEmpty));
-  const lines = el('div', 'growth-lines');
-  lines.append(el('p', 'growth-line growth-streak', streakText(g)));
-  const acc = accuracyLine(g.accuracy || []);
-  if (acc) lines.append(acc);
-  const timed = timedLine(g.timed || []);
-  if (timed) lines.append(timed);
-  box.append(lines);
-  return [box];
-}
-
-/* 자세히 보기: every chart and table, drawn at the width it is shown at. */
-export function renderDetails(g, width) {
-  const L = layout(width);
+  const tiles = el('div', 'growth-tiles');
+  tiles.append(streakTile(g), timeTile(g), accuracyTile(g.accuracy || []), timedTile(g.timed || []));
   return [
-    block('연습한 날', ...daysSection(g)),
-    block('정확도 변화', ...accuracySection(g.accuracy || [], L)),
-    block('1분 말하기', ...timedSection(g.timed || [], L)),
-    block('레벨 테스트 기록', testsSection(g.level_tests || [])),
+    tiles,
+    daysBlock(g, L),
+    chartsGrid(L,
+      block('정확도 변화', ...accuracySection(g.accuracy || [], L)),
+      block('1분 말하기', ...timedSection(g.timed || [], L)),
+      block('레벨 테스트 기록', testsSection(g.level_tests || []))),
   ];
 }
 
-function streakText(g) {
-  return `연속 ${g.streak || 0}일 · 총 ${totalTime(g.minutes || 0)}`;
+/* Accuracy and 1분 말하기 side by side, the tests under accuracy
+   (grid areas in components.css); one column when not wide. */
+function chartsGrid(L, acc, timed, tests) {
+  acc.classList.add('growth-acc-block');
+  timed.classList.add('growth-timed-block');
+  tests.classList.add('growth-tests-block');
+  const grid = el('div', `growth-grid${L.wide ? ' is-wide' : ''}`);
+  grid.append(acc, timed, tests);
+  return grid;
 }
 
-function totalTime(minutes) {
+function calBody(L, chart, side) {
+  const body = el('div', `growth-cal-body${L.wide ? ' is-wide' : ''}`);
+  body.append(chart, side);
+  return body;
+}
+
+/* ---------- the tiles ---------- */
+
+/* A key, a value (number and small unit pairs), and one line under it.
+   Every tile has something to say on that line (an empty one says why), and
+   the line holds its height in CSS, so the four are one height. */
+function tile(cls, key, parts, ...detail) {
+  const box = el('div', `growth-tile ${cls}`);
+  const v = el('p', 'v');
+  parts.forEach(([n, unit]) => {
+    v.append(txt(String(n)));
+    if (unit) v.append(el('small', '', unit));
+  });
+  const d = el('p', 'd');
+  d.append(...detail);
+  box.append(el('p', 'k', key), v, d);
+  return box;
+}
+
+function streakTile(g) {
+  return tile('growth-streak', '연속', [[g.streak || 0, '일']], txt(`최장 ${g.longest || 0}일`));
+}
+
+function timeTile(g) {
+  const minutes = g.minutes || 0;
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  if (!h) return `${m}분`;
-  return m ? `${h}시간 ${m}분` : `${h}시간`;
+  const parts = !h ? [[m, '분']] : m ? [[h, '시간'], [m, '분']] : [[h, '시간']];
+  const days = (g.calendar || []).filter((c) => c.turns > 0).length;
+  return tile('growth-time', '총 연습', parts, txt(`16주 동안 ${days}일`));
 }
 
 function pct(w) {
@@ -130,37 +196,38 @@ function pct(w) {
 }
 
 /* This week's accuracy against the week before it that had any; a week with
-   nothing graded yet gives way to the latest week that has. */
-export function accuracyLine(weeks) {
+   nothing graded yet gives way to the latest week that has. None at all: a
+   dash, and the tile stays. */
+function accuracyTile(weeks) {
   const withData = weeks.map((w, i) => (w.graded > 0 ? i : -1)).filter((i) => i >= 0);
-  if (!withData.length) return null;
+  if (!withData.length) return tile('growth-acc', '정확도', [['—', '']], txt('채점된 문장이 아직 없어요'));
   const at = withData[withData.length - 1];
   const last = weeks.length - 1;
   const name = at === last ? '이번 주' : at === last - 1 ? '지난 주' : `${weekShort(weeks[at].week)} 주`;
-  const line = el('p', 'growth-line growth-acc', `${name} 정확도 ${pct(weeks[at])}%`);
   const before = withData[withData.length - 2];
-  if (before !== undefined) line.append(delta(pct(weeks[at]) - pct(weeks[before]), '그 전 주', '그 전 주와 같아요'));
-  return line;
+  const detail = before === undefined
+    ? [txt(`${weeks[at].correct}/${weeks[at].graded}문장`)]
+    : delta(pct(weeks[at]) - pct(weeks[before]), '그 전 주', '그 전 주와 같아요', '%p');
+  return tile('growth-acc', `${name} 정확도`, [[pct(weeks[at]), '%']], ...detail);
 }
 
 /* The newest 1분 말하기 against the one before it, with its long pauses. */
-export function timedLine(rounds) {
-  if (!rounds.length) return null;
+function timedTile(rounds) {
+  if (!rounds.length) return tile('growth-timed', '1분 말하기', [['—', '']], txt('아직 해 보지 않았어요'));
   const now = rounds[rounds.length - 1];
-  const line = el('p', 'growth-line growth-timed', `1분 말하기 분당 ${now.wpm}단어`);
   const before = rounds[rounds.length - 2];
-  if (before) line.append(delta(now.wpm - before.wpm, '지난번', '지난번과 같아요'));
-  line.append(document.createTextNode(` · 긴 멈춤 ${now.long_pauses}번`));
-  return line;
+  const detail = before ? [...delta(now.wpm - before.wpm, '지난번', '지난번과 같아요', ''), txt(' · ')] : [];
+  detail.push(txt(`긴 멈춤 ${now.long_pauses}번`));
+  return tile('growth-timed', '1분 말하기', [[now.wpm, '단어/분']], ...detail);
 }
 
-function delta(diff, than, same) {
+/* ▲ 8%p, ▼ 3, – 그대로. The mark says the direction in words to a screen
+   reader; the amount is plain text after it. */
+function delta(diff, than, same, unit) {
   const mark = el('span', `growth-delta${diff > 0 ? ' up' : diff < 0 ? ' down' : ''}`,
     diff > 0 ? '▲' : diff < 0 ? '▼' : '–');
   mark.setAttribute('aria-label', diff > 0 ? `${than}보다 올랐어요` : diff < 0 ? `${than}보다 내려갔어요` : same);
-  const wrap = el('span', 'growth-delta-wrap');
-  wrap.append(document.createTextNode(' '), mark);
-  return wrap;
+  return [mark, txt(diff ? ` ${Math.abs(diff)}${unit}` : ' 그대로')];
 }
 
 /* ---------- 연습 잔디 ---------- */
@@ -230,15 +297,23 @@ function calendarChart(g, L) {
   return wrap;
 }
 
-/* The details' first block: the longest run, and the calendar's days as a
-   table (the grid itself is on the card above). */
-function daysSection(g) {
+/* 연습한 날: the calendar, and beside it (below it when narrow) its key,
+   this week's sentences so far and the days as a table. With no day spoken
+   on, the calendar's place says what will fill it. */
+function daysBlock(g, L) {
   const cal = g.calendar || [];
-  const longest = el('p', 'growth-summary', `최장 연속 ${g.longest || 0}일`);
+  if (!cal.some((c) => c.turns > 0)) {
+    return block('연습한 날', el('p', 'hint growth-empty', GROWTH_TEXT.calendarEmpty));
+  }
+  const today = g.today || cal[cal.length - 1].day;
+  // The last column is this week, Monday on; days still to come count nothing.
+  const week = cal.slice(-7).filter((d) => d.day <= today).reduce((n, d) => n + d.turns, 0);
+  const side = el('div', 'growth-cal-side');
+  side.append(heatKeyRow(), el('p', 'growth-line growth-week', `이번 주 ${week}문장`));
   const rows = cal.filter((d) => d.turns > 0).slice().reverse()
     .map((d) => [dayName(d.day), `${d.turns}문장`]);
-  if (!rows.length) return [longest];
-  return [longest, table(['날짜', '말한 문장'], rows)];
+  side.append(table(['날짜', '말한 문장'], rows));
+  return block('연습한 날', calBody(L, calendarChart(g, L), side));
 }
 
 function dayTip(d) {
@@ -380,10 +455,10 @@ function lineChart({ width, height, values, yMax, ticks, fmt, title, xLabel, tip
 /* ---------- tooltip and keys ---------- */
 
 /* One tooltip per chart, first placed by the point's own viewBox position as
-   a percentage of the wrapper -- no transform. The fold's `.fold-inner`
-   clips anything outside it (needed for the fold's 0fr->1fr animation), so
-   once the tip has its real text, it is measured and pulled back inside the
-   wrapper's actual box; a clipped tip is a tip nobody can read. Hover or
+   a percentage of the wrapper -- no transform. A tip may still run past the
+   wrapper (a wide tip near an edge) into a narrow block's edge, so once it
+   has its real text, it is measured and pulled back inside the wrapper's
+   actual box; a clipped tip is a tip nobody can read. Hover or
    focus shows it; the arrow keys walk the points while the chart has focus. */
 function chartWrap(root, width, height, targets, keys) {
   const wrap = el('div', 'growth-chart');
@@ -461,7 +536,7 @@ function chartSvg(width, height, label) {
   return root;
 }
 
-/* Shared with summarySkeleton (above), so the loading state reserves this
+/* Shared with growthSkeleton (above), so the loading state reserves this
    row's exact height instead of guessing at it -- the four steps are the
    theme's own colours (--heat-1..4 in components.css), not data, so there is
    nothing here to actually wait on. */
@@ -528,6 +603,10 @@ function block(label, ...children) {
   const box = el('section', 'growth-block');
   box.append(el('p', 'label', label), ...children);
   return box;
+}
+
+function txt(t) {
+  return document.createTextNode(t);
 }
 
 function skelLine(cls) {

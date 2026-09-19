@@ -1248,13 +1248,22 @@ button.meaning:hover { color: var(--accent-ink); }
 
 /* --- my page ---
 
-   One column, the width #pick and a one-column #home use, so moving between
-   them does not make the column jump. Built to the stability rules: the
-   sections dim in place on a reload (R2), each holds a skeleton of its own
-   size on the first load (R3), rows that come and go keep their place (R5),
-   and anything that opens folds by grid rows (R8). Opacity only on #mypage
-   itself -- nothing here may put a transform on the screen (R1). */
-#mypage { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+   Wide (docs/superpowers/specs/2026-09-19-monologue-desktop-layout-design.md,
+   시안 static/mock/mypage-b.html): a menu down the left -- the head, the
+   level and the four tabs, held in view while the panel scrolls (sticky) --
+   and the panel filling the rest of --content-w. Below 900px (the block
+   near the end of this section) the menu is back above the panel in the
+   640px column #pick uses, with the tabs as one row. Built to the stability
+   rules: the sections dim in place on a reload (R2), each holds a skeleton
+   of its own size on the first load (R3), rows that come and go keep their
+   place (R5), and anything that opens folds by grid rows (R8). Opacity only
+   on #mypage itself -- nothing here may put a transform on the screen (R1),
+   which would also break the menu's sticky. */
+#mypage { max-width: var(--content-w); margin: 0 auto; display: grid;
+  grid-template-columns: var(--mypage-nav-w) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.mypage-nav { position: sticky; top: var(--space-4); min-width: 0;
+  display: flex; flex-direction: column; gap: var(--space-4); }
+.mypage-panels { min-width: 0; }
 .mypage-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .mypage-head h2 { flex: 1; margin: 0; font-size: var(--text-2xl); font-weight: 750; color: var(--text); }
 @media (max-width: 480px) {
@@ -1267,7 +1276,7 @@ button.meaning:hover { color: var(--accent-ink); }
 
 /* Same easing both ways as home's refreshed cards: the delay on .is-refreshing
    only dims a slow reload, and un-dimming eases back. */
-:where(#level-card, #growth-card, #review-section, #weak-section, #history-section) {
+:where(#level-card, #growth-section, #review-section, #weak-section, #history-section) {
   transition: opacity var(--dur-fast) ease;
 }
 
@@ -1282,36 +1291,45 @@ button.meaning:hover { color: var(--accent-ink); }
 .mypage-error { color: var(--text-dim); font-size: var(--text-sm); margin: 0; }
 
 /* Level */
-/* The level is one line in the head, not a card: it is a fact to glance at,
-   and the room it took is what the tabs below need. */
-.level-strip { flex-basis: 100%; }
+/* In the menu, a small card: 내 레벨, the level on its own line, what it
+   comes to under it, and its buttons below. Below 900px it is one line in
+   the head again, not a card: a fact to glance at, with the room it took
+   left to the tabs. */
+.level-strip { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: var(--space-3) var(--space-4); }
+.level-strip > .level-label { margin: 0 0 var(--space-1); }
 :where(#level-body) > p { margin: 0; }
-/* One line with its small buttons on it (결과 보기 · 다시 테스트, or 레벨
-   테스트 (7분)). Every level line -- the skeleton included -- holds the room
-   of one button row, so the buttons arriving grow nothing; on a phone the
-   buttons may wrap below the words, so there every line holds two rows. */
+/* Words, then the small buttons (결과 보기 · 다시 테스트, or 레벨 테스트
+   (7분)). Every level line -- the skeleton included -- holds the room the
+   loaded one takes, so the answer arriving grows nothing: in the menu the
+   level, a line under it and the button row; one line with its buttons on
+   it below 900px; two rows on a phone, where the buttons may wrap. */
 .level-line { font-size: var(--text-sm); color: var(--text-dim);
-              display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--space-3);
-              row-gap: var(--space-1); min-height: calc(var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px); }
-.level-actions { display: inline-flex; gap: var(--space-2); }
+              display: flex; flex-direction: column; align-items: flex-start; row-gap: var(--space-2);
+              min-height: calc(var(--text-lg) * 1.3 + var(--text-sm) * 1.55 + (var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px) + var(--space-2) * 2); }
+.level-line b { display: block; font-size: var(--text-lg); line-height: 1.3; }
+.level-sep { display: none; }
+.level-scale { display: block; }
+.level-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); }
 .level-actions button { font-size: var(--text-xs); padding: var(--space-1) var(--space-2); }
-@media (max-width: 560px) {
-  .level-line { min-height: calc((var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px) + var(--text-sm) * 1.55 + var(--space-1)); }
-}
 .level-line b { color: var(--text); font-weight: 700; }
-.level-line.skeleton { width: 40%; }
+.level-line.skeleton { width: 70%; }
 
-/* Tabs: 복습 | 약점 | 기록 */
-.mypage-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--line); }
-.mypage-tabs [role="tab"] { background: none; border: 0; border-bottom: 2px solid transparent;
-  margin-bottom: -1px; padding: var(--space-2) var(--space-3); font-size: var(--text-base);
-  color: var(--text-dim); font-weight: 600; border-radius: 0; }
-.mypage-tabs [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+/* Tabs: 성장 | 복습 | 약점 | 기록 -- in the menu, a column of rows, the
+   selected one on the accent's soft wash (the mockup's menu). */
+.mypage-tabs { display: flex; flex-direction: column; gap: 2px; }
+.mypage-tabs [role="tab"] { display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-2); background: none; border: 0; border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3); font-size: var(--text-base); text-align: left;
+  color: var(--text-dim); font-weight: 600; }
+.mypage-tabs [role="tab"]:hover:not([aria-selected="true"]) { background: var(--surface-sunken); color: var(--text); }
+.mypage-tabs [role="tab"][aria-selected="true"] { background: var(--accent-soft); color: var(--accent-ink); }
 .mypage-tabs [role="tab"]:focus-visible { outline-offset: -2px; }
 /* The count sits in a reserved box, so 복습 3 -> 복습 (none left) does not
-   move 약점 and 기록 sideways. */
+   move anything: at the row's end in the menu, beside 복습 in the row. */
 .tab-n { display: inline-block; min-width: 1.5em; margin-left: var(--space-1);
-  font-size: var(--text-sm); color: var(--accent); text-align: left; }
+  font-size: var(--text-sm); color: var(--accent); text-align: right; }
+.mypage-tabs [aria-selected="true"] .tab-n { color: var(--accent-ink); }
 
 /* One height for every tab: switching to a short one must not pull the page
    up under the pointer. Opacity only (no transform -- R1). */
@@ -1323,7 +1341,12 @@ button.meaning:hover { color: var(--accent-ink); }
 /* Today's review */
 .review-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .review-head .label { margin: 0 0 var(--space-2); }
-#review-list { display: flex; flex-direction: column; gap: var(--space-2); }
+/* Two cards a row when the panel has room for two whole ones (their buttons
+   on one line), else one. Each card keeps its own height (start, not
+   stretch): a card's ▸ 설명 opening never pulls the card beside it taller. */
+#review-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+               gap: var(--space-2); align-items: start; }
+.review-empty { grid-column: 1 / -1; }
 .review-card { border: 1px solid var(--line); border-radius: var(--radius-sm);
                padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-1); }
 .review-card > p { margin: 0; }
@@ -1376,9 +1399,14 @@ button.meaning:hover { color: var(--accent-ink); }
 .tag-bar .n { font-size: var(--text-xs); color: var(--text-dim); }
 .tag-bar.is-skeleton .n { width: 2.5em; }
 
-/* 약점 -- the coach first: what to do next time, from the learner's own lines. */
+/* 약점 -- the coach first: what to do next time, from the learner's own lines.
+   Wide, the coach and the tags are two columns; one below 900px. */
+#weak-section { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5); align-items: start; }
+.weak-tags { min-width: 0; }
+.weak-tags > .label { margin: 0 0 var(--space-2); }
 .coach { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-3);
-  margin-bottom: var(--space-4); background: var(--surface-sunken); }
+  background: var(--surface-sunken); min-width: 0; }
 .coach-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .coach-head .label { margin: 0 0 var(--space-2); }
 #coach-day { font-size: var(--text-xs); }
@@ -1418,51 +1446,86 @@ button.tag-bar:hover .name { color: var(--accent-ink); }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tag-ex-why.is-open { -webkit-line-clamp: unset; display: block; }
 
-/* 성장: the summary card above the tabs, and the charts under its
-   자세히 보기 fold (growth.js). Opacity only, no transform (R1).
+/* 성장: the first tab, all of it open (growth.js) -- four number tiles,
+   the calendar with its side column, then accuracy and 1분 말하기 side by
+   side with the level tests under accuracy. Whether blocks sit two by two
+   is growth.js's call (.is-wide, from the panel's own width), so the
+   columns here and the widths the charts are drawn at agree; a block's
+   padding and border and the gaps are the numbers it counts with
+   (BLOCK_PAD, COL_GAP). Opacity only, no transform (R1).
    Marks wear the theme's --accent through these classes; text wears text
    tokens, never the series colour. The calendar is one hue, sequential:
    nothing is the sunken surface, then four steps of --accent mixed into
    --surface, so the ramp follows every theme and flips with dark mode (the
    mix runs toward the surface, whichever way the surface lies). */
-#growth-card {
+#growth-section {
   --heat-1: color-mix(in oklab, var(--accent) 25%, var(--surface));
   --heat-2: color-mix(in oklab, var(--accent) 45%, var(--surface));
   --heat-3: color-mix(in oklab, var(--accent) 70%, var(--surface));
   --heat-4: color-mix(in oklab, var(--accent) 100%, var(--surface));
 }
-#growth-body { position: relative; }
+#growth-body { position: relative; display: flex; flex-direction: column; gap: var(--space-4); }
 #growth-body:focus { outline: none; }
-/* The skeleton reserves three lines (streak, accuracy, 1분 말하기), but a
-   fresh card may only ever draw the streak -- floor the box at three lines'
-   worth (plus the gaps between them) so the answer landing doesn't shrink it. */
-.growth-lines { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3);
-  min-height: calc(3 * var(--text-sm) * 1.55 + 2 * var(--space-1)); }
-.growth-line { margin: 0; font-size: var(--text-sm); color: var(--text-dim); min-height: calc(var(--text-sm) * 1.55); }
-.growth-line.growth-streak { color: var(--text); font-weight: 600; }
-.growth-summary-box.is-skeleton .growth-line { width: 50%; }
-/* No practice at all: one line saying what will fill the card, and the card
-   keeps a modest floor instead of shrinking to that one line. */
-.growth-guide { display: flex; align-items: center; min-height: calc(4 * var(--text-sm) * 1.55); }
-/* 자세히 보기 ▾ / 접기 ▴: one width for both labels, so the toggle never
-   changes size under the pointer. */
-.growth-more { margin-top: var(--space-3); font-size: var(--text-sm);
-  min-width: calc(6.5em + var(--space-3) * 2 + 2px); }
-/* The fold's own inner box is clipped while shut, so the room above the
-   first block is a margin on it, not padding the collapsed row would keep. */
-#growth-details-body { display: flex; flex-direction: column; gap: var(--space-5); }
-#growth-details-body > :first-child { margin-top: var(--space-4); }
+
+/* The tiles: a key, the value, one line. Each line is held to one line
+   (nowrap, a floor, an ellipsis for a long one), so the four are one height
+   loading, loaded or empty. */
+.growth-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
+.growth-tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.growth-tile > p { margin: 0; }
+.growth-tile .k { font-size: var(--text-xs); color: var(--text-dim); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: calc(var(--text-xs) * 1.55); }
+.growth-tile .v { font-size: var(--text-2xl); font-weight: 750; color: var(--text); line-height: 1.2;
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+  min-height: calc(var(--text-2xl) * 1.2); }
+.growth-tile .v small { font-size: var(--text-base); font-weight: 650; color: var(--text-dim);
+  margin: 0 var(--space-1) 0 2px; }
+.growth-tile .d { font-size: var(--text-xs); color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: calc(var(--text-xs) * 1.55); }
+.growth-tiles.is-skeleton .k { width: 40%; }
+.growth-tiles.is-skeleton .v { width: 55%; }
+.growth-tiles.is-skeleton .d { width: 70%; }
+@media (max-width: 600px) {
+  .growth-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* A block is a card, the same box as .panel. */
+.growth-block { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: var(--space-4); min-width: 0; }
 .growth-block > .label { margin: 0 0 var(--space-2); }
 .growth-block > p { margin: 0; }
-/* A brand-new learner sees this instead of a chart on every block -- without
-   a floor, four one-line hints in a row read as the tab collapsing, not as
-   "practise a bit and this fills in". Modest on purpose: still far short of
-   a loaded chart's own height (ACC_H/SMALL_H in growth.js), just enough that
-   the page doesn't visibly shrink. */
+
+/* The calendar and its side column (key, this week, 표로 보기): beside it
+   when wide, under it when not. */
+.growth-cal-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+.growth-cal-body.is-wide { grid-template-columns: minmax(0, 1fr) var(--growth-cal-side); align-items: end; }
+.growth-cal-side { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); min-width: 0; }
+.growth-cal-side .heat-key { margin-top: 0; }
+.growth-line { margin: 0; font-size: var(--text-sm); color: var(--text-dim); min-height: calc(var(--text-sm) * 1.55); }
+.growth-line.growth-week { color: var(--text); font-weight: 600; }
+
+/* Accuracy and 1분 말하기 side by side, the tests under accuracy; the
+   second row takes what is left, so the tests sit right under accuracy
+   however tall 1분 말하기 is. */
+.growth-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.growth-grid.is-wide { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto 1fr;
+  grid-template-areas: "acc timed" "tests timed"; }
+.growth-grid.is-wide > .growth-acc-block { grid-area: acc; }
+.growth-grid.is-wide > .growth-timed-block { grid-area: timed; }
+.growth-grid.is-wide > .growth-tests-block { grid-area: tests; }
+
+/* No practice at all: one line saying what will fill the tab, and it keeps
+   a modest floor instead of shrinking to that line. */
+.growth-guide { display: flex; align-items: center; min-height: calc(4 * var(--text-sm) * 1.55); }
+/* A learner with a little practice sees this instead of a chart on a block
+   -- without a floor, one-line hints in a row read as the tab collapsing,
+   not as "practise a bit and this fills in". Modest on purpose: still far
+   short of a loaded chart's own height (ACC_H/SMALL_H in growth.js), just
+   enough that the page doesn't visibly shrink. */
 .growth-empty { padding: var(--space-2) 0; min-height: calc(3 * var(--text-sm) * 1.55); }
-.growth-block > .growth-summary { margin-top: var(--space-2); font-size: var(--text-sm); color: var(--text-dim);
-  min-height: calc(var(--text-sm) * 1.55); }
-.growth-block.is-skeleton .growth-summary { width: 45%; }
+.growth-block.is-skeleton .growth-line { width: 50%; }
+.growth-block.is-skeleton .growth-sub { width: 30%; }
 .growth-test.skeleton { width: 70%; margin: var(--space-1) 0; }
 .growth-sub { margin: 0 0 var(--space-1); font-size: var(--text-sm); color: var(--text-dim); font-weight: 600; }
 .growth-fail { display: flex; align-items: center; gap: var(--space-2); }
@@ -1570,5 +1633,33 @@ button.history-head:hover { background: var(--surface-sunken); }
 
 @media (prefers-reduced-motion: reduce) {
   .fold, .fold-inner { transition: none; }
-  :where(#level-card, #growth-card, #review-section, #weak-section, #history-section) { transition: none; }
+  :where(#level-card, #growth-section, #review-section, #weak-section, #history-section) { transition: none; }
+}
+
+/* Below 900px: the menu goes back above the panel in the 640px column, the
+   level is one line in the head again and the tabs are one row, underlined
+   -- the phone's page as it was. 성장 lays itself out as one column there
+   (growth.js's WIDE_MIN is above 640). */
+@media (max-width: 900px) {
+  #mypage { max-width: 640px; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .mypage-nav { position: static; }
+  .level-strip { background: none; border: 0; border-radius: 0; padding: 0; }
+  .level-strip > .level-label { display: none; }
+  .level-line { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: var(--space-3);
+    row-gap: var(--space-1); min-height: calc(var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px); }
+  .level-line b { display: inline; font-size: inherit; line-height: inherit; }
+  .level-sep, .level-scale { display: inline; }
+  .level-line.skeleton { width: 40%; }
+  .mypage-tabs { flex-direction: row; gap: var(--space-1); border-bottom: 1px solid var(--line); }
+  .mypage-tabs [role="tab"] { display: inline-block; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    border-radius: 0; }
+  .mypage-tabs [role="tab"]:hover:not([aria-selected="true"]) { background: none; }
+  .mypage-tabs [role="tab"][aria-selected="true"] { background: none; color: var(--text); border-bottom-color: var(--accent); }
+  .mypage-tabs [aria-selected="true"] .tab-n { color: var(--accent); }
+  .tab-n { text-align: left; }
+  #weak-section { display: block; }
+  .coach { margin-bottom: var(--space-4); }
+}
+@media (max-width: 560px) {
+  .level-line { min-height: calc((var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px) + var(--text-sm) * 1.55 + var(--space-1)); }
 }

@@ -260,32 +260,38 @@
   <!-- 마이페이지: 돌아보는 곳. mypage.js fills every section; each one holds a
        skeleton of its own size while it loads and dims in place on a reload. -->
   <section id="mypage" hidden>
-    <div class="mypage-head">
-      <button id="btn-mypage-home" class="ghost" type="button">← 홈</button>
-      <h2>마이페이지</h2>
-      <span class="seg" id="mypage-language-seg">
-        <button type="button" data-language="en">English</button>
-        <button type="button" data-language="ja">日本語</button>
-      </span>
+    <!-- A menu down the left on a wide screen (sticky while the panel
+         scrolls): the head, the level and the four tabs; the panel on the
+         right. Below 900px the menu sits above the panel and the tabs are
+         one row (components.css). -->
+    <div class="mypage-nav">
+      <div class="mypage-head">
+        <button id="btn-mypage-home" class="ghost" type="button">← 홈</button>
+        <h2>마이페이지</h2>
+        <span class="seg" id="mypage-language-seg">
+          <button type="button" data-language="en">English</button>
+          <button type="button" data-language="ja">日本語</button>
+        </span>
+      </div>
       <div id="level-card" class="level-strip">
+        <p class="label level-label">내 레벨</p>
         <div id="level-body"></div>
       </div>
-    </div>
-    <!-- How practice is going, loaded with the rest of the page: the
-         calendar and a few lines, with every chart one tap away under
-         자세히 보기 (mypage.js draws them when the fold first opens). -->
-    <section id="growth-card" class="panel growth-card" aria-label="연습 요약">
-      <div id="growth-body" tabindex="-1"></div>
-      <button id="btn-growth-more" class="ghost growth-more is-invisible" type="button" aria-hidden="true" aria-expanded="false" aria-controls="growth-details">자세히 보기 ▾</button>
-      <div id="growth-details" class="fold is-collapsed"><div id="growth-details-body" class="fold-inner"></div></div>
-    </section>
-    <div id="mypage-tabs" class="mypage-tabs" role="tablist" aria-label="마이페이지">
-      <button type="button" role="tab" id="tab-review" data-tab="review" aria-controls="review-section" aria-selected="true" tabindex="0">복습<span id="tab-review-n" class="tab-n"></span></button>
-      <button type="button" role="tab" id="tab-weak" data-tab="weak" aria-controls="weak-section" aria-selected="false" tabindex="-1">약점</button>
-      <button type="button" role="tab" id="tab-history" data-tab="history" aria-controls="history-section" aria-selected="false" tabindex="-1">기록</button>
+      <div id="mypage-tabs" class="mypage-tabs" role="tablist" aria-label="마이페이지" aria-orientation="vertical">
+        <button type="button" role="tab" id="tab-growth" data-tab="growth" aria-controls="growth-section" aria-selected="true" tabindex="0">성장</button>
+        <button type="button" role="tab" id="tab-review" data-tab="review" aria-controls="review-section" aria-selected="false" tabindex="-1">복습<span id="tab-review-n" class="tab-n"></span></button>
+        <button type="button" role="tab" id="tab-weak" data-tab="weak" aria-controls="weak-section" aria-selected="false" tabindex="-1">약점</button>
+        <button type="button" role="tab" id="tab-history" data-tab="history" aria-controls="history-section" aria-selected="false" tabindex="-1">기록</button>
+      </div>
     </div>
     <div class="mypage-panels">
-      <div id="review-section" class="panel" role="tabpanel" aria-labelledby="tab-review">
+      <!-- 성장: how practice is going, all of it open -- number tiles, the
+           calendar, the charts and the level tests (growth.js). mypage.js
+           draws it when 성장 is on screen, at the width it is shown at. -->
+      <div id="growth-section" role="tabpanel" aria-labelledby="tab-growth" tabindex="0">
+        <div id="growth-body" tabindex="-1"></div>
+      </div>
+      <div id="review-section" class="panel" role="tabpanel" aria-labelledby="tab-review" hidden>
         <div class="review-head"><p id="review-count" class="label"></p><span id="review-mastered" class="hint"></span></div>
         <div id="review-list"></div>
         <button id="btn-review-more" class="ghost btn-stable is-invisible" type="button" aria-hidden="true">더 보기</button>
@@ -295,9 +301,11 @@
           <div class="coach-head"><p class="label">코치 한마디</p><span id="coach-day" class="hint"></span></div>
           <div id="coach-body" aria-live="polite" tabindex="-1"></div>
         </div>
-        <p class="label">자주 걸리는 것</p>
-        <p id="accuracy-line" class="hint is-invisible" aria-hidden="true"></p>
-        <div id="tag-bars"></div>
+        <div class="weak-tags">
+          <p class="label">자주 걸리는 것</p>
+          <p id="accuracy-line" class="hint is-invisible" aria-hidden="true"></p>
+          <div id="tag-bars"></div>
+        </div>
       </div>
       <div id="history-section" class="panel" role="tabpanel" aria-labelledby="tab-history" hidden>
         <p class="label">지난 기록</p>

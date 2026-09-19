@@ -11,7 +11,7 @@ import { renderVoiceList, renderVoiceLists, previewVoice, loadReadingPrefs, save
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
-         selectTab, onTabKey, onTagClick, loadCoach, loadGrowth, toggleGrowthDetails,
+         selectTab, onTabKey, onTagClick, loadCoach, loadGrowth, syncTabOrientation,
          showMoreReviews } from './mypage.js';
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
 import { leaveTimed, startNow, stopNow, retryTranscribe, backToPrep, again, endTimed, playMine,
@@ -80,13 +80,17 @@ $('mypage-tabs').addEventListener('click', (e) => {
   if (tab) selectTab(tab.dataset.tab);
 });
 $('mypage-tabs').addEventListener('keydown', onTabKey);
+// The menu turns from a column into a row at the 900px fold; its
+// aria-orientation follows (guarded: no matchMedia, no listener).
+try {
+  globalThis.matchMedia?.('(max-width: 900px)')?.addEventListener?.('change', syncTabOrientation);
+} catch { /* no media queries */ }
 $('review-list').addEventListener('click', onReviewClick);
 $('btn-review-more').addEventListener('click', () => showMoreReviews());
 $('history-list').addEventListener('click', onHistoryClick);
 $('tag-bars').addEventListener('click', onTagClick);
 $('coach-body').addEventListener('click', (e) => { if (e.target.closest('.coach-retry')) loadCoach({ force: true }); });
 $('growth-body').addEventListener('click', (e) => { if (e.target.closest('.growth-retry')) loadGrowth({ force: true }); });
-$('btn-growth-more').addEventListener('click', () => toggleGrowthDetails());
 $('btn-history-more').addEventListener('click', () => loadHistory({ append: true }));
 $('btn-report-back').addEventListener('click', () => {
   router.show('mypage');

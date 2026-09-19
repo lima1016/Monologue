@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import './dom-shim.js';
 import { resetDom } from './dom-shim.js';
-import { renderSummary, renderDetails, heatLevels, summarySkeleton, layout } from './growth.js';
+import { renderGrowth, heatLevels, growthSkeleton, layout, WIDE_MIN } from './growth.js';
 
 beforeEach(() => resetDom());
 
@@ -45,9 +45,16 @@ function all(node, cls, out = []) {
 }
 const one = (node, cls) => all(node, cls)[0] || null;
 const text = (n) => (n.textContent || '') + (n.childNodes || []).map(text).join(' ');
-const blocks = (g) => renderDetails(g, 560);
-// The card above the tabs: the calendar, its key and the lines under it.
-const card = (g) => renderSummary(g, 560)[0];
+// The whole panel under one node, so a search reaches every part of it.
+function panel(g, width = 560) {
+  const root = document.createElement('div');
+  root.append(...renderGrowth(g, width));
+  return root;
+}
+const blocks = (g, width) => all(panel(g, width), 'growth-block');
+const card = (g) => byLabel(blocks(g), '연습한 날');
+const flat = (n) => (n.textContent || '') + (n.childNodes || []).map(flat).join('');
+const tileOf = (g, cls) => one(panel(g), cls);
 const byLabel = (bs, label) => bs.find((b) => one(b, 'label').textContent === label);
 // details > [summary, table > [thead, tbody > tr > td]]
 const rowsOf = (details) => details.children[1].children[1].children.map((tr) => tr.children.map((td) => td.textContent));
@@ -59,19 +66,47 @@ test('the details are four blocks in order, each named', () => {
     ['연습한 날', '정확도 변화', '1분 말하기', '레벨 테스트 기록']);
 });
 
-/* The card's skeleton holds what a practised learner's card carries: the
- * calendar's own box at its real height, the heat key row, and the three
- * lines -- so the card does not grow when the answer replaces it. */
-test("the card's loading skeleton holds the calendar's box, its key and three lines", () => {
-  const [box] = summarySkeleton(560);
-  const charts = all(box, 'growth-chart');
-  assert.equal(charts.length, 1);
-  assert.ok(charts[0].classList.contains('skeleton'));
-  assert.equal(charts[0].style.height, `${layout(560).cal.height}px`);
-  assert.equal(all(box, 'heat-key').length, 1);
-  const lines = all(box, 'growth-line');
-  assert.equal(lines.length, 3);
-  assert.ok(lines.every((l) => l.classList.contains('skeleton')));
+/* The panel's skeleton is the panel's own shape: four tiles, the
+ * calendar's box at its real height with its key, and the chart blocks at
+ * their charts' heights -- so the panel does not grow when the answer lands. */
+test("the panel's loading skeleton holds the tiles, the calendar's box and key, and each chart's height", () => {
+  for (const width of [560, 900]) {
+    const root = document.createElement('div');
+    root.append(...growthSkeleton(width));
+    const L = layout(width);
+    assert.equal(all(root, 'growth-tile').length, 4);
+    assert.ok(all(root, 'growth-tile').every((t) => all(t, 'skeleton').length === 3), 'key, value and line');
+    const charts = all(root, 'growth-chart');
+    assert.ok(charts.every((c) => c.classList.contains('skeleton')));
+    assert.deepEqual(charts.map((c) => c.style.height),
+      [`${L.cal.height}px`, `${L.acc.height}px`, `${L.small.height}px`, `${L.small.height}px`]);
+    assert.equal(charts[0].style.maxWidth, `${L.cal.width}px`);
+    assert.equal(all(root, 'heat-key').length, 1);
+    assert.deepEqual(all(root, 'growth-block').map((b) => one(b, 'label').textContent),
+      ['연습한 날', '정확도 변화', '1분 말하기', '레벨 테스트 기록']);
+    assert.equal(one(root, 'growth-grid').classList.contains('is-wide'), L.wide);
+    assert.equal(one(root, 'growth-cal-body').classList.contains('is-wide'), L.wide);
+  }
+});
+
+test('the panel is two by two from WIDE_MIN, and every chart is as wide as the inside of its block', () => {
+  const narrow = layout(WIDE_MIN - 1);
+  const wide = layout(WIDE_MIN);
+  assert.equal(narrow.wide, false);
+  assert.equal(wide.wide, true);
+  // A block is a card: 16px padding and a 1px border each side.
+  assert.equal(layout(400).acc.width, 400 - 34);
+  // Two columns with a 16px gap between them.
+  assert.equal(layout(900).acc.width, Math.floor((900 - 16) / 2) - 34);
+  // The calendar leaves room for its 200px side column when wide, and grows
+  // to fill a wide panel (up to 40px a day).
+  assert.equal(layout(900).cal.step, Math.floor((900 - 200 - 16 - 34 - 24) / 16));
+  assert.equal(layout(2000).cal.step, 40);
+  assert.ok(layout(900).cal.width > layout(560).cal.width);
+  // 1분 말하기's pair splits only in a column wide enough for both.
+  assert.equal(layout(900).small.split, false);
+  assert.equal(layout(1200).small.split, true);
+  assert.equal(layout(1200).small.width, Math.floor((layout(1200).acc.width - 16) / 2));
 });
 
 test('the calendar has 112 cells, coloured by the quartiles of the days with turns', () => {
@@ -130,72 +165,88 @@ test('a calendar cell says its day and its count on hover, and on the keys', () 
   assert.equal(tip.textContent, '9월 10일 · 연습 안 함');
 });
 
-test('under the calendar: streak and total time; the longest run and the days sit in the details', () => {
-  assert.equal(one(card(growthBody()), 'growth-streak').textContent, '연속 3일 · 총 2시간 5분');
-  assert.equal(one(card(growthBody({ minutes: 42 })), 'growth-streak').textContent, '연속 3일 · 총 42분');
-  assert.equal(one(card(growthBody({ minutes: 120 })), 'growth-streak').textContent, '연속 3일 · 총 2시간');
+test('the tiles: 연속 with the longest run, and 총 연습 with the days spoken on', () => {
+  assert.equal(flat(tileOf(growthBody(), 'growth-streak')), '연속3일최장 7일');
+  assert.equal(flat(tileOf(growthBody(), 'growth-time')), '총 연습2시간5분16주 동안 4일');
+  assert.equal(flat(tileOf(growthBody({ minutes: 42 }), 'growth-time')), '총 연습42분16주 동안 4일');
+  assert.equal(flat(tileOf(growthBody({ minutes: 120 }), 'growth-time')), '총 연습2시간16주 동안 4일');
+  // The units are small type of their own; the numbers are the value.
+  const v = one(tileOf(growthBody(), 'growth-time'), 'v');
+  assert.deepEqual(v.children.map((c) => c.textContent), ['시간', '분']);
+});
+
+test('beside the calendar: its key, this week so far, and the days as a table', () => {
   const days = byLabel(blocks(growthBody()), '연습한 날');
-  assert.equal(one(days, 'growth-summary').textContent, '최장 연속 7일');
+  assert.equal(all(days, 'cal-cell').length, 112);
+  assert.equal(one(days, 'growth-week').textContent, '이번 주 16문장', '9/14 to today: 2 + 5 + 9');
   const table = one(days, 'growth-table');
   assert.equal(table.children[0].textContent, '표로 보기');
   assert.deepEqual(rowsOf(table), [['9월 16일', '9문장'], ['9월 15일', '5문장'], ['9월 14일', '2문장'], ['9월 9일', '14문장']]);
+  // A day still to come this week counts nothing.
+  const later = growthBody();
+  later.calendar[110].turns = 50;
+  assert.equal(one(byLabel(blocks(later), '연습한 날'), 'growth-week').textContent, '이번 주 16문장');
 });
 
 const mark = (line) => one(line, 'growth-delta');
 
-test("this week's accuracy on the card, ▲ ▼ or – against the week before that had any", () => {
-  const up = one(card(growthBody()), 'growth-acc');
-  assert.match(text(up), /^이번 주 정확도 80%/);        // 4/5 against 9/7's 18/25 (72%)
-  assert.equal(mark(up).textContent, '▲');
+test("this week's accuracy tile: ▲ ▼ or – and the change against the week before that had any", () => {
+  const up = tileOf(growthBody(), 'growth-acc');
+  assert.equal(flat(up), '이번 주 정확도80%▲ 8%p');       // 4/5 against 9/7's 18/25 (72%)
   assert.ok(mark(up).classList.contains('up'));
   assert.equal(mark(up).getAttribute('aria-label'), '그 전 주보다 올랐어요');
   const acc = growthBody().accuracy;
   acc[11] = { ...acc[11], correct: 3, graded: 5 };        // 60%
-  const down = one(card(growthBody({ accuracy: acc })), 'growth-acc');
-  assert.equal(mark(down).textContent, '▼');
+  const down = tileOf(growthBody({ accuracy: acc }), 'growth-acc');
+  assert.equal(flat(down), '이번 주 정확도60%▼ 12%p');
   assert.ok(mark(down).classList.contains('down'));
   acc[11] = { ...acc[11], correct: 36, graded: 50 };      // 72%, as 9/7
-  const same = one(card(growthBody({ accuracy: acc })), 'growth-acc');
-  assert.equal(mark(same).textContent, '–');
+  const same = tileOf(growthBody({ accuracy: acc }), 'growth-acc');
+  assert.equal(flat(same), '이번 주 정확도72%– 그대로');
   assert.equal(mark(same).getAttribute('aria-label'), '그 전 주와 같아요');
 });
 
-test('a week with nothing graded yet gives way to the latest week that has; none at all, no line', () => {
+test('a week with nothing graded yet gives way to the latest week that has; none at all, a dash', () => {
   const acc = growthBody().accuracy;
   acc[11] = { ...acc[11], correct: 0, graded: 0 };
-  const last = one(card(growthBody({ accuracy: acc })), 'growth-acc');
-  assert.match(text(last), /^지난 주 정확도 72%/);        // 9/7, against 8/24's 50%
-  assert.equal(mark(last).textContent, '▲');
+  const last = tileOf(growthBody({ accuracy: acc }), 'growth-acc');
+  assert.equal(flat(last), '지난 주 정확도72%▲ 22%p');     // 9/7, against 8/24's 50%
   acc[10] = { ...acc[10], correct: 0, graded: 0 };
-  const older = one(card(growthBody({ accuracy: acc })), 'growth-acc');
-  assert.match(text(older), /^8\/24 주 정확도 50%/);
-  assert.equal(mark(older), null, 'nothing before it to compare with');
+  const older = tileOf(growthBody({ accuracy: acc }), 'growth-acc');
+  assert.equal(flat(older), '8/24 주 정확도50%10/20문장', 'nothing before it to compare with: its count');
+  assert.equal(mark(older), null);
   const none = acc.map((w) => ({ ...w, correct: 0, graded: 0 }));
-  assert.equal(one(card(growthBody({ accuracy: none })), 'growth-acc'), null);
+  assert.equal(flat(tileOf(growthBody({ accuracy: none }), 'growth-acc')), '정확도—채점된 문장이 아직 없어요');
 });
 
-test('the newest 1분 말하기 on the card: words a minute against the round before, and its long pauses', () => {
-  const up = one(card(growthBody()), 'growth-timed');
-  assert.match(text(up), /^1분 말하기 분당 112단어/);
-  assert.match(text(up), /· 긴 멈춤 1번$/);
-  assert.equal(mark(up).textContent, '▲');
+test('the 1분 말하기 tile: the newest words a minute against the round before, and its long pauses', () => {
+  const up = tileOf(growthBody(), 'growth-timed');
+  assert.equal(flat(up), '1분 말하기112단어/분▲ 17 · 긴 멈춤 1번');
   assert.equal(mark(up).getAttribute('aria-label'), '지난번보다 올랐어요');
   const rounds = growthBody().timed;
-  const down = one(card(growthBody({ timed: [rounds[2], rounds[0]] })), 'growth-timed');
-  assert.match(text(down), /^1분 말하기 분당 80단어/);
-  assert.equal(mark(down).textContent, '▼');
-  const same = one(card(growthBody({ timed: [rounds[0], { ...rounds[1], wpm: 80 }] })), 'growth-timed');
+  const down = tileOf(growthBody({ timed: [rounds[2], rounds[0]] }), 'growth-timed');
+  assert.equal(flat(down), '1분 말하기80단어/분▼ 32 · 긴 멈춤 4번');
+  const same = tileOf(growthBody({ timed: [rounds[0], { ...rounds[1], wpm: 80 }] }), 'growth-timed');
   assert.equal(mark(same).textContent, '–');
-  assert.equal(mark(one(card(growthBody({ timed: [rounds[0]] })), 'growth-timed')), null);
-  assert.equal(one(card(growthBody({ timed: [] })), 'growth-timed'), null);
+  assert.equal(flat(tileOf(growthBody({ timed: [rounds[0]] }), 'growth-timed')), '1분 말하기80단어/분긴 멈춤 4번');
+  assert.equal(flat(tileOf(growthBody({ timed: [] }), 'growth-timed')), '1분 말하기—아직 해 보지 않았어요');
 });
 
-test('with no practice at all the card is one line saying what will fill it', () => {
+test('every tile keeps its line under the value, so the four are one height', () => {
+  const tiles = all(panel(growthBody()), 'growth-tile');
+  assert.equal(tiles.length, 4);
+  for (const t of tiles) {
+    assert.deepEqual(t.children.map((c) => c.className), ['k', 'v', 'd']);
+    assert.ok(flat(one(t, 'd')).length > 0);
+  }
+});
+
+test('with no practice at all the panel is one line saying what will fill it', () => {
   const g = growthBody({
     calendar: growthBody().calendar.map((c) => ({ ...c, turns: 0 })), streak: 0, longest: 0, minutes: 0,
     accuracy: growthBody().accuracy.map((a) => ({ ...a, correct: 0, graded: 0 })), timed: [], level_tests: [],
   });
-  const nodes = renderSummary(g, 560);
+  const nodes = renderGrowth(g, 560);
   assert.equal(nodes.length, 1);
   assert.equal(nodes[0].textContent, '연습하면 여기에 쌓여요');
   assert.ok(nodes[0].classList.contains('growth-guide'));
@@ -258,31 +309,48 @@ test('a Japanese level test reads JF Standard', () => {
 });
 
 test('each block with nothing to show says what will fill it, instead of an empty chart', () => {
+  // Some time on the clock, so there is a panel -- and nothing else in it.
   const empty = growthBody({
-    calendar: growthBody().calendar.map((c) => ({ ...c, turns: 0 })), streak: 0, longest: 0, minutes: 0,
+    calendar: growthBody().calendar.map((c) => ({ ...c, turns: 0 })), streak: 0, longest: 0, minutes: 5,
     accuracy: growthBody().accuracy.map((a) => ({ ...a, correct: 0, graded: 0 })), timed: [], level_tests: [],
   });
   const bs = blocks(empty);
   const say = (label) => one(byLabel(bs, label), 'growth-empty').textContent;
   assert.equal(one(byLabel(bs, '연습한 날'), 'growth-table'), null, 'no days to list');
+  assert.equal(say('연습한 날'), '연습하면 여기에 날마다 한 칸씩 채워져요');
   assert.equal(say('정확도 변화'), '채점된 문장이 쌓이면 주별 정확도가 보여요');
   assert.equal(say('1분 말하기'), '1분 말하기를 하면 여기에 변화가 보여요');
   assert.equal(say('레벨 테스트 기록'), '레벨 테스트를 보면 기록이 쌓여요');
   for (const b of bs) assert.equal(all(b, 'growth-chart').length, 0, 'an empty chart was drawn');
 });
 
-test('charts are SVG in the SVG namespace, sized by viewBox to the width given', () => {
-  const [, acc] = renderDetails(growthBody(), 600);
-  const cal = renderSummary(growthBody(), 600)[0];
-  const svg = one(acc, 'growth-chart').children[0];
-  assert.equal(svg.namespaceURI, 'http://www.w3.org/2000/svg');
-  assert.equal(svg.getAttribute('viewBox'), '0 0 600 170');
-  assert.equal(one(cal, 'growth-chart').children[0].getAttribute('tabindex'), '0');
+test('charts are SVG in the SVG namespace, sized by viewBox to the inside of their blocks', () => {
+  for (const width of [600, 900]) {
+    const L = layout(width);
+    const acc = byLabel(blocks(growthBody(), width), '정확도 변화');
+    const svg = one(acc, 'growth-chart').children[0];
+    assert.equal(svg.namespaceURI, 'http://www.w3.org/2000/svg');
+    assert.equal(svg.getAttribute('viewBox'), `0 0 ${L.acc.width} 170`);
+    const cal = one(byLabel(blocks(growthBody(), width), '연습한 날'), 'growth-chart');
+    assert.equal(cal.children[0].getAttribute('viewBox'), `0 0 ${L.cal.width} ${L.cal.height}`);
+    assert.equal(cal.children[0].getAttribute('tabindex'), '0');
+    assert.equal(one(panel(growthBody(), width), 'growth-grid').classList.contains('is-wide'), L.wide);
+  }
 });
 
-/* .fold-inner (the 자세히 보기 fold) clips anything outside it -- needed for
-   its 0fr->1fr height animation -- so a tooltip that spills past its own
-   chart's wrapper is a tooltip nobody can read. Both hits below sit near an
+test('accuracy, 1분 말하기 and the tests are one grid, in that order, each block named for its place', () => {
+  const grid = one(panel(growthBody(), 900), 'growth-grid');
+  assert.deepEqual(grid.children.map((b) => one(b, 'label').textContent), ['정확도 변화', '1분 말하기', '레벨 테스트 기록']);
+  assert.ok(grid.children[0].classList.contains('growth-acc-block'));
+  assert.ok(grid.children[1].classList.contains('growth-timed-block'));
+  assert.ok(grid.children[2].classList.contains('growth-tests-block'));
+  // The tiles first, then the calendar's block, then the grid.
+  const top = renderGrowth(growthBody(), 900);
+  assert.deepEqual(top.map((n) => n.className.split(' ')[0]), ['growth-tiles', 'growth-block', 'growth-grid']);
+});
+
+/* A block's own edge (and the next block beside it) would cut into a tip
+   that spills past its chart's wrapper -- a tooltip nobody can read. Both hits below sit near an
    edge of the chart's own coordinate space; the wrapper and the tip are
    sized (via the dom-shim's settable offset/client properties) so that the
    flip-only placement would spill past the wrapper's far side, forcing the
@@ -318,10 +386,14 @@ function ruleBody(selector) {
   return css.slice(start, css.indexOf('}', start));
 }
 
-/* The skeleton always reserves three lines under the calendar, but a fresh
-   card may draw only the streak line -- the container needs its own floor
-   (three lines plus the gaps between them), not just a floor on each line,
-   or the card shrinks the moment the answer replaces the skeleton. */
-test('the summary lines sit on a three-line floor, so the card does not shrink when the answer lands', () => {
-  assert.match(ruleBody('.growth-lines'), /min-height:\s*calc\(3 \* var\(--text-sm\) \* 1\.55 \+ 2 \* var\(--space-1\)\)/);
+/* Every tile's value and line hold one line each (nowrap), and a long line
+   ends in an ellipsis instead of wrapping -- so the four tiles are one
+   height whatever the numbers say, loading or loaded. */
+test('a tile holds its lines to one each, so the tiles stay one height', () => {
+  for (const sel of ['.growth-tile .v', '.growth-tile .d']) {
+    const body = ruleBody(sel);
+    assert.match(body, /white-space:\s*nowrap/, sel);
+    assert.match(body, /min-height:\s*calc\(/, sel);
+  }
+  assert.match(ruleBody('.growth-tile .d'), /text-overflow:\s*ellipsis/);
 });
