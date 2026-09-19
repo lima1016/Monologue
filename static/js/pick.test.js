@@ -11,7 +11,7 @@
  * test that fails with a start still pending cannot turn the next test's own
  * start into a vacuous early return.
  */
-import { beforeEach, test } from 'node:test';
+import { afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { $, state } from './api.js';
@@ -30,6 +30,14 @@ beforeEach(async () => {
   state.sessionId = null;
   home.setBusy(false);
   pick = await import(`./pick.js?instance=${++instance}`);
+});
+
+/* A test that stands in for the timed screen on pick.handoff puts the real
+   one back afterwards, so nothing else ever sees the stand-in. */
+let restoreHandoff = null;
+afterEach(() => {
+  if (restoreHandoff) restoreHandoff();
+  restoreHandoff = null;
 });
 
 const THEMES = [
@@ -716,7 +724,10 @@ function timedRoutes({ questions } = {}) {
     }
     return jsonResponse({});
   });
-  pick.handoff.openTimed = (ctx) => seen.opened.push(ctx);
+  const { handoff } = pick;
+  const real = handoff.openTimed;
+  restoreHandoff = () => { handoff.openTimed = real; };
+  handoff.openTimed = (ctx) => seen.opened.push(ctx);
   return seen;
 }
 
@@ -785,6 +796,32 @@ test('a question card is chosen with aria-pressed, and 시작 opens up', async (
   pick.selectQuestion(1);
   assert.deepEqual(questionCards().map((c) => c.getAttribute('aria-pressed')), ['false', 'true', 'false']);
   assert.equal($('btn-start').disabled, false);
+});
+
+test('choosing a card keeps focus on it, though the list is rebuilt (keyboard users stay put)', async () => {
+  timedRoutes();
+  await pick.openPick('timed');
+  await pick.selectTheme('cafe-restaurant');
+  Array.from(questionCards())[1].focus();
+  pick.selectQuestion(1);
+  assert.equal(document.activeElement, Array.from(questionCards())[1]);
+  assert.equal(document.activeElement.getAttribute('aria-pressed'), 'true');
+});
+
+test('the questions status line is announced (role=status, aria-live=polite)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const tag = html.match(/<p id="pick-questions-status"[^>]*>/)[0];
+  assert.match(tag, /role="status"/);
+  assert.match(tag, /aria-live="polite"/);
+});
+
+test('the stand-in timed screen is put back after a test', () => {
+  const real = pick.handoff.openTimed;
+  timedRoutes();
+  assert.notEqual(pick.handoff.openTimed, real);
+  if (restoreHandoff) restoreHandoff();
+  assert.equal(pick.handoff.openTimed, real);
 });
 
 test("typing one's own question opens 시작 and unchooses the card; choosing a card empties the field", async () => {

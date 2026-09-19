@@ -261,6 +261,10 @@ export function selectQuestion(index) {
   chosen = index;
   $('pick-own').value = '';
   render();
+  // render() rebuilds the cards, so the one just chosen (by Enter or Space,
+  // too) is a new element and focus fell to the page. Put it back on the card.
+  const card = Array.from($('pick-question-list').children)[index];
+  if (card) card.focus();
 }
 
 /* Typing into #pick-own makes that the question, so no card stays chosen. */
