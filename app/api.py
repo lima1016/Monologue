@@ -15,8 +15,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Response, Uploa
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from app import (config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, text_match,
-                 timed, tts)
+from app import (config, db, leveltest, library, llm, prompts, reading, scenarios, stt, text_cleanup,
+                 text_match, timed, tts)
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
@@ -1902,9 +1902,16 @@ def mypage_stats(language: Language):
     today = _today()
     sample = db.level_sample(language)
     enough = sample["sessions"] >= _LEVEL_NEED_SESSIONS and sample["utterances"] >= _LEVEL_NEED_UTTERANCES
+    # A finished level test is the level however thin the practice sample is
+    # (db.stable_level reads it first); the thin-sample gate is only for the
+    # session-mode guess.
+    test = db.latest_level_test(language)
+    summary = ({k: test["result"].get(k) for k in ("cefr", "step", "ielts", "toefl", "jf", "finished_at")}
+               if test else None)
     return {
-        "level": {"value": db.stable_level(language) if enough else None, **sample,
-                  "need_sessions": _LEVEL_NEED_SESSIONS, "need_utterances": _LEVEL_NEED_UTTERANCES},
+        "level": {"value": db.stable_level(language) if test or enough else None, **sample,
+                  "need_sessions": _LEVEL_NEED_SESSIONS, "need_utterances": _LEVEL_NEED_UTTERANCES,
+                  "test": summary},
         "accuracy": db.accuracy_since(language, today - timedelta(days=_ACCURACY_DAYS - 1)),
         "tags": db.wrong_tag_counts(language),
         "review": db.review_counts(language, today),
@@ -1995,3 +2002,165 @@ def session_detail(session_id: int):
             if m["speaker"] == "bot" else None
         )
     return {"session": session, "messages": messages}
+
+
+
+# ---------------------------------------------------------------------------
+# 레벨 테스트 (docs/superpowers/specs/2026-09-19-monologue-level-test-design.md).
+# Nothing here is practice: no session, no messages row, no review, and no
+# recording is kept -- each upload is transcribed and thrown away. A finished
+# test's app_level becomes db.stable_level's answer, which every level consumer
+# reads, so the whole app follows it.
+# ---------------------------------------------------------------------------
+
+LEVEL_STT_UNAVAILABLE = "받아쓰기를 할 수 없어요"
+LEVEL_NOT_DONE = "아직 따라 말하기가 끝나지 않았어요"
+_LEVEL_ANSWER_MAX_SECONDS = 60
+
+
+class LevelTestStart(BaseModel):
+    language: Language
+
+
+@router.post("/level-test")
+def start_level_test(payload: LevelTestStart):
+    """The sentences go out as audio only: the learner repeats what they
+    heard, so sending the text would hand them the answer. audio_key is None
+    when TTS is down."""
+    language = payload.language
+    bank = leveltest.load_bank(language)
+    test_id = db.create_level_test(language)
+    return {"test_id": test_id,
+            "items": [{"i": it["i"], "audio_key": _speak(it["text"], language)} for it in bank["items"]],
+            "questions": [{"q": q["q"], "text": q["text"], "meaning": q["meaning"]}
+                          for q in bank["questions"]]}
+
+
+def _open_level_test(test_id: int) -> dict:
+    test = db.get_level_test(test_id)
+    if test is None:
+        raise HTTPException(404, "no such level test")
+    if test["finished_at"]:
+        raise HTTPException(409, "this level test is already finished")
+    return test
+
+
+async def _read_level_audio(file: UploadFile) -> bytes:
+    audio = await file.read(_MAX_TRANSCRIBE_BYTES + 1)
+    if len(audio) > _MAX_TRANSCRIBE_BYTES:
+        raise HTTPException(413, "녹음이 너무 큽니다")
+    return audio
+
+
+async def _level_stt(fn, audio: bytes, language: str):
+    try:
+        return await run_in_threadpool(fn, audio, language)
+    except stt.SttUnavailable:
+        log.debug("stt unavailable for a level test upload; the client retries")
+        raise HTTPException(503, LEVEL_STT_UNAVAILABLE)
+    except Exception:
+        # A real failure, not a model still loading -- see /transcribe.
+        log.warning("level test transcription failed", exc_info=True)
+        raise HTTPException(503, LEVEL_STT_UNAVAILABLE)
+
+
+@router.post("/level-test/{test_id}/items/{i}")
+async def level_test_item(test_id: int, i: int, file: UploadFile = File(...)):
+    """One repeated sentence: transcribe, score against the hidden original,
+    keep only what was heard and the score. Uploading the same i again
+    replaces it (the client retries a failed upload)."""
+    test = _open_level_test(test_id)
+    language = test["language"]
+    items = leveltest.load_bank(language)["items"]
+    if not 0 <= i < len(items):
+        raise HTTPException(404, "no such item")
+    audio = await _read_level_audio(file)
+    heard = await _level_stt(stt.transcribe, audio, language)
+    db.set_level_item(test_id, i, heard, leveltest.item_score(heard, items[i]["text"], language))
+    return {"i": i, "done": True}
+
+
+@router.post("/level-test/{test_id}/answers/{q}")
+async def level_test_answer(test_id: int, q: int, seconds: float = Form(...),
+                            file: UploadFile = File(...)):
+    test = _open_level_test(test_id)
+    language = test["language"]
+    if not 0 <= q < len(leveltest.load_bank(language)["questions"]):
+        raise HTTPException(404, "no such question")
+    # 45 s on the client's clock; wpm divides by it, so nan/inf/0 never get in.
+    if not (math.isfinite(seconds) and 0 < seconds <= _LEVEL_ANSWER_MAX_SECONDS):
+        raise HTTPException(422, "seconds must be a real length, 0 < seconds <= 60")
+    audio = await _read_level_audio(file)
+    segments = await _level_stt(stt.transcribe_segments, audio, language)
+    stats = timed.round_stats(segments, language, seconds)
+    db.set_level_answer(test_id, q, {"text": " ".join(stats["sentences"]), "seconds": seconds,
+                                     "words": stats["words"], "wpm": stats["wpm"],
+                                     "long_pauses": stats["long_pauses"]})
+    return {"q": q, "done": True}
+
+
+def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
+    """{q: {"cefr", "comment"}} from one model call, or {} when there is nothing
+    to judge or the model fails -- the test then stands on the sentences alone.
+    A comment that is not Korean becomes "" but its cefr stays: the label is
+    the part the score uses."""
+    if not answers:
+        return {}
+    by_q = {q["q"]: q for q in questions}
+    qa = [{"q": q, "question": by_q[q]["text"], "text": a["text"], "wpm": a["wpm"],
+           "long_pauses": a["long_pauses"]} for q, a in sorted(answers.items())]
+    try:
+        raw = llm.chat_json(prompts.build_level_answers_messages(language, qa),
+                            prompts.level_answers_schema())
+        items = raw.get("answers") if isinstance(raw, dict) else None
+    except Exception:
+        log.warning("level test answer judging failed; the result stands on the sentences",
+                    exc_info=True)
+        return {}
+    out: dict = {}
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        q, cefr = item.get("q"), item.get("cefr")
+        if not isinstance(q, int) or q not in answers or q in out or cefr not in leveltest.CEFR:
+            continue
+        comment = item.get("comment")
+        comment = _first_line(comment) if isinstance(comment, str) else None
+        out[q] = {"cefr": cefr, "comment": comment if comment and _is_korean_meaning(comment) else ""}
+    return out
+
+
+@router.post("/level-test/{test_id}/finish")
+def finish_level_test(test_id: int):
+    """Once finished, the stored result comes back as it is -- no second
+    model call, no second score."""
+    test = db.get_level_test(test_id)
+    if test is None:
+        raise HTTPException(404, "no such level test")
+    if test["result"] is not None:
+        return test["result"]
+    language = test["language"]
+    bank = leveltest.load_bank(language)
+    if any(it["i"] not in test["items"] for it in bank["items"]):
+        raise HTTPException(400, LEVEL_NOT_DONE)
+    scores = [test["items"][it["i"]]["score"] for it in bank["items"]]
+    judged = _judge_level_answers(language, test["answers"], bank["questions"])
+    score = sum(scores)
+    cefr, step = leveltest.cefr_from_ei(score)
+    cefr, step = leveltest.apply_boundary(
+        score, cefr, step, leveltest.answers_level([j["cefr"] for j in judged.values()]))
+    app_level = leveltest.app_level(cefr)
+    answers = [{"q": q, "text": a["text"], "cefr": judged.get(q, {}).get("cefr"),
+                "comment": judged.get(q, {}).get("comment"), "wpm": a["wpm"],
+                "long_pauses": a["long_pauses"]} for q, a in sorted(test["answers"].items())]
+    result = {"test_id": test_id, "language": language, "cefr": cefr, "step": step,
+              "app_level": app_level,
+              "ei": {"score": score, "max": 48, "by_level": leveltest.by_level(scores, bank["items"])},
+              "answers": answers, **leveltest.conversions(cefr, step, language)}
+    return db.finish_level_test(test_id, result, app_level)
+
+
+@router.get("/level-test/latest")
+def latest_level_test(language: Language):
+    test = db.latest_level_test(language)
+    return {"result": test["result"] if test else None}
