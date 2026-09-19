@@ -1166,3 +1166,26 @@ test('leaving my page mid-listen throws the listen away and wakes the card', asy
   const skip = card.children.find((c) => c.classList.contains('actions')).children.find((c) => c.classList.contains('skip'));
   assert.equal(skip.disabled, false, 'a cancelled listen left the card busy');
 });
+
+/* The report's numbers panel is one DOM for every kind. A 1분 말하기 report
+ * counts round 1's sentences, not conversation turns, so the first stat is
+ * labelled 문장 there -- and the next report of another kind, drawn into the
+ * same panel, must say 턴 again. */
+test('1분 말하기 리포트의 첫 숫자는 문장, 다른 리포트로 돌아가면 다시 턴', () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ top_tags: [] }));
+  state.language = 'en';
+  state.mode = 'free';
+  session.renderReport({
+    kind: 'timed', topic: 'x',
+    rounds: [{ round: 1, seconds: 60, words: 10, wpm: 10, long_pauses: 0, fixed: 0, graded: 1,
+               sentences: [], native: null }],
+    stats: { turns: 1, wrong: 0, minutes: 1 },
+  });
+  assert.equal($('rep-turns-label').textContent, '문장');
+  session.renderReport({ summary: 'x', stats: { turns: 12, wrong: 5, minutes: 9 } });
+  assert.equal($('rep-turns-label').textContent, '턴', 'a free report after a timed one');
+  session.renderReport({ kind: 'timed', topic: 'x', rounds: [], stats: { turns: 0, wrong: 0, minutes: 0 } });
+  session.renderReport({ kind: 'shadow', lines: [], stats: { turns: 3, minutes: 2 } });
+  assert.equal($('rep-turns-label').textContent, '턴', 'a shadowing report after a timed one');
+});

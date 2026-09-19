@@ -1015,6 +1015,7 @@ export function renderReport(data) {
   }
 
   $('rep-turns').textContent = s.turns ?? 0;
+  $('rep-turns-label').textContent = '턴';
   // 대본 세션은 문법 교정을 하지 않는다(위 counts 분기와 같은 이유) -- "0 고침"은
   // 완벽하게 읽었다는 뜻으로 오해되므로, 애초에 세지 않는다는 뜻의 '—'를 대신 쓴다.
   $('rep-wrong').textContent = state.mode === 'script' ? '—' : String(s.wrong ?? 0);
@@ -1069,6 +1070,7 @@ function renderShadowReport(data) {
   }
 
   $('rep-turns').textContent = s.turns ?? 0;
+  $('rep-turns-label').textContent = '턴';
   // No grammar correction happens in a shadowing session (same reason script
   // mode uses '—' above): 0 would read as "every line was perfect".
   $('rep-wrong').textContent = '—';
@@ -1119,6 +1121,9 @@ function renderTimedReport(data) {
 
   const s = data.stats || {};
   $('rep-turns').textContent = s.turns ?? 0;
+  // round 1's sentences, not conversation turns. The panel is shared by every
+  // kind of report, so the others put 턴 back.
+  $('rep-turns-label').textContent = '문장';
   $('rep-wrong').textContent = String(s.wrong ?? 0);
   $('rep-minutes').textContent = s.minutes ?? 0;
 
