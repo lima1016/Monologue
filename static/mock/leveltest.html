@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 레벨 테스트</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* 시험 중에는 카드 하나를 가운데에 (집중). 결과는 두 칸:
+     왼쪽 레벨·점수 환산, 오른쪽 따라 말하기 막대와 답하기 한마디. */
+  #leveltest.lv { max-width: none; display: block; }
+  .lv-focus { max-width: 640px; margin: 0 auto; }
+  .lv-focus .lt-slot { min-height: 22rem; gap: var(--space-4); }
+  .lv-focus .lt-card { box-shadow: var(--shadow); }
+  .lv-steps { display: flex; justify-content: center; gap: var(--space-1); margin-top: var(--space-3); }
+  .lv-steps i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+  .lv-steps i.on { background: var(--accent); }
+
+  .lv-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: var(--space-6); align-items: start; }
+  .lv-grid > .panel { padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+  .lv-grid p { margin: 0; }
+  .lv-grid .lt-cefr { font-size: 56px; letter-spacing: -.03em; color: var(--text); }
+  .lv-was { font-size: var(--text-sm); color: var(--text-dim); }
+  .lv-was b { color: var(--suggest-ink); }
+  .lv-grid .lt-scales p { margin: 0; }
+  .lv-grid .lt-level-bar { gap: var(--space-3); font-size: var(--text-sm); }
+  .lv-grid .lt-level-track { height: 10px; }
+  .lv-grid .lt-answer-line { font-size: var(--text-sm); line-height: 1.6; padding: var(--space-2) 0; border-bottom: 1px solid var(--line); }
+  .lv-grid .lt-answer-line:last-child { border-bottom: 0; }
+  .lv-grid .lt-ei-head .label { margin: 0; }
+  .lv-back { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+  @media (max-width: 900px) { .lv-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">레벨 테스트 · 위: 시험 중(가운데 한 장) / 아래: 결과(두 칸)</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<main class="mock-main">
+  <section id="leveltest" class="lv">
+    <div class="mock-head">
+      <button class="ghost" type="button">← 홈</button>
+      <h2>레벨 테스트</h2>
+    </div>
+
+    <p class="mock-state">상태 1 · 시험 중 (따라 말하기)</p>
+    <div class="lv-focus">
+      <section class="lt-card">
+        <div class="lt-slot">
+          <p class="label">따라 말하기 5/12</p>
+          <p class="lt-status">지금 따라 말하세요</p>
+          <div class="lt-rec">
+            <span class="lt-dot" aria-hidden="true"></span>
+            <div class="lt-bar"><div class="lt-bar-fill" style="width: 62%"></div></div>
+          </div>
+          <div class="lt-actions">
+            <button type="button" class="primary btn-stable">다 말했어요</button>
+          </div>
+        </div>
+      </section>
+      <div class="lv-steps" aria-hidden="true">
+        <i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+    </div>
+
+    <p class="mock-state">상태 2 · 결과</p>
+    <div class="lv-grid">
+      <div class="panel">
+        <p class="label">9월 19일 결과</p>
+        <p class="lt-cefr">B1 상위</p>
+        <p class="lv-was">지난번(9/5) B1 하위 → <b>한 단계 올랐어요</b></p>
+        <div class="lt-scales">
+          <p>IELTS 말하기 4.5–5.0 예상</p>
+          <p>TOEFL 말하기 19–21 예상 (옛 점수 18–20)</p>
+        </div>
+        <p class="lt-app-level">앱 난이도가 중급으로 맞춰졌어요</p>
+        <p class="lt-result-note">7분짜리 짧은 테스트로 본 예상이에요. 실제 시험 점수와는 다를 수 있어요.</p>
+        <div class="lv-back">
+          <button type="button" class="primary">← 마이페이지</button>
+          <button type="button" class="ghost">다시 테스트</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="lt-ei">
+          <p class="lt-ei-head"><span class="label">따라 말하기</span><b class="lt-ei-score">31/48</b></p>
+          <div class="lt-level-bars">
+            <div class="lt-level-bar"><span class="lt-level-name">A1</span><div class="lt-level-track"><div class="lt-level-fill" style="width: 100%"></div></div><span class="lt-level-n">8/8</span></div>
+            <div class="lt-level-bar"><span class="lt-level-name">A2</span><div class="lt-level-track"><div class="lt-level-fill" style="width: 88%"></div></div><span class="lt-level-n">7/8</span></div>
+            <div class="lt-level-bar"><span class="lt-level-name">B1</span><div class="lt-level-track"><div class="lt-level-fill" style="width: 75%"></div></div><span class="lt-level-n">6/8</span></div>
+            <div class="lt-level-bar"><span class="lt-level-name">B2</span><div class="lt-level-track"><div class="lt-level-fill" style="width: 50%"></div></div><span class="lt-level-n">4/8</span></div>
+            <div class="lt-level-bar"><span class="lt-level-name">C1</span><div class="lt-level-track"><div class="lt-level-fill" style="width: 38%"></div></div><span class="lt-level-n">3/8</span></div>
+            <div class="lt-level-bar"><span class="lt-level-name">C2</span><div class="lt-level-track"><div class="lt-level-fill" style="width: 38%"></div></div><span class="lt-level-n">3/8</span></div>
+          </div>
+        </div>
+        <div class="lt-answers">
+          <p class="label">답하기</p>
+          <p class="lt-answer-line"><b>Describe a place you like to…</b> · 이유를 두세 가지로 나눠 말했고 흐름이 자연스러웠어요. 과거형이 두 번 현재형으로 섞였어요.</p>
+          <p class="lt-answer-line"><b>What would you change about…</b> · 의견은 분명했지만 45초 중 뒤 15초가 멈춤이었어요. 'For example' 로 예를 하나 더 붙이면 좋아요.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

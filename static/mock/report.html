@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 세션 리포트</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* 본문(고친 곳을 넓게, 그 아래 표현·다음 초점 두 칸) + 오른쪽 340px(숫자·약점·버튼). */
+  #report.rp { max-width: none; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--space-6); }
+  .rp-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+  .rp-cards > .report-card { margin: 0; min-width: 0; }
+  .rp-cards > .wide { grid-column: 1 / -1; }
+  .rp .report-card > .label { margin: 0 0 var(--space-2); }
+  .rp .fix-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-1) var(--space-5); align-items: start; }
+  .rp .fix-row p { margin: 0; }
+  .rp .fix-row .fixed { font-size: var(--text-base); }
+  .rp .fix-row .why { grid-column: 1 / -1; font-size: var(--text-sm); color: var(--text-dim); display: flex; align-items: center; gap: var(--space-2); }
+  .rp .fix-row .tag { font-size: var(--text-xs); font-weight: 600; padding: 2px var(--space-2); border-radius: var(--radius-pill);
+    background: var(--correct-bg); color: var(--correct-ink); flex: none; }
+  .rp .fix-row .label { display: block; margin: 0 0 2px; }
+  .rp-phrase { padding: var(--space-2) 0; border-bottom: 1px solid var(--line); }
+  .rp-phrase:last-child { border-bottom: 0; }
+  .rp-phrase .p { margin: 0; font-weight: 650; color: var(--suggest-ink); }
+  .rp-phrase .m { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+  .rp-focus { margin: 0; padding-left: 1.2em; display: grid; gap: var(--space-2); }
+  .rp-focus b { color: var(--text); }
+  .rp-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+  .rp-actions #btn-restart { width: 100%; padding: var(--space-3); font-size: var(--text-lg); font-weight: 650; border-radius: var(--radius); box-shadow: var(--shadow-lift); }
+  .rp-actions .hint { font-size: var(--text-sm); margin: 0; text-align: center; }
+  .rp .report-aside { position: sticky; top: var(--space-4); }
+
+  @media (max-width: 900px) {
+    #report.rp { grid-template-columns: 1fr; }
+    .rp .report-aside { position: static; }
+    .rp-cards, .rp .fix-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">세션 리포트 · 고친 곳은 내 말(흐리게)과 고친 문장을 나란히, 취소선 없음</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<main class="mock-main">
+  <section id="report" class="rp">
+    <div class="report-main">
+      <h2 id="report-headline">짐 문제를 끝까지 영어로 풀어냈어요</h2>
+      <p id="report-counts" class="hint">공항 체크인 · 자유 상황극 · 말한 문장 11개 · 고친 곳 3개</p>
+
+      <div class="rp-cards">
+        <div class="report-card wide">
+          <p class="label">고친 곳</p>
+          <div class="fix-row">
+            <p class="mine"><span class="label">내 말</span>I have two bag. The one is very heavy because I buy many souvenir.</p>
+            <p class="fixed"><span class="label">고친 문장</span>I have two bags. One is very heavy because I bought a lot of souvenirs.</p>
+            <p class="why"><span class="tag">수 일치</span>둘이면 bags · 이미 산 것이니 bought</p>
+          </div>
+          <div class="fix-row">
+            <p class="mine"><span class="label">내 말</span>How much I have to pay for the over weight?</p>
+            <p class="fixed"><span class="label">고친 문장</span>How much do I have to pay for the extra weight?</p>
+            <p class="why"><span class="tag">어순</span>의문문에는 do 가 앞에 와요</p>
+          </div>
+          <div class="fix-row">
+            <p class="mine"><span class="label">내 말</span>I arrived to the gate too late last time.</p>
+            <p class="fixed"><span class="label">고친 문장</span>I got to the gate too late last time.</p>
+            <p class="why"><span class="tag">전치사</span>arrive 는 at, 말할 때는 got to 가 더 자연스러워요</p>
+          </div>
+        </div>
+
+        <div class="report-card">
+          <p class="label">잘 쓴 표현</p>
+          <div class="rp-phrase"><p class="p">Can I get a window seat if possible?</p><p class="m">부탁을 부드럽게 — if possible 을 잘 붙였어요</p></div>
+          <div class="rp-phrase"><p class="p">Is there any way to avoid the fee?</p><p class="m">💡 제안을 바로 가져다 썼어요</p></div>
+        </div>
+
+        <div class="report-card">
+          <p class="label">다음에 초점</p>
+          <ol class="rp-focus">
+            <li><b>지난 일은 과거형으로</b> — 이번에도 buy, arrive 를 현재형으로 말했어요</li>
+            <li><b>셀 수 있는 것은 -s</b> — bags, souvenirs</li>
+            <li>질문은 <b>Do / Can</b> 으로 시작하기</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <aside class="report-aside">
+      <div class="panel">
+        <p class="label">이번 세션</p>
+        <div class="stat-row">
+          <div class="stat"><span class="v">11</span><span class="k">턴</span></div>
+          <div class="stat"><span class="v">3</span><span class="k">고침</span></div>
+          <div class="stat"><span class="v">12</span><span class="k">분</span></div>
+          <div class="stat"><span class="v">73%</span><span class="k">정확도</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <p class="label">자주 놓치는 것</p>
+        <ul id="weak-list">
+          <li>시제 <span class="weak-n">12번</span></li>
+          <li>관사 <span class="weak-n">8번</span></li>
+          <li>전치사 <span class="weak-n">6번</span></li>
+          <li>수 일치 <span class="weak-n">4번</span></li>
+        </ul>
+      </div>
+      <div class="rp-actions">
+        <button id="btn-restart" class="primary" type="button">새 세션</button>
+        <button class="ghost" type="button">← 마이페이지</button>
+        <p class="hint">고친 문장 3개가 복습에 들어갔어요</p>
+      </div>
+    </aside>
+  </section>
+</main>
+</body>
+</html>

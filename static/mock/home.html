@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 홈</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* 세 구역: 가운데 큰 칸(오늘의 추천 → 모드 → 최근 테마), 그 옆 칸(오늘 복습·
+     코치·레벨 테스트), 오른쪽 320px(이어서 하기·이번 주). */
+  #home.hm { max-width: none; display: grid; gap: var(--space-5) var(--space-6); align-items: start;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr) 320px; }
+  .hm-top { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--space-1); }
+  .hm-today { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+  .hm-mid { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+  .hm-aside { grid-column: 3; grid-row: 2 / span 3; display: flex; flex-direction: column; gap: var(--space-4); min-width: 0;
+    position: sticky; top: var(--space-4); }
+  .hm-modes { grid-column: 1 / 3; grid-row: 3; min-width: 0; }
+  .hm-modes .modes { margin-top: 0; }
+  .hm-modes .mode { padding: var(--space-4) var(--space-3); }
+  .hm-recent { grid-column: 1 / 3; grid-row: 4; min-width: 0; }
+  .hm-recent .recent-themes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .hm .today-card { padding: var(--space-5); }
+  .hm .today-title { font-size: var(--text-2xl); }
+  .hm .today-alt { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+  .hm .coach { margin-bottom: 0; }
+  .hm .coach .coach-habit { font-size: var(--text-sm); }
+  .hm .section-label { margin: 0 0 var(--space-2); }
+
+  @media (max-width: 1100px) {
+    #home.hm { grid-template-columns: minmax(0, 1fr) 300px; }
+    .hm-today { grid-column: 1; grid-row: 2; }
+    .hm-mid { grid-column: 1; grid-row: 3; }
+    .hm-aside { grid-column: 2; grid-row: 2 / span 4; }
+    .hm-modes { grid-column: 1; grid-row: 4; }
+    .hm-recent { grid-column: 1; grid-row: 5; }
+  }
+  @media (max-width: 900px) {
+    #home.hm { grid-template-columns: 1fr; }
+    .hm-top, .hm-today, .hm-mid, .hm-aside, .hm-modes, .hm-recent { grid-column: 1; grid-row: auto; position: static; }
+    .hm-recent .recent-themes { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">홈 · 세 구역. 레벨 테스트 카드는 실제로는 아직 테스트를 안 봤을 때만 보여요</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<main class="mock-main">
+  <section id="home" class="hm">
+    <div class="hm-top">
+      <p class="home-date">9월 19일 토요일</p>
+      <div class="home-head">
+        <h2 id="home-greeting">오늘은 뭘 연습할까요?</h2>
+        <span class="seg">
+          <button type="button" class="on">English</button>
+          <button type="button">日本語</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="hm-today">
+      <div class="today-card">
+        <p class="label">오늘의 추천</p>
+        <p class="today-title">공항 체크인에서 짐 문제 해결하기</p>
+        <p class="today-situations">수하물 무게 초과 · 창가 자리 부탁 · 탑승구 바뀜</p>
+        <p class="today-reason">요즘 과거형을 자주 놓쳐요. 어제 있었던 일을 설명할 일이 많은 테마예요</p>
+        <div class="today-actions">
+          <button type="button" class="primary btn-stable">자유 대화로 시작</button>
+          <button type="button" class="btn-stable">스크립트로</button>
+          <span class="today-note">약 10분</span>
+        </div>
+      </div>
+      <p class="today-alt">다른 추천: <button type="button" class="ghost">카페에서 주문 바꾸기</button> <button type="button" class="ghost">동료에게 주말 이야기</button></p>
+    </div>
+
+    <div class="hm-mid">
+      <div class="panel review-home-box">
+        <p class="label">오늘 복습 16개</p>
+        <p class="review-home-first">I went to the airport yesterday, and my flight was delayed.</p>
+        <div class="review-home-actions">
+          <button type="button" class="ghost btn-stable">▶ 듣기</button>
+          <button id="review-home-go" type="button" class="ghost">복습하러 가기 →</button>
+        </div>
+      </div>
+      <div class="coach">
+        <div class="coach-head"><p class="label">코치 한마디</p><span class="hint">오늘</span></div>
+        <p class="coach-habit">과거 일을 현재형으로 말하는 버릇</p>
+        <p class="coach-tip">'어제', '지난주'가 나오면 동사부터 과거형으로 떠올려 보세요</p>
+      </div>
+      <div class="panel leveltest-home-box">
+        <p class="leveltest-home-text"><b>레벨 테스트</b> · 7분이면 내 수준과 IELTS·TOEFL 예상 점수를 알 수 있어요</p>
+        <button type="button" class="primary">시작</button>
+      </div>
+    </div>
+
+    <aside class="hm-aside">
+      <div class="resume-box">
+        <div class="resume-text">
+          <p id="resume-title">호텔 체크인 · 스크립트</p>
+          <p id="resume-sub" class="hint">12줄 중 7줄까지 · 어제 밤 10:40</p>
+        </div>
+        <button id="btn-resume" type="button">계속 →</button>
+      </div>
+
+      <div class="panel" id="week-card">
+        <p class="label">이번 주</p>
+        <div class="week-days">
+          <span class="day"><span class="dl">월</span><i class="dot"></i></span>
+          <span class="day practiced"><span class="dl">화</span><i class="dot"></i></span>
+          <span class="day"><span class="dl">수</span><i class="dot"></i></span>
+          <span class="day practiced"><span class="dl">목</span><i class="dot"></i></span>
+          <span class="day practiced"><span class="dl">금</span><i class="dot"></i></span>
+          <span class="day practiced today"><span class="dl">토</span><i class="dot"></i></span>
+          <span class="day future"><span class="dl">일</span><i class="dot"></i></span>
+        </div>
+        <p class="hint">3일 연속</p>
+        <p id="week-progress">5세션 중 4세션</p>
+        <div class="week-bar"><div id="week-bar" style="width: 80%"></div></div>
+        <div class="goal">
+          <button type="button" class="ghost" aria-label="목표 줄이기">−</button>
+          <span>목표 <b>5</b> 세션</span>
+          <button type="button" class="ghost" aria-label="목표 늘리기">+</button>
+        </div>
+        <button class="ghost link" type="button">기록 더 보기 →</button>
+      </div>
+    </aside>
+
+    <div class="hm-modes">
+      <p class="label section-label">연습 방법</p>
+      <div class="modes">
+        <button type="button" class="mode"><span class="n">자유 상황극</span><span class="d">상황을 정하고 자유롭게 대화</span></button>
+        <button type="button" class="mode"><span class="n">스크립트</span><span class="d">대본을 따라 읽으며 연습</span></button>
+        <button type="button" class="mode"><span class="n">쉐도잉</span><span class="d">원어민 소리를 듣고 바로 따라 말하기</span></button>
+        <button type="button" class="mode"><span class="n">수업</span><span class="d">선생님과 주제를 잡고</span></button>
+        <button type="button" class="mode"><span class="n">1분 말하기</span><span class="d">질문 하나에 1분 동안 말하고 다시 말해 비교</span></button>
+      </div>
+    </div>
+
+    <div class="hm-recent">
+      <p class="label section-label">최근 테마</p>
+      <div class="recent-themes">
+        <button type="button" class="recent-theme"><span class="t">호텔 체크인</span><span class="m">스크립트 · 어제</span></button>
+        <button type="button" class="recent-theme"><span class="t">주말에 뭐 했어요?</span><span class="m">1분 말하기 · 9/17</span></button>
+        <button type="button" class="recent-theme"><span class="t">식당 주문</span><span class="m">쉐도잉 · 9/16</span></button>
+        <button type="button" class="recent-theme"><span class="t">면접 자기소개</span><span class="m">자유 상황극 · 9/14</span></button>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

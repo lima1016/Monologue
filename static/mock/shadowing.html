@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 쉐도잉</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* 왼쪽: 한 줄 카드를 크게 + 마이크 독. 오른쪽 380px: 대본 전체(지난 줄은 보이고,
+     지금 줄은 강조, 남은 줄은 가림) + 진행 요약. */
+  #session.sh { max-width: none; min-height: calc(100vh - 170px); }
+  .sh .session-grid { grid-template-columns: minmax(0, 1fr) 380px; gap: var(--space-6); align-items: stretch; }
+  .sh .conversation-col { display: flex; flex-direction: column; }
+  .sh-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); }
+  .sh-head h2 { margin: 0; font-size: var(--text-xl); font-weight: 750; color: var(--text); }
+  .sh-head .hint { margin: 0; font-size: var(--text-sm); }
+  .sh .shadow-card { padding: var(--space-6); gap: var(--space-4); }
+  .sh .shadow-text { font-size: var(--text-2xl); font-weight: 600; line-height: 1.5; }
+  .sh .shadow-actions { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .sh .shadow-said .lbl { color: var(--text-faint); font-size: var(--text-xs); font-weight: 700; margin-right: var(--space-2); }
+  .sh #shadow-mine { color: var(--text-dim); }
+  .sh-progress { height: 6px; border-radius: var(--radius-pill); background: var(--line); overflow: hidden; }
+  .sh-progress > div { height: 100%; width: 58%; background: var(--accent); }
+  .sh #mic-dock { margin-top: auto; }
+
+  .sh-side { display: flex; flex-direction: column; gap: var(--space-4); position: sticky; top: var(--space-4); align-self: start; }
+  .sh-side .side-panel { position: static; }
+  .sh-side #panel-body ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; counter-reset: line; }
+  .sh-side #panel-body li { display: grid; grid-template-columns: 1.6em 1fr; gap: var(--space-1); }
+  .sh-side #panel-body li::before { counter-increment: line; content: counter(line); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+  .sh-side .mark { font-size: var(--text-xs); color: var(--suggest-ink); margin-left: var(--space-1); }
+  .sh-side .mark.again { color: var(--correct-ink); }
+  .sh-side .stat-row { gap: var(--space-6); }
+
+  @media (max-width: 900px) {
+    .sh .session-grid { grid-template-columns: 1fr; }
+    .sh-side { position: static; }
+    .sh .shadow-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">쉐도잉 · 7번째 줄을 따라 말한 뒤 비교하는 상태</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<main class="mock-main">
+  <section id="session" class="sh">
+    <div class="session-grid">
+      <div class="conversation-col">
+        <div class="sh-head">
+          <h2>호텔 체크인 · 예약한 방이 트윈이 아니에요</h2>
+          <p class="hint">쉐도잉 · English</p>
+        </div>
+
+        <section class="shadow-card">
+          <p class="shadow-count">12줄 중 7번째</p>
+          <div class="sh-progress" aria-hidden="true"><div></div></div>
+          <p class="shadow-status">들은 대로 말했어요. 원어민과 비교해 보세요</p>
+          <div class="shadow-text">Excuse me, I booked a twin room, but this one only has a double bed.</div>
+          <div class="shadow-said">
+            <p id="shadow-mine"><span class="lbl">내 말</span>Excuse me, I booked a twin room but this one only has double bed.</p>
+            <p id="shadow-verdict" class="good">거의 같아요 — 'a' 하나만 빠졌어요</p>
+            <span class="tag is-invisible">글자 보고 함</span>
+          </div>
+          <div class="shadow-actions">
+            <button type="button" class="btn-stable">▶ 원어민</button>
+            <button type="button" class="btn-stable">▶ 내 발음</button>
+            <button type="button" class="btn-stable">다시 하기</button>
+            <button type="button" class="btn-stable primary">다음 줄 →</button>
+          </div>
+        </section>
+
+        <div id="mic-dock">
+          <button class="mic" type="button" aria-label="말하기"></button>
+          <p id="mic-hint" class="hint">듣고 나서 바로 누르고 따라 말하세요</p>
+          <div id="controls">
+            <button id="btn-end" type="button" class="ghost btn-stable">세션 끝내기</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="sh-side" aria-label="대본">
+        <div class="side-panel">
+          <p class="label">대본</p>
+          <div id="panel-body">
+            <ol>
+              <li class="done">Hi, I'd like to check in, please.<span class="mark">✓</span></li>
+              <li class="done">The reservation is under Kim, K-I-M.<span class="mark">✓</span></li>
+              <li class="done">Here's my passport.<span class="mark">✓</span></li>
+              <li class="done">Is breakfast included in the rate?<span class="mark again">다시</span></li>
+              <li class="done">Great. What time does it start?<span class="mark">✓</span></li>
+              <li class="done">Oh, wait. Could I check the room first?<span class="mark again">다시</span></li>
+              <li class="current">Excuse me, I booked a twin room, but this one only has a double bed.</li>
+              <li><span class="shadow-hidden">••••••••••••••••</span></li>
+              <li><span class="shadow-hidden">••••••••••••</span></li>
+              <li><span class="shadow-hidden">••••••••••••••••••</span></li>
+              <li><span class="shadow-hidden">•••••••••</span></li>
+              <li><span class="shadow-hidden">••••••••••••••</span></li>
+            </ol>
+          </div>
+        </div>
+        <div class="panel">
+          <p class="label">지금까지</p>
+          <div class="stat-row">
+            <div class="stat"><span class="v">6</span><span class="k">줄 끝냄</span></div>
+            <div class="stat"><span class="v">4</span><span class="k">거의 같음</span></div>
+            <div class="stat"><span class="v">2</span><span class="k">다시 해 볼 줄</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+</main>
+</body>
+</html>

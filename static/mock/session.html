@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 대화 세션</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* 대화 칸(넓게) + 오른쪽 360px 패널(목표·표현·이번 세션). 마이크 독은 대화 칸
+     아래에만 붙어서, 패널은 위에서 아래까지 그대로 보인다. */
+  #session.ss { max-width: none; min-height: calc(100vh - 170px); }
+  .ss .session-grid { grid-template-columns: minmax(0, 1fr) 360px; gap: var(--space-6); align-items: stretch; }
+  .ss .conversation-col { display: flex; flex-direction: column; }
+  .ss-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3);
+    padding-bottom: var(--space-3); border-bottom: 1px solid var(--line); }
+  .ss-head h2 { margin: 0; font-size: var(--text-xl); font-weight: 750; color: var(--text); }
+  .ss-head .hint { margin: 0; font-size: var(--text-sm); }
+  .ss #conversation { flex: 1; }
+  .ss .msg { max-width: 72%; font-size: var(--text-base); }
+  .ss .chip-row, .ss .suggest-card { max-width: 72%; }
+  .ss #mic-dock { margin-top: auto; }
+  .ss .msg, .ss .chip-row, .ss .suggest-card { animation: none; }
+
+  .ss-side { display: flex; flex-direction: column; gap: var(--space-4); position: sticky; top: var(--space-4); align-self: start; }
+  .ss-side .side-panel { position: static; }
+  .ss-side ol, .ss-side ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+  .ss-side li { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
+  .ss-side li.current { background: var(--accent-soft); font-weight: 600; }
+  .ss-side li.done { opacity: .5; }
+  .ss-side li.done::before { content: "✓ "; }
+  .ss-phrase .p { display: block; color: var(--text); font-weight: 600; }
+  .ss-phrase .m { display: block; color: var(--text-dim); font-size: var(--text-xs); }
+  .ss-side .stat-row { gap: var(--space-6); }
+
+  @media (max-width: 900px) {
+    .ss .session-grid { grid-template-columns: 1fr; }
+    .ss-side { position: static; order: -1; }
+    .ss .msg, .ss .chip-row, .ss .suggest-card { max-width: 85%; }
+  }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">대화 세션 · 자유 상황극, 교정 칩 하나를 펼친 상태</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<main class="mock-main">
+  <section id="session" class="ss">
+    <div class="session-grid">
+      <div class="conversation-col">
+        <div class="ss-head">
+          <h2>공항 체크인에서 짐 문제 해결하기</h2>
+          <p class="hint">자유 상황극 · English · 6턴 · 8분</p>
+        </div>
+
+        <div id="conversation">
+          <div class="msg bot">Good evening! Welcome to Incheon Airport. May I see your passport and ticket, please?</div>
+          <div class="msg user">Yes, here it is. Can I get a window seat if possible?</div>
+          <div class="chip-row">
+            <button type="button" class="chip ok" aria-expanded="false">✓ 문장 정확</button>
+          </div>
+
+          <div class="msg bot">Sure, I've put you in 32A. Do you have any bags to check in today?</div>
+          <div class="msg user">I have two bag. The one is very heavy because I buy many souvenir.</div>
+          <div class="chip-row">
+            <button type="button" class="chip fix" aria-expanded="true">고칠 곳 · 수 일치</button>
+            <div class="chip-detail">
+              <div class="chip-detail-inner">
+                <div class="chip-block corr"><span class="label">교정</span> 가방이 둘이면 bags, 이미 산 것이니 bought 예요. souvenir 도 여러 개면 souvenirs.</div>
+                <div class="chip-block sug"><span class="label">이렇게도</span> One of them is pretty heavy — I bought a lot of souvenirs.</div>
+                <div class="respeak-row">
+                  <div class="respeak-target">I have two bags. One is very heavy because I bought a lot of souvenirs.</div>
+                  <button type="button" class="respeak">🎤 고쳐서 다시 말해보기</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="msg bot">Let me check… Your first bag is 26 kilograms. The limit is 23, so there's an overweight fee of 60 dollars.</div>
+          <div class="suggest-card">
+            <p class="suggest-title">💡 이렇게 말해 볼 수 있어요</p>
+            <div class="suggest-row"><div class="suggest-line">Could I move a few things into my carry-on instead?</div><div class="suggest-meaning">대신 기내 가방으로 몇 개 옮겨도 될까요?</div></div>
+            <div class="suggest-row"><div class="suggest-line">Is there any way to avoid the fee?</div><div class="suggest-meaning">수수료를 안 낼 방법이 있을까요?</div></div>
+          </div>
+        </div>
+
+        <div id="mic-dock">
+          <button class="mic" type="button" aria-label="말하기"></button>
+          <p id="mic-hint" class="hint">누르고 말한 뒤, 다 말하면 다시 눌러서 전송하세요</p>
+          <div id="controls">
+            <input type="text" placeholder="직접 입력해도 됩니다">
+            <button type="button">보내기</button>
+            <button type="button" class="ghost">💡 뭐라고 하지?</button>
+            <button id="btn-end" type="button" class="ghost btn-stable">세션 끝내기</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="ss-side" aria-label="세션 도움">
+        <div class="side-panel">
+          <p class="label">목표</p>
+          <ol>
+            <li class="done">여권과 표를 건네기</li>
+            <li class="done">원하는 자리 부탁하기</li>
+            <li class="current">무거운 짐 문제 해결하기</li>
+            <li>탑승구와 탑승 시간 확인하기</li>
+          </ol>
+        </div>
+        <div class="side-panel">
+          <p class="label">써 볼 만한 표현</p>
+          <ul>
+            <li class="ss-phrase"><span class="p">overweight fee</span><span class="m">수하물 초과 요금</span></li>
+            <li class="ss-phrase"><span class="p">carry-on (bag)</span><span class="m">기내 가방</span></li>
+            <li class="ss-phrase"><span class="p">Which gate should I go to?</span><span class="m">몇 번 탑승구로 가면 되나요?</span></li>
+          </ul>
+        </div>
+        <div class="panel">
+          <p class="label">이번 세션</p>
+          <div class="stat-row">
+            <div class="stat"><span class="v">6</span><span class="k">턴</span></div>
+            <div class="stat"><span class="v">1</span><span class="k">고침</span></div>
+            <div class="stat"><span class="v">8</span><span class="k">분</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+</main>
+</body>
+</html>
