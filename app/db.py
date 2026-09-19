@@ -523,6 +523,12 @@ def resumable_session(language):
     browser and is never persisted, so the app has no way to place them back
     where they left off -- and re-reading a short script from the top is
     natural anyway.
+    Timed-mode sessions are excluded too: this card reopens a session as a
+    conversation (POST /chat, a system prompt, a bot reply), and a timed
+    session has none of that -- it is a running clock and a single question
+    with no bot turn to answer. Opening one through this path would try to
+    chat with it and break. An abandoned timed session still gets closed by
+    the existing stale-session sweep, same as any other mode.
     """
     cutoff = _cutoff(hours=24)
     with connect() as conn:
@@ -530,7 +536,7 @@ def resumable_session(language):
             "SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS turns"
             " FROM sessions s"
             " WHERE s.language = ? AND s.ended_at IS NULL AND s.started_at >= ?"
-            "   AND s.mode <> 'script'"
+            "   AND s.mode NOT IN ('script', 'timed')"
             "   AND EXISTS (SELECT 1 FROM messages m2"
             "               WHERE m2.session_id = s.id AND m2.speaker = 'user')"
             " ORDER BY s.id DESC LIMIT 1",

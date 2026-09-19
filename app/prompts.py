@@ -835,3 +835,48 @@ def build_coach_messages(language, rows) -> list[dict]:
         {"role": "assistant", "content": json.dumps(COACH_EXAMPLE_OUTPUT, ensure_ascii=False)},
         {"role": "user", "content": _coach_input(rows)},
     ]
+
+
+# Editing this string? Run `pytest tests/test_timed_quality.py -m engine`.
+TIMED_QUESTIONS_SYSTEM = """당신은 한국인 학생의 {lang} 말하기 연습을 돕는 한국어 원어민 교사입니다.
+설명은 한국어로만 씁니다.
+
+학생이 1분 동안 혼자 말할 질문을 3개 주세요. 주제: {theme}. 학생 수준: {level}.
+- text: 학생에게 묻는 {lang} 질문 한 문장. 학생 수준에 맞는 쉬운 단어로, 자기 경험이나 생각을 1분 동안 말할 수 있게 열린 질문으로
+- meaning: 그 질문의 뜻을 자연스러운 한국어 한 줄로. 한글로만 씁니다
+- starter: 학생이 말을 시작할 수 있는 {lang} 첫 마디(문장 앞부분, "..."으로 끝남)
+세 질문은 서로 다른 방향이어야 합니다(경험, 계획, 의견처럼).
+마크다운과 이모지는 쓰지 않습니다."""
+
+TIMED_QUESTIONS_EXAMPLES = {
+    "en": ("일상 · 주말", [
+        {"text": "What did you do last weekend?", "meaning": "지난 주말에 뭐 했어요?", "starter": "Last weekend, I..."},
+        {"text": "What is your plan for this weekend?", "meaning": "이번 주말 계획이 뭐예요?", "starter": "This weekend, I'm going to..."},
+        {"text": "Do you like to stay home or go out on weekends? Why?", "meaning": "주말엔 집에 있는 게 좋아요, 나가는 게 좋아요? 왜요?", "starter": "I like to... because..."},
+    ]),
+    "ja": ("日常 · 週末", [
+        {"text": "先週末は何をしましたか。", "meaning": "지난 주말에 뭐 했어요?", "starter": "先週末は..."},
+        {"text": "今週末の予定は何ですか。", "meaning": "이번 주말 계획이 뭐예요?", "starter": "今週末は..."},
+        {"text": "週末は家にいるのと出かけるのと、どちらが好きですか。", "meaning": "주말엔 집에 있는 것과 나가는 것 중 어느 쪽이 좋아요?", "starter": "私は...が好きです。なぜなら..."},
+    ]),
+}
+
+
+def timed_questions_schema() -> dict:
+    return {"type": "object", "properties": {"questions": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"text": {"type": "string"}, "meaning": {"type": "string"}, "starter": {"type": "string"}},
+        "required": ["text", "meaning", "starter"]}}}, "required": ["questions"]}
+
+
+def build_timed_questions_messages(language, theme_title, level) -> list[dict]:
+    system = TIMED_QUESTIONS_SYSTEM.format(lang=KOREAN_LANGUAGE_NAMES[language], theme=theme_title,
+                                           level=_LEVEL_KOREAN.get(level, "초급"))
+    if language == "ja":
+        system += "\n" + JAPANESE_SCRIPT_ONLY_RULE
+    example_theme, example = TIMED_QUESTIONS_EXAMPLES[language]
+    ask = lambda t: f"주제: {t}\n1분 말하기 질문 3개를 주세요."
+    return [{"role": "system", "content": system},
+            {"role": "user", "content": ask(example_theme)},
+            {"role": "assistant", "content": json.dumps({"questions": example}, ensure_ascii=False)},
+            {"role": "user", "content": ask(theme_title)}]

@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 Language = Literal["en", "ja"]
-Mode = Literal["free", "script", "lesson"]
+Mode = Literal["free", "script", "lesson", "timed"]
 
 
 class VoiceSelection(BaseModel):
@@ -206,6 +206,107 @@ def generate_scenario(payload: ScenarioWish):
     db.add_user_scenario(item)
     return {"id": item["id"], "title": item["title"], "type": item["type"],
             "goal": item.get("goal")}
+
+
+TIMED_QUESTIONS_UNAVAILABLE = "지금은 질문을 만들 수 없어요"
+_TIMED_MAX_QUESTIONS = 3
+
+
+class _NoQuestions(Exception):
+    pass
+
+
+def _timed_question_text_ok(text: str, language: str) -> bool:
+    """Can the learner be asked this in `language`? Reuses the script checks
+    _sayable uses for a spoken reply (_HANGUL, _LATIN_LETTER, _KANA) -- but a
+    1분 말하기 question is read once rather than repeated back, so there is no
+    length cap here."""
+    if _HANGUL.search(text):
+        return False
+    if language == "ja":
+        return bool(_KANA.search(text)) and not _LATIN_LETTER.search(text)
+    return bool(_LATIN_LETTER.search(text))
+
+
+def _valid_questions(raw, language: str, kept=()) -> list[dict]:
+    """The model's timed questions that pass, after whatever was already kept.
+
+    Mirrors _valid_replies: never raises on malformed output, drops a
+    duplicate (by normalised text) of one already kept, and caps at three.
+    Two differences from a suggested reply: a bad or missing `starter` is not
+    fatal to the question -- it becomes "" and the card shows no hint, rather
+    than the whole question being dropped -- and `meaning` is Korean prose
+    checked with _is_korean_meaning, not a spoken line in the target language.
+    """
+    out = [dict(q) for q in kept]
+    seen = {normalize(q["text"]) for q in out}
+    for item in raw if isinstance(raw, list) else []:
+        if len(out) >= _TIMED_MAX_QUESTIONS:
+            break
+        if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+            continue
+        text = _first_line(item["text"])
+        if not text or not _timed_question_text_ok(text, language):
+            continue
+        meaning = item.get("meaning")
+        if not isinstance(meaning, str) or not _is_korean_meaning(meaning, source=text):
+            continue
+        key = normalize(text)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        starter = item.get("starter")
+        starter = starter.strip() if isinstance(starter, str) else ""
+        if _HANGUL.search(starter):
+            starter = ""
+        out.append({"text": text, "meaning": meaning.strip(), "starter": starter})
+    return out
+
+
+def _generate_timed_questions(language, theme_title, level) -> list[dict]:
+    """Two or three 1분 말하기 questions for a theme, or _NoQuestions.
+
+    Same retry shape as _generate_suggestions: fewer than two survivors earns
+    one more sample, but a model call that raised outright is not retried --
+    a second call would only wait out the same timeout again.
+    """
+    messages = prompts.build_timed_questions_messages(language, theme_title, level)
+    kept: list[dict] = []
+    for _ in range(2):
+        try:
+            result = llm.chat_json(messages, prompts.timed_questions_schema())
+        except Exception as exc:
+            raise _NoQuestions from exc
+        raw = result.get("questions") if isinstance(result, dict) else None
+        kept = _valid_questions(raw, language, kept)
+        if len(kept) >= 2:
+            break
+    if not kept:
+        raise _NoQuestions
+    return kept
+
+
+@functools.lru_cache(maxsize=128)
+def _cached_timed_questions(language: str, theme_id: str, level: str, today_iso: str) -> tuple[dict, ...]:
+    """Successful question sets only -- lru_cache never caches an exception, so
+    a model failure is retried on the next request rather than sticking until
+    the process restarts. Keyed by day, so the same theme gets a fresh set of
+    questions tomorrow rather than the same three forever."""
+    theme = library.get_theme(theme_id)
+    theme_title = theme["title"] if theme else theme_id
+    return tuple(_generate_timed_questions(language, theme_title, level))
+
+
+@router.get("/timed/questions")
+def timed_questions(language: Language, theme_id: str):
+    if library.get_theme(theme_id) is None:
+        raise HTTPException(404, "no such theme")
+    level = db.stable_level(language) or "beginner"
+    try:
+        questions = _cached_timed_questions(language, theme_id, level, _today().isoformat())
+    except _NoQuestions:
+        raise HTTPException(503, TIMED_QUESTIONS_UNAVAILABLE)
+    return {"questions": [dict(q) for q in questions]}
 
 
 @router.get("/voices")
@@ -715,6 +816,17 @@ def _feedback(language: str, text: str, *, scenario_title=None,
 def start_session(payload: SessionStart):
     if payload.shadowing and payload.mode != "script":
         raise HTTPException(400, "shadowing is a script session")
+    if payload.mode == "timed":
+        # 질문 화면에서 학생이 고른 질문이 topic으로 온다. 시나리오도 모델 호출도
+        # 봇 첫마디도 없다 -- 1분 말하기는 학생 혼자 타이머 앞에서 말하는 시간이고,
+        # 질문은 GET /timed/questions에서 이미 골랐다.
+        if payload.scenario_id:
+            raise HTTPException(400, "timed mode has no scenario")
+        topic = (payload.topic or "").strip()
+        if not topic:
+            raise HTTPException(400, "timed mode needs a topic")
+        session_id = db.create_session(payload.language, payload.mode, topic=topic)
+        return {"session_id": session_id, "mode": "timed", "topic": topic}
     scenario = None
     if payload.mode in ("free", "script"):
         if not payload.scenario_id:
