@@ -170,24 +170,30 @@
         <button type="button" data-language="en">English</button>
         <button type="button" data-language="ja">日本語</button>
       </span>
+      <div id="level-card" class="level-strip">
+        <div id="level-body"></div>
+      </div>
     </div>
-    <div id="level-card" class="panel">
-      <p class="label">레벨</p>
-      <div id="level-body"></div>
+    <div id="mypage-tabs" class="mypage-tabs" role="tablist" aria-label="마이페이지">
+      <button type="button" role="tab" id="tab-review" data-tab="review" aria-controls="review-section" aria-selected="true" tabindex="0">복습<span id="tab-review-n" class="tab-n"></span></button>
+      <button type="button" role="tab" id="tab-weak" data-tab="weak" aria-controls="weak-section" aria-selected="false" tabindex="-1">약점</button>
+      <button type="button" role="tab" id="tab-history" data-tab="history" aria-controls="history-section" aria-selected="false" tabindex="-1">기록</button>
     </div>
-    <div id="review-section" class="panel">
-      <div class="review-head"><p id="review-count" class="label"></p><span id="review-mastered" class="hint"></span></div>
-      <div id="review-list"></div>
-    </div>
-    <div id="weak-section" class="panel">
-      <p class="label">자주 걸리는 것</p>
-      <p id="accuracy-line" class="hint is-invisible" aria-hidden="true"></p>
-      <div id="tag-bars"></div>
-    </div>
-    <div id="history-section" class="panel">
-      <p class="label">지난 기록</p>
-      <ul id="history-list"></ul>
-      <button id="btn-history-more" class="ghost btn-stable is-invisible" type="button" aria-hidden="true">더 보기</button>
+    <div class="mypage-panels">
+      <div id="review-section" class="panel" role="tabpanel" aria-labelledby="tab-review">
+        <div class="review-head"><p id="review-count" class="label"></p><span id="review-mastered" class="hint"></span></div>
+        <div id="review-list"></div>
+      </div>
+      <div id="weak-section" class="panel" role="tabpanel" aria-labelledby="tab-weak" hidden>
+        <p class="label">자주 걸리는 것</p>
+        <p id="accuracy-line" class="hint is-invisible" aria-hidden="true"></p>
+        <div id="tag-bars"></div>
+      </div>
+      <div id="history-section" class="panel" role="tabpanel" aria-labelledby="tab-history" hidden>
+        <p class="label">지난 기록</p>
+        <ul id="history-list"></ul>
+        <button id="btn-history-more" class="ghost btn-stable is-invisible" type="button" aria-hidden="true">더 보기</button>
+      </div>
     </div>
   </section>
 

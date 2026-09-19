@@ -8,7 +8,8 @@ import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
-import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory } from './mypage.js';
+import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
+         selectTab, onTabKey } from './mypage.js';
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
 import * as router from './router.js';
 
@@ -45,11 +46,19 @@ $('mypage-language-seg').addEventListener('click', switchLanguage);
 
 /* ---------- my page ---------- */
 
-$('btn-mypage').addEventListener('click', openMypage);
+// Arrow functions, not openMypage itself: it takes { tab }, and a click
+// handler's first argument is the Event.
+$('btn-mypage').addEventListener('click', () => openMypage());
 $('btn-mypage-home').addEventListener('click', () => {
   leaveMypage();
   loadHome();
 });
+$('mypage-tabs').addEventListener('click', (e) => {
+  // closest, so a press on 복습's count (#tab-review-n) still finds its tab.
+  const tab = e.target.closest?.('[role="tab"]');
+  if (tab) selectTab(tab.dataset.tab);
+});
+$('mypage-tabs').addEventListener('keydown', onTabKey);
 $('review-list').addEventListener('click', onReviewClick);
 $('history-list').addEventListener('click', onHistoryClick);
 $('btn-history-more').addEventListener('click', () => loadHistory({ append: true }));
@@ -76,13 +85,13 @@ $('today-alt').addEventListener('click', (e) => {
 });
 $('goal-minus').addEventListener('click', () => changeGoal(-1));
 $('goal-plus').addEventListener('click', () => changeGoal(+1));
-$('week-more').addEventListener('click', openMypage);
+$('week-more').addEventListener('click', () => openMypage());
 
 /* 오늘 복습: 듣기 does not navigate -- playReviewHome handles the swap to
    음성 준비 중... itself. 복습하러 가기 and 기록 더 보기 both just open my page;
    home.js must not import mypage.js (cycle), so this is wired here. */
 $('review-home-play').addEventListener('click', playReviewHome);
-$('review-home-go').addEventListener('click', openMypage);
+$('review-home-go').addEventListener('click', () => openMypage({ tab: 'review' }));
 
 $('notice-close').addEventListener('click', () => notify(''));
 

@@ -933,11 +933,32 @@ button.meaning:hover { color: var(--accent-ink); }
 .mypage-error { color: var(--text-dim); font-size: var(--text-sm); margin: 0; }
 
 /* Level */
-/* :where keeps this at zero specificity, so .level-note's gap below wins. */
+/* The level is one line in the head, not a card: it is a fact to glance at,
+   and the room it took is what the tabs below need. */
+.level-strip { flex-basis: 100%; }
 :where(#level-body) > p { margin: 0; }
-.level-value { font-size: var(--text-xl); font-weight: 700; line-height: 1.3; color: var(--text); }
-.level-note { font-size: var(--text-sm); color: var(--text-dim); margin-top: var(--space-1); }
-.level-note.skeleton { width: 55%; }
+.level-line { font-size: var(--text-sm); color: var(--text-dim); }
+.level-line b { color: var(--text); font-weight: 700; }
+.level-line.skeleton { width: 40%; }
+
+/* Tabs: 복습 | 약점 | 기록 */
+.mypage-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--line); }
+.mypage-tabs [role="tab"] { background: none; border: 0; border-bottom: 2px solid transparent;
+  margin-bottom: -1px; padding: var(--space-2) var(--space-3); font-size: var(--text-base);
+  color: var(--text-dim); font-weight: 600; border-radius: 0; }
+.mypage-tabs [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.mypage-tabs [role="tab"]:focus-visible { outline-offset: -2px; }
+/* The count sits in a reserved box, so 복습 3 -> 복습 (none left) does not
+   move 약점 and 기록 sideways. */
+.tab-n { display: inline-block; min-width: 1.5em; margin-left: var(--space-1);
+  font-size: var(--text-sm); color: var(--accent); text-align: left; }
+
+/* One height for every tab: switching to a short one must not pull the page
+   up under the pointer. Opacity only (no transform -- R1). */
+.mypage-panels { min-height: min(70vh, 34rem); }
+.mypage-panels > [role="tabpanel"] { animation: tab-in var(--dur-fast) ease; }
+@keyframes tab-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mypage-panels > [role="tabpanel"] { animation: none; } }
 
 /* Today's review */
 .review-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
