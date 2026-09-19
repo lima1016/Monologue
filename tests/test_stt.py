@@ -5,11 +5,19 @@ import pytest
 from app import stt
 
 
+class Word:
+    def __init__(self, start, end, word=""):
+        self.start = start
+        self.end = end
+        self.word = word
+
+
 class Segment:
-    def __init__(self, text, start=0.0, end=0.0):
+    def __init__(self, text, start=0.0, end=0.0, words=None):
         self.text = text
         self.start = start
         self.end = end
+        self.words = words
 
 
 class FakeModel:
@@ -80,9 +88,25 @@ def test_transcribe_segments_keeps_timing_and_strips_each_piece():
     model = FakeModel([Segment(" hi there ", start=0.0, end=1.5), Segment(" bye ", start=2.0, end=3.0)])
     stt.load(lambda: model)
     assert stt.transcribe_segments(b"x", "en") == [
-        {"start": 0.0, "end": 1.5, "text": "hi there"},
-        {"start": 2.0, "end": 3.0, "text": "bye"},
+        {"start": 0.0, "end": 1.5, "text": "hi there", "words": []},
+        {"start": 2.0, "end": 3.0, "text": "bye", "words": []},
     ]
+
+
+def test_transcribe_segments_asks_for_word_timestamps_and_returns_plain_floats():
+    """Long pauses are measured between words (real Whisper stretches English
+    segment timestamps across a silence). faster-whisper can hand back numpy
+    floats; the result must be plain Python floats."""
+    np = pytest.importorskip("numpy")
+    words = [Word(np.float32(0.25), np.float32(0.5), " hi"), Word(np.float64(4.75), np.float64(5.0), " there")]
+    model = FakeModel([Segment(" hi there ", start=np.float32(0.25), end=np.float64(5.0), words=words)])
+    stt.load(lambda: model)
+    [seg] = stt.transcribe_segments(b"x", "en")
+    assert model.calls[0][1].get("word_timestamps") is True
+    assert seg == {"start": 0.25, "end": 5.0, "text": "hi there",
+                   "words": [{"start": 0.25, "end": 0.5}, {"start": 4.75, "end": 5.0}]}
+    assert type(seg["start"]) is float and type(seg["end"]) is float
+    assert all(type(w[k]) is float for w in seg["words"] for k in ("start", "end"))
 
 
 def test_transcribe_segments_not_ready_means_unavailable():

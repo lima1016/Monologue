@@ -27,7 +27,11 @@ def split_sentences(segments, language) -> list[str]:
 
 
 def long_pauses(segments, threshold=LONG_PAUSE) -> int:
-    ordered = sorted(segments, key=lambda s: s["start"])
+    """Gaps of `threshold` seconds or more. Measured between words when the
+    segments carry them (Whisper's English segments stretch across silence,
+    hiding the pause), between segments otherwise."""
+    words = [w for s in segments for w in (s.get("words") or [])]
+    ordered = sorted(words or segments, key=lambda s: s["start"])
     return sum(1 for a, b in zip(ordered, ordered[1:]) if b["start"] - a["end"] >= threshold)
 
 

@@ -94,15 +94,22 @@ def transcribe_segments(audio: bytes, language: str) -> list[dict]:
     """Like transcribe, but keeps each segment's timing -- 1분 말하기 needs the
     gaps between segments (app/timed.py's long_pauses), which the joined
     string alone throws away. Same options as transcribe (see its comment on
-    initial_prompt) so the two never disagree on what the model heard."""
+    initial_prompt) so the two never disagree on what the model heard, plus
+    word_timestamps: measured on real speech, English segment timestamps
+    stretch across a 4 s silence so segment gaps read 0, while word gaps catch
+    the pause in both en and ja. Every time is cast to a plain float --
+    faster-whisper can hand back numpy floats."""
     if _status != "ready" or _model is None:
         raise SttUnavailable(_status)
     with _lock:
         segments, _info = _model.transcribe(
             io.BytesIO(audio), language=language, vad_filter=True,
-            beam_size=1, condition_on_previous_text=False,
+            beam_size=1, condition_on_previous_text=False, word_timestamps=True,
         )
-        return [{"start": s.start, "end": s.end, "text": s.text.strip()} for s in segments]
+        return [{"start": float(s.start), "end": float(s.end), "text": s.text.strip(),
+                 "words": [{"start": float(w.start), "end": float(w.end)}
+                           for w in (getattr(s, "words", None) or [])]}
+                for s in segments]
 
 
 def _reset_for_tests() -> None:

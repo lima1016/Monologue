@@ -31,6 +31,33 @@ def test_long_pauses_count_gaps_of_three_seconds_or_more():
     assert timed.long_pauses(segs) == 2
 
 
+W = lambda s, e: {"start": s, "end": e}
+
+
+def test_long_pauses_use_word_gaps_when_words_are_present():
+    """English segments stretch over silence (one segment runs across a 4.5 s pause),
+    so the segment gap reads 0 -- the word gaps inside still show it."""
+    segs = [
+        {"start": 0.0, "end": 7.1, "text": "a b c", "words": [W(0.0, 1.0), W(1.2, 2.0), W(6.5, 7.0)]},
+        {"start": 7.2, "end": 12.0, "text": "d e", "words": [W(7.2, 7.5), W(11.0, 11.5)]},
+    ]
+    assert timed.long_pauses(segs) == 2
+
+
+def test_long_pauses_word_gaps_cross_segment_boundaries_in_start_order():
+    segs = [
+        {"start": 5.0, "end": 6.0, "text": "b", "words": [W(5.0, 6.0)]},
+        {"start": 0.0, "end": 1.0, "text": "a", "words": [W(0.0, 1.0)]},
+        {"start": 1.5, "end": 1.9, "text": "c", "words": [W(1.5, 1.9)]},
+    ]
+    assert timed.long_pauses(segs) == 1
+
+
+def test_long_pauses_fall_back_to_segment_gaps_when_words_are_empty():
+    segs = [{**SEG(0, 2, "a"), "words": []}, {**SEG(5, 6, "b"), "words": []}]
+    assert timed.long_pauses(segs) == 1
+
+
 def test_round_stats_per_minute():
     segs = [SEG(0, 10, "I went to the park and played soccer with my friends.")]
     s = timed.round_stats(segs, "en", 30)
