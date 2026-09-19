@@ -4,19 +4,32 @@ import { setPrefs } from './reading.js';
 let currentPreviewAudio = null;
 let currentPreviewUrl = null;
 
-/* Only the dialog's chosen language's settings are shown. The voice list
-   follows the select by being re-fetched; the reading aids are Japanese-only,
-   so they are hidden rather than re-rendered. Hiding changes nothing stored --
-   the prefs still apply to every Japanese session. */
+/* Both languages' sections (#lang-section-en, #lang-section-ja) stay in the
+   dialog at once -- see the .lang-sections grid cell in components.css --
+   so only *which one is reachable* changes here, never what's rendered.
+   .is-inactive drives the CSS (visibility: hidden, not hidden/display:none,
+   so the inactive section keeps holding its height); `inert` and
+   aria-hidden keep its radios/checkboxes out of focus, click and
+   assistive-tech reach the same way `hidden` used to. Hiding/inerting
+   changes nothing stored -- the prefs still apply to every Japanese
+   session. */
 export function syncLanguageSections() {
-  $('reading-prefs').hidden = $('settings-language').value !== 'ja';
+  const active = $('settings-language').value;
+  for (const lang of ['en', 'ja']) {
+    const section = $(`lang-section-${lang}`);
+    const isActive = lang === active;
+    section.classList.toggle('is-inactive', !isActive);
+    section.inert = !isActive;
+    section.setAttribute('aria-hidden', String(!isActive));
+  }
 }
 
-export async function renderVoiceList() {
-  const language = $('settings-language').value;
+/* Renders one language's voice list into its own container so the other
+   language's list (and its height) is left untouched. */
+export async function renderVoiceList(language) {
   try {
     const { voices, selected } = await getJSON(`/voices?language=${language}`);
-    $('voice-list').innerHTML = voices
+    $(`voice-list-${language}`).innerHTML = voices
       .map(
         (v) => `<div class="voice">
           <input type="radio" name="voice" id="v-${v.id}" value="${v.id}" ${v.id === selected ? 'checked' : ''}>
@@ -27,8 +40,15 @@ export async function renderVoiceList() {
       .join('');
   } catch (err) {
     notify(`음성 목록을 불러올 수 없습니다: ${err.message}`);
-    $('voice-list').innerHTML = '';
+    $(`voice-list-${language}`).innerHTML = '';
   }
+}
+
+/* Both languages' lists are fetched up front, when the dialog opens, so the
+   grid cell already knows the taller one's height before the learner ever
+   touches the language select. */
+export async function renderVoiceLists() {
+  await Promise.all(['en', 'ja'].map(renderVoiceList));
 }
 
 export async function previewVoice(voice) {

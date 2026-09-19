@@ -340,6 +340,18 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .voice { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) 0; }
 .voice label { margin: 0; flex: 1; }
 
+/* 설정 > 언어: English and 日本語's voice list (and, for 日本語, the reading
+   aids fieldset) both live here at once rather than being swapped in and out,
+   so switching the language never resizes the dialog. Both sections share one
+   grid cell (`grid-area: 1 / 1` stacks them instead of the grid sizing a
+   column or row per child), which makes the cell as tall as whichever
+   section is taller. settings.js's syncLanguageSections toggles which one is
+   .is-inactive -- visibility, not display or [hidden], so the shorter section
+   still holds its share of that height while out of view. */
+.lang-sections { display: grid; }
+.lang-sections > .lang-section { grid-area: 1 / 1; }
+.lang-section.is-inactive { visibility: hidden; }
+
 /* 설정 > 화면. Each swatch paints its own theme (light --bg and --accent,
    set inline in index.html) whatever theme is showing, so the six can be
    compared side by side. The pressed one gets an inset ring rather than a

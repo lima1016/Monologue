@@ -339,6 +339,19 @@ def test_header_buttons_do_not_wrap():
     assert re.search(r"\.status button\s*\{[^}]*white-space:\s*nowrap", _all_css())
 
 
+def test_lang_sections_share_one_grid_cell():
+    """Switching 언어 (settings.js: syncLanguageSections) must never resize the
+    dialog -- both languages' sections sit in the same grid cell so it is
+    always the taller one's height, and only .is-inactive changes which one
+    is reachable."""
+    css = _all_css()
+    assert "display: grid" in _rule_body(css, ".lang-sections {")
+    assert "grid-area: 1 / 1" in _rule_body(css, ".lang-sections > .lang-section {")
+    inactive = _rule_body(css, ".lang-section.is-inactive {")
+    assert "visibility: hidden" in inactive
+    assert "display: none" not in inactive
+
+
 def test_health_notice_fades_without_transform():
     """#health-notice (session.js: refreshHealth) replaces the old status
     dots. It overlays the header rather than pushing the page below it, and

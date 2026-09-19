@@ -6,7 +6,7 @@ import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome } from '
 import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
          startFromPick, startTheme, syncLanguageButtons,
          selectQuestion, retryQuestions, onOwnInput } from './pick.js';
-import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections, initScreenPrefs } from './settings.js';
+import { renderVoiceList, renderVoiceLists, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections, initScreenPrefs } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
@@ -340,29 +340,27 @@ initScreenPrefs();
 $('btn-settings').addEventListener('click', async () => {
   $('settings-language').value = state.language;
   syncLanguageSections();
-  await renderVoiceList();
+  await renderVoiceLists();
   await loadReadingPrefs();
   $('settings').showModal();
 });
 $('settings-language').addEventListener('change', () => {
   syncLanguageSections();
-  renderVoiceList();
+  renderVoiceList($('settings-language').value);
 });
 $('btn-close-settings').addEventListener('click', () => $('settings').close());
-$('voice-list').addEventListener('click', (e) => {
+$('lang-sections').addEventListener('click', (e) => {
   const preview = e.target.dataset.preview;
   if (preview) previewVoice(preview);
 });
 $('reading-prefs').addEventListener('change', saveReadingPrefs);
-$('voice-list').addEventListener('change', async (e) => {
+$('lang-sections').addEventListener('change', async (e) => {
   if (e.target.name !== 'voice') return;
+  const language = $('settings-language').value;
   try {
-    await postJSON('/voices', {
-      language: $('settings-language').value,
-      voice: e.target.value,
-    });
+    await postJSON('/voices', { language, voice: e.target.value });
   } catch (err) {
     notify(`음성 설정을 저장할 수 없습니다: ${err.message}`);
-    await renderVoiceList();
+    await renderVoiceList(language);
   }
 });

@@ -16,15 +16,45 @@ beforeEach(() => resetDom());
 test('an English dialog hides the Japanese reading aids', () => {
   $('settings-language').value = 'en';
   syncLanguageSections();
-  assert.equal($('reading-prefs').hidden, true);
+  assert.equal($('lang-section-ja').classList.contains('is-inactive'), true);
+  assert.equal($('lang-section-ja').inert, true);
+  assert.equal($('lang-section-ja').getAttribute('aria-hidden'), 'true');
+  assert.equal($('lang-section-en').classList.contains('is-inactive'), false);
+  assert.equal($('lang-section-en').inert, false);
+  assert.equal($('lang-section-en').getAttribute('aria-hidden'), 'false');
+  // Not removed, not display:none/[hidden] -- still in the tree, holding its
+  // height in the shared grid cell (components.css: .lang-sections).
+  assert.equal($('reading-prefs').hidden, false);
 });
 
-test('switching the dialog to Japanese shows them again', () => {
+test('switching the dialog to Japanese shows them again, and the English section is left in place, only inert', () => {
   $('settings-language').value = 'en';
   syncLanguageSections();
   $('settings-language').value = 'ja';
   syncLanguageSections();
-  assert.equal($('reading-prefs').hidden, false);
+  assert.equal($('lang-section-ja').classList.contains('is-inactive'), false);
+  assert.equal($('lang-section-ja').inert, false);
+  assert.equal($('lang-section-ja').getAttribute('aria-hidden'), 'false');
+  assert.equal($('lang-section-en').classList.contains('is-inactive'), true);
+  assert.equal($('lang-section-en').inert, true);
+  assert.equal($('lang-section-en').getAttribute('aria-hidden'), 'true');
+});
+
+test('both languages\' voice lists are rendered at once, into their own containers', async () => {
+  const { renderVoiceLists } = await import('./settings.js');
+  const { stubFetch, jsonResponse } = await import('./dom-shim.js');
+  stubFetch(async (url) => {
+    const language = new URL(url, 'http://x').searchParams.get('language');
+    const voices = language === 'en'
+      ? [{ id: 'a', label: 'A', gender: 'female' }]
+      : [{ id: 'b', label: 'B', gender: 'male' }, { id: 'c', label: 'C', gender: 'female' }];
+    return jsonResponse({ voices, selected: voices[0].id });
+  });
+  await renderVoiceLists();
+  assert.match($('voice-list-en').innerHTML, /id="v-a"/);
+  assert.doesNotMatch($('voice-list-en').innerHTML, /id="v-b"/);
+  assert.match($('voice-list-ja').innerHTML, /id="v-b"/);
+  assert.match($('voice-list-ja').innerHTML, /id="v-c"/);
 });
 
 test('the pronunciation script choice is saved with the other reading prefs', async () => {
