@@ -1500,3 +1500,89 @@ def timed_first_rounds(language, limit=20) -> list[dict]:
             " WHERE s.language = ? AND s.mode = 'timed' AND s.report IS NOT NULL AND s.ended_at IS NOT NULL"
             " ORDER BY s.ended_at DESC, s.id DESC LIMIT ?", (language, limit)).fetchall()
     return [dict(r) for r in reversed(rows)]
+
+
+# 기록 지우기 (설정 > 기록 지우기). The learner's own history in one or both
+# languages goes; everything the app itself runs on stays: library_scenarios
+# (the generated script library), user_scenarios (scenarios the learner had
+# made -- content, not history), settings (voices, weekly goal). Nothing is
+# counted anywhere from those three, so every screen reads empty afterwards.
+#
+# Children before parents: messages and timed_rounds REFERENCE sessions and
+# connect() turns foreign_keys on. review_queue carries its own language, but
+# is also cleared through its message so a card whose language column ever
+# disagreed with its session could not outlive the message it points at.
+_HISTORY_SESSIONS = "SELECT id FROM sessions WHERE language IN ({marks})"
+_RESET_STATEMENTS = (
+    "DELETE FROM review_queue WHERE language IN ({marks}) OR message_id IN"
+    " (SELECT id FROM messages WHERE session_id IN (" + _HISTORY_SESSIONS + "))",
+    "DELETE FROM timed_rounds WHERE session_id IN (" + _HISTORY_SESSIONS + ")",
+    "DELETE FROM messages WHERE session_id IN (" + _HISTORY_SESSIONS + ")",
+    "DELETE FROM sessions WHERE language IN ({marks})",
+    "DELETE FROM coach_notes WHERE language IN ({marks})",
+    "DELETE FROM level_tests WHERE language IN ({marks})",
+)
+
+
+def _history_languages(scope) -> tuple:
+    if scope == "all":
+        return tuple(config.LANGUAGES)
+    if scope in config.LANGUAGES:
+        return (scope,)
+    raise ValueError(scope)
+
+
+def _history_counts(conn, langs) -> dict:
+    marks = ",".join("?" * len(langs))
+    def one(sql):
+        sql = sql.format(marks=marks)
+        return conn.execute(sql, langs * (sql.count("?") // len(langs))).fetchone()[0]
+    return {
+        "sessions": one("SELECT COUNT(*) FROM sessions WHERE language IN ({marks})"),
+        "reports": one("SELECT COUNT(*) FROM sessions WHERE language IN ({marks}) AND report IS NOT NULL"),
+        # The same rows _RESET_STATEMENTS' first DELETE removes, so the
+        # confirm never promises fewer cards than go.
+        "reviews": one("SELECT COUNT(*) FROM review_queue WHERE language IN ({marks}) OR message_id IN"
+                       " (SELECT id FROM messages WHERE session_id IN (" + _HISTORY_SESSIONS + "))"),
+        "timed_rounds": one("SELECT COUNT(*) FROM timed_rounds WHERE session_id IN ("
+                            + _HISTORY_SESSIONS + ")"),
+        "level_tests": one("SELECT COUNT(*) FROM level_tests WHERE language IN ({marks})"),
+        "coach_notes": one("SELECT COUNT(*) FROM coach_notes WHERE language IN ({marks})"),
+    }
+
+
+def _history_session_ids(conn, langs) -> list[int]:
+    marks = ",".join("?" * len(langs))
+    return [r[0] for r in conn.execute(_HISTORY_SESSIONS.format(marks=marks), langs)]
+
+
+def history_summary(scope) -> tuple[dict, list[int]]:
+    """What 기록 지우기 would remove for `scope` ('en', 'ja' or 'all'): the
+    counts per kind, and the session ids whose recordings the caller counts
+    on disk (this module does not touch the filesystem)."""
+    langs = _history_languages(scope)
+    with connect() as conn:
+        return _history_counts(conn, langs), _history_session_ids(conn, langs)
+
+
+def reset_history(scope) -> tuple[dict, list[int], list[str]]:
+    """Delete the learner's history in `scope`, in one transaction: either
+    every statement lands or none does (connect() commits only once the block
+    finishes). Returns what was there (the same counts history_summary
+    gives), the deleted session ids and the audio paths their rows held, so
+    the caller can remove the recording files -- after the commit, since a
+    file deleted for a rolled-back row could never be brought back."""
+    langs = _history_languages(scope)
+    marks = ",".join("?" * len(langs))
+    with connect() as conn:
+        counts = _history_counts(conn, langs)
+        ids = _history_session_ids(conn, langs)
+        paths = [r[0] for r in conn.execute(
+            "SELECT audio_path FROM messages WHERE audio_path IS NOT NULL AND session_id IN ("
+            + _HISTORY_SESSIONS.format(marks=marks) + ")"
+            " UNION ALL SELECT audio_path FROM timed_rounds WHERE audio_path IS NOT NULL AND session_id IN ("
+            + _HISTORY_SESSIONS.format(marks=marks) + ")", langs * 2)]
+        for statement in _RESET_STATEMENTS:
+            sql = statement.format(marks=marks)
+            conn.execute(sql, langs * (sql.count("?") // len(langs)))
+    return counts, ids, paths

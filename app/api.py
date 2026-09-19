@@ -2341,3 +2341,56 @@ def finish_level_test(test_id: int):
 def latest_level_test(language: Language):
     test = db.latest_level_test(language)
     return {"result": test["result"] if test else None}
+
+
+# ---------------------------------------------------------------------------
+# 기록 지우기 (설정 > 기록 지우기)
+# ---------------------------------------------------------------------------
+
+HistoryScope = Literal["en", "ja", "all"]
+
+
+class HistoryReset(BaseModel):
+    language: HistoryScope
+
+
+def _session_clips(session_ids) -> list[Path]:
+    """Every recording file on disk for these sessions -- by name, not only by
+    the audio_path column: /end and undo null the column as they go, and a
+    clip written after a session was swept is on disk with no row naming it.
+    `s{id}_` (with the underscore) so session 1 never matches session 12's."""
+    if not config.AUDIO_DIR.exists():
+        return []
+    wanted = {f"s{sid}" for sid in session_ids}
+    return [p for p in config.AUDIO_DIR.glob("s*_*.webm") if p.name.split("_", 1)[0] in wanted]
+
+
+@router.get("/history/summary")
+def history_summary(language: HistoryScope):
+    """What 기록 지우기 would remove, counted -- the confirm dialog shows it."""
+    counts, ids = db.history_summary(language)
+    return {"language": language, "counts": {**counts, "recordings": len(_session_clips(ids))}}
+
+
+@router.post("/history/reset")
+def reset_history(payload: HistoryReset):
+    """Delete the learner's history in one language or both (db.reset_history
+    says what goes and what stays), then their recordings. Open sessions go
+    too. A request for one that arrives afterwards gets the usual 404 from
+    its route's session lookup; one already past that lookup when the rows
+    go can instead fail its write on the messages/timed_rounds foreign key
+    and answer 500 -- no row is stored either way (a 1분 말하기 upload may
+    leave its one recording file, written before the insert), and the reset has
+    already moved the screen off any session in the language it cleared.
+    Suggestions and 1분 말하기 questions are cached in
+    this process keyed by session and by level -- both came from the history
+    just removed, so they are dropped rather than left to age out."""
+    counts, ids, paths = db.reset_history(payload.language)
+    clips = _session_clips(ids)
+    _unlink_audio(paths)
+    _unlink_audio(str(p) for p in clips)
+    _cached_suggestions.cache_clear()
+    _cached_timed_questions.cache_clear()
+    # Files that were on disk, as the summary counts them: a path whose file
+    # was already gone is not a recording removed.
+    return {"language": payload.language, "deleted": {**counts, "recordings": len(clips)}}
