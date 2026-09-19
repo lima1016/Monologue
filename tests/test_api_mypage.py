@@ -35,7 +35,7 @@ def test_level_withheld_until_the_sample_is_big_enough(client):
     _finished(turns=[("a", 1, None, None)] * 5)
     body = client.get("/api/stats/mypage?language=en").json()
     assert body["level"] == {"value": None, "sessions": 1, "utterances": 5,
-                             "need_sessions": 3, "need_utterances": 15}
+                             "need_sessions": 3, "need_utterances": 15, "test": None}
 
 
 def test_level_shown_once_both_thresholds_are_met(client):

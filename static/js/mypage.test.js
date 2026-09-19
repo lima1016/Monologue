@@ -1083,3 +1083,112 @@ test('a 1분 말하기 history row reads 1분 말하기 and counts rounds', asyn
   assert.equal(findByClass(graded, 'sub').textContent, '2회 · 고친 곳 3');
   assert.equal(findByClass(ungraded, 'sub').textContent, '1회');
 });
+
+/* ---------- the level line with a level test ---------- */
+
+const TEST_EN = { cefr: 'B1', step: '상위', ielts: '4.5–5.0', toefl: { band: '3.5', old: '18–19' }, jf: null, finished_at: 'x' };
+const TEST_JA = { cefr: 'B1', step: '하위', ielts: null, toefl: null, jf: 'JF 스탠다드 B1', finished_at: 'x' };
+const LT_RESULT = {
+  test_id: 3, language: 'en', cefr: 'B1', step: '상위', app_level: 'intermediate',
+  ei: { score: 27, max: 48, by_level: { A1: [8, 8] } }, answers: [],
+  ielts: '4.5–5.0', toefl: { band: '3.5', old: '18–19' }, jf: null, note: '말하기만 본 추정이에요 · 공식 점수가 아니에요',
+};
+const flat = (n) => (n.textContent || '') + (n.childNodes || []).map(flat).join('');
+function byCls(node, cls, out = []) {
+  if (node.classList && node.classList.contains(cls)) out.push(node);
+  for (const c of node.children || []) byCls(c, cls, out);
+  return out;
+}
+const levelButtons = () => byCls($('level-body'), 'level-actions')[0].children;
+const withTest = (test, value = 'intermediate') => STATS({ level: { value, sessions: 0, utterances: 0,
+  need_sessions: 3, need_utterances: 15, test } });
+
+test('a finished level test is the head line: its level and IELTS, with 결과 보기 and 다시 테스트 on the line', async () => {
+  routes({ stats: () => jsonResponse(withTest(TEST_EN)) });
+  await mypage.openMypage();
+  const line = $('level-body').children;
+  assert.equal(line.length, 1, 'one line');
+  assert.equal(flat(byCls($('level-body'), 'level-text')[0]), '레벨 B1 상위 · IELTS 말하기 4.5–5.0 예상');
+  assert.deepEqual(levelButtons().map((b) => b.textContent), ['결과 보기', '다시 테스트']);
+  assert.ok(levelButtons().every((b) => b.tagName === 'BUTTON' && b.type === 'button'));
+  // The buttons are on the line itself, not a row of their own.
+  assert.equal(byCls(line[0], 'level-actions').length, 1);
+});
+
+test('in Japanese the head line names JF Standard', async () => {
+  state.language = 'ja';
+  routes({ stats: () => jsonResponse(withTest(TEST_JA)) });
+  await mypage.openMypage();
+  assert.equal(flat(byCls($('level-body'), 'level-text')[0]), '레벨 B1 하위 · JF 스탠다드 B1');
+  state.language = 'en';
+});
+
+test('no level test: the line as before, with 레벨 테스트 (7분) beside it', async () => {
+  routes();
+  await mypage.openMypage();
+  assert.equal(flat(byCls($('level-body'), 'level-text')[0]), '레벨 판정까지 세션 2/3 · 발화 9/15');
+  assert.deepEqual(levelButtons().map((b) => b.textContent), ['레벨 테스트 (7분)']);
+  routes({ stats: () => jsonResponse(STATS({ level: { value: 'advanced', sessions: 9, utterances: 99, need_sessions: 3, need_utterances: 15, test: null } })) });
+  await mypage.openMypage();
+  assert.equal(flat(byCls($('level-body'), 'level-text')[0]), '레벨 고급 · 최근 세션 판정');
+  assert.deepEqual(levelButtons().map((b) => b.textContent), ['레벨 테스트 (7분)']);
+});
+
+test('결과 보기 fetches this language\'s latest result and opens it on the level test screen, with ← 마이페이지', async () => {
+  router.register('leveltest', 'leveltest');
+  const asked = [];
+  routes({ stats: () => jsonResponse(withTest(TEST_EN)) });
+  await mypage.openMypage();
+  const show = levelButtons()[0];
+  const base = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (url.startsWith('/api/level-test/latest')) { asked.push(url); return jsonResponse({ result: LT_RESULT }); }
+    return base(url, opts);
+  };
+  await show.listeners.click[0]();
+  assert.deepEqual(asked, ['/api/level-test/latest?language=en']);
+  assert.equal(router.current(), 'leveltest');
+  assert.equal($('lt-result').hidden, false);
+  assert.equal($('lt-intro').hidden, true);
+  assert.equal($('lt-result-back').textContent, '← 마이페이지');
+  assert.equal(byCls($('lt-result-body'), 'lt-cefr')[0].textContent, 'B1 상위');
+});
+
+test('결과 보기 does not pull a learner who left my page meanwhile onto the result', async () => {
+  router.register('leveltest', 'leveltest');
+  routes({ stats: () => jsonResponse(withTest(TEST_EN)) });
+  await mypage.openMypage();
+  const show = levelButtons()[0];
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const base = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (url.startsWith('/api/level-test/latest')) { await held; return jsonResponse({ result: LT_RESULT }); }
+    return base(url, opts);
+  };
+  const pressing = show.listeners.click[0]();
+  router.show('home');
+  release();
+  await pressing;
+  assert.equal(router.current(), 'home');
+  assert.equal(show.disabled, false);
+});
+
+test('다시 테스트 and 레벨 테스트 (7분) open the test at its intro', async () => {
+  router.register('leveltest', 'leveltest');
+  const lt = await import('./leveltest.js');
+  routes({ stats: () => jsonResponse(withTest(TEST_EN)) });
+  await mypage.openMypage();
+  levelButtons()[1].listeners.click[0]();
+  assert.equal(router.current(), 'leveltest');
+  assert.equal(lt.levelTestState().step, 'intro');
+  assert.equal($('lt-intro').hidden, false);
+  lt.leaveLevelTest();
+
+  routes();
+  await mypage.openMypage();
+  levelButtons()[0].listeners.click[0]();
+  assert.equal(router.current(), 'leveltest');
+  assert.equal(lt.levelTestState().step, 'intro');
+  lt.leaveLevelTest();
+});

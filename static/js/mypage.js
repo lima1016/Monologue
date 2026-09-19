@@ -19,6 +19,7 @@ import { $, getJSON, postJSON, state, notify, setShown, syncLanguageButtons,
 import { play } from './audio.js';
 import * as router from './router.js';
 import { startRespeak, renderReport, canDo, cancelTurn } from './session.js';
+import { openLevelTest, renderLevelResult, levelName } from './leveltest.js';
 
 const LEVEL_NAMES = { beginner: '초급', intermediate: '중급', advanced: '고급' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극', lesson: '수업', timed: '1분 말하기' };
@@ -258,22 +259,84 @@ function loadingNote(words = LOADING) {
 
 /* ---------- level ---------- */
 
+export const LEVEL_TEXT = {
+  ielts: (band) => `IELTS 말하기 ${band} 예상`,
+  show: '결과 보기',
+  retake: '다시 테스트',
+  take: '레벨 테스트 (7분)',
+};
+
+/* The head line. With a finished level test it is the test's level and what
+   it comes to (IELTS for English, JF for Japanese), with 결과 보기 and 다시
+   테스트 beside it; without one, the practice sample's line as before, with
+   레벨 테스트 (7분) beside it. The buttons sit on the line itself -- see
+   .level-line in components.css for the room it holds. */
 export function renderLevel(level) {
   const body = $('level-body');
-  if (level && level.value) {
+  const test = level && level.test;
+  if (test) {
     const line = el('p', 'level-line');
-    line.append(el('b', '', `레벨 ${LEVEL_NAMES[level.value] || level.value}`),
-      document.createTextNode(' · 최근 세션 판정'));
+    const words = el('span', 'level-text');
+    const scale = test.jf || (test.ielts ? LEVEL_TEXT.ielts(test.ielts) : '');
+    words.append(el('b', '', `레벨 ${levelName(test)}`));
+    if (scale) words.append(document.createTextNode(` · ${scale}`));
+    const show = button('level-show', LEVEL_TEXT.show);
+    show.addEventListener('click', () => { dropListen(); return showLevelResult(show); });
+    const retake = button('level-retake', LEVEL_TEXT.retake);
+    retake.addEventListener('click', () => { dropListen(); return openLevelTest(); });
+    line.append(words, actions(show, retake));
     body.replaceChildren(line);
     return;
   }
-  // Stops at the target: 세션 5/3 next to 발화 9/15 reads as a typo.
-  const needSessions = level?.need_sessions ?? 3;
-  const needUtterances = level?.need_utterances ?? 15;
-  const sessions = Math.min(level?.sessions ?? 0, needSessions);
-  const utterances = Math.min(level?.utterances ?? 0, needUtterances);
-  body.replaceChildren(el('p', 'level-line',
-    `레벨 판정까지 세션 ${sessions}/${needSessions} · 발화 ${utterances}/${needUtterances}`));
+  const words = el('span', 'level-text');
+  if (level && level.value) {
+    words.append(el('b', '', `레벨 ${LEVEL_NAMES[level.value] || level.value}`),
+      document.createTextNode(' · 최근 세션 판정'));
+  } else {
+    // Stops at the target: 세션 5/3 next to 발화 9/15 reads as a typo.
+    const needSessions = level?.need_sessions ?? 3;
+    const needUtterances = level?.need_utterances ?? 15;
+    const sessions = Math.min(level?.sessions ?? 0, needSessions);
+    const utterances = Math.min(level?.utterances ?? 0, needUtterances);
+    words.textContent = `레벨 판정까지 세션 ${sessions}/${needSessions} · 발화 ${utterances}/${needUtterances}`;
+  }
+  const take = button('level-take', LEVEL_TEXT.take);
+  take.addEventListener('click', () => { dropListen(); return openLevelTest(); });
+  const line = el('p', 'level-line');
+  line.append(words, actions(take));
+  body.replaceChildren(line);
+}
+
+/* The level line's buttons leave my page, as ← 홈 does: a review card's
+   listen still running would go on under the level test's own recording. */
+function dropListen() {
+  if (canDo('cancel')) cancelTurn();
+}
+
+function actions(...buttons) {
+  const box = el('span', 'level-actions');
+  box.append(...buttons);
+  return box;
+}
+
+/* 결과 보기: the language's latest result, drawn on the level test screen with
+   ← 마이페이지 to come back. A press while one is out asks nothing more; a
+   learner who left my page meanwhile is not pulled onto the result. */
+async function showLevelResult(btn) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const token = loadToken;
+  const lang = state.language;
+  try {
+    const { result } = await getJSON(`/level-test/latest?language=${lang}`);
+    if (router.current() !== 'mypage' || token !== loadToken || state.language !== lang) return;
+    if (!result) { notify(FAILED); return; }
+    renderLevelResult(result, { from: 'mypage' });
+  } catch {
+    if (router.current() === 'mypage') notify(FAILED);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 /* ---------- today's review ---------- */

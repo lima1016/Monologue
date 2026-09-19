@@ -36,7 +36,14 @@ export function stopPlayback() {
 /* `onDone` is optional and, when given, fires once playback actually finishes
    (or immediately if nothing could be played at all, or when stopPlayback()
    cuts it off) -- session.js uses it to fire the AUDIO_DONE event that returns
-   the turn state machine to `idle`.
+   the turn state machine to `idle`. It is called with why it ended:
+     'ended'    -- the server clip played to its end;
+     'error'    -- the clip raised an error;
+     'fallback' -- the clip could not play (or there was none) and the browser's
+                   voice was used instead; fires when that voice is done;
+     'stopped'  -- stopPlayback() (or the next play()) cut the clip off.
+   Callers that only need "it is over" ignore the argument; the level test,
+   which must know whether a sentence was really heard, reads it.
    `rate` slows the same clip down (shadowing's 천천히 듣기) rather than asking
    the server for a second, slower synthesis.
    Every play() first stops the one before it. */
@@ -51,24 +58,24 @@ export function play(audioKey, fallbackText, onDone, { rate = 1 } = {}) {
     const stop = () => {
       stopped = true;
       clip.pause();
-      if (done) done();
+      if (done) done('stopped');
     };
     stopCurrent = stop;
     if (done) {
-      clip.addEventListener('ended', done);
-      clip.addEventListener('error', done);
+      clip.addEventListener('ended', () => done('ended'));
+      clip.addEventListener('error', () => done('error'));
     }
     clip.play().catch(() => {
       // pause() before the clip got going rejects play() too -- that is the
       // stop working, not a clip that failed, and must not start the voice.
       if (stopped) return;
       if (stopCurrent === stop) stopCurrent = null;
-      speakInBrowser(fallbackText, done, rate);
+      speakInBrowser(fallbackText, done && (() => done('fallback')), rate);
     });
     return;
   }
   notify('서버 음성 생성에 실패해 브라우저 음성으로 대체합니다. 품질이 떨어집니다.');
-  speakInBrowser(fallbackText, done, rate);
+  speakInBrowser(fallbackText, done && (() => done('fallback')), rate);
 }
 
 export function speakInBrowser(text, onDone, rate = 1) {

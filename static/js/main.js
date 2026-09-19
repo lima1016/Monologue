@@ -14,6 +14,8 @@ import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
 import { leaveTimed, startNow, stopNow, retryTranscribe, backToPrep, again, endTimed, playMine,
          playNative, retryNative } from './timed.js';
+import { leaveLevelTest, startTest, stopNow as stopLevelTest, relisten, redo, retryFinish,
+         openLevelTest, levelResultFrom } from './leveltest.js';
 import * as router from './router.js';
 
 /* ---------- screens ---------- */
@@ -24,15 +26,18 @@ router.register('session', 'session');
 router.register('report', 'report');
 router.register('mypage', 'mypage');
 router.register('timed', 'timed');
+router.register('leveltest', 'leveltest');
 router.show('home');
 
 /* ---------- wiring ---------- */
 
-/* What every way off a screen cleans up first. 1분 말하기 is the one screen with
-   a live microphone and a clock of its own: a minute still recording is
-   dropped (never uploaded) and its timers stop. A no-op anywhere else. */
+/* What every way off a screen cleans up first. 1분 말하기 and the level test
+   are the screens with a live microphone and clocks of their own: a recording
+   still running is dropped (never uploaded), their timers stop, and a level
+   test is abandoned. A no-op anywhere else. */
 function leaving() {
   leaveTimed();
+  leaveLevelTest();
 }
 
 /* Home, pick and my page each carry a language segment; all are the one
@@ -134,6 +139,33 @@ $('timed-native-retry').addEventListener('click', () => retryNative());
 $('timed-mine').addEventListener('click', () => playMine());
 $('timed-again').addEventListener('click', () => again());
 $('timed-end').addEventListener('click', () => endTimed());
+
+/* The level test's card. Arrow functions, as above. */
+$('btn-leveltest-home').addEventListener('click', () => {
+  leaving();
+  router.show('home');
+  loadHome();
+});
+$('lt-start').addEventListener('click', () => startTest());
+$('lt-item-stop').addEventListener('click', () => stopLevelTest());
+$('lt-answer-stop').addEventListener('click', () => stopLevelTest());
+$('lt-relisten').addEventListener('click', () => relisten());
+$('lt-redo').addEventListener('click', () => redo());
+$('lt-finish-retry').addEventListener('click', () => retryFinish());
+/* The result's button: 홈으로 at the end of a test, ← 마이페이지 when my
+   page's 결과 보기 opened it. Read before leaving(), which resets the test. */
+$('lt-result-back').addEventListener('click', () => {
+  const from = levelResultFrom();
+  leaving();
+  if (from === 'mypage') {
+    openMypage();
+  } else {
+    router.show('home');
+    loadHome();
+  }
+});
+/* Home's 레벨 테스트 card. */
+$('leveltest-home-start').addEventListener('click', () => openLevelTest());
 
 $('category-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-category]');

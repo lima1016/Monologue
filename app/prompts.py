@@ -6,7 +6,7 @@ Read aloud, that teaches the learner a register nobody actually speaks.
 """
 import json
 
-from app import config
+from app import config, leveltest
 
 LANGUAGE_NAMES = {"en": "English", "ja": "Japanese"}
 
@@ -972,3 +972,93 @@ def build_timed_native_messages(language, topic, sentences, level) -> list[dict]
             {"role": "user", "content": _timed_native_request(example_topic, example_sentences)},
             {"role": "assistant", "content": json.dumps(example, ensure_ascii=False)},
             {"role": "user", "content": _timed_native_request(topic, sentences)}]
+
+
+# 레벨 테스트의 답하기 판정 (docs/superpowers/specs/2026-09-19-monologue-level-
+# test-design.md). The two answers only nudge a score near a CEFR cut, so the
+# model's job is small: one CEFR label and one Korean line per answer.
+LEVEL_ANSWERS_SYSTEM = """당신은 한국인 학생의 {lang} 말하기 수준을 판정하는 시험관입니다.
+학생이 질문에 45초 동안 {lang}로 답했습니다. 답은 음성을 받아 적은 것이라 오탈자나 잘못 알아들은 단어가 있을 수 있습니다. 그런 받아쓰기 오류는 감점하지 않습니다.
+
+받은 답을 각각 따로 판정하세요. 받지 않은 질문 번호는 쓰지 않습니다.
+- q: 질문 번호(주어진 그대로)
+- cefr: 그 답만 보고 판단한 CEFR 말하기 수준. A1, A2, B1, B2, C1, C2 중 하나
+  - 문장의 길이와 짜임, 어휘의 폭, 말의 흐름(분당 낱말 수, 3초 넘게 멈춘 횟수)을 봅니다
+  - 답이 비어 있거나 한두 단어뿐이면 A1입니다
+- comment: 한국어 평 한 줄. 60자 이내. 잘한 점 하나와 부족한 점 하나를 씁니다
+  - 답이 일본어여도 comment는 반드시 한국어로 씁니다. 답이 영어여도 마찬가지입니다
+  - 답의 낱말을 인용할 때만 「」 안에 그대로 씁니다
+
+마크다운과 이모지는 쓰지 않습니다."""
+
+# One synthetic example per language -- invented for this prompt, never a real
+# learner's answers.
+LEVEL_ANSWERS_EXAMPLES = {
+    "en": (
+        [{"q": 0, "question": "What do you like to eat for breakfast?",
+          "text": "I like bread and milk. Sometimes egg. I eat quickly because busy.",
+          "wpm": 62, "long_pauses": 3},
+         {"q": 1, "question": "Tell me about a place you would like to visit.",
+          "text": ("I'd really love to visit Iceland someday, mainly because I've seen so many "
+                   "photos of the northern lights and I want to see them with my own eyes. "
+                   "I'd probably rent a car and drive around the coast."),
+          "wpm": 128, "long_pauses": 0}],
+        {"answers": [
+            {"q": 0, "cefr": "A2", "comment": "아침 메뉴를 쉬운 말로 전했지만 because 뒤에 주어와 동사가 빠졌어요."},
+            {"q": 1, "cefr": "B2", "comment": "이유와 계획을 자연스럽게 이었지만 표현이 조금 더 다양하면 좋겠어요."},
+        ]},
+    ),
+    "ja": (
+        [{"q": 0, "question": "朝ごはんに何を食べるのが好きですか。",
+          "text": "パンと牛乳が好きです。ときどき卵。忙しいから早く食べます。",
+          "wpm": 70, "long_pauses": 3},
+         {"q": 1, "question": "行ってみたい場所について話してください。",
+          "text": ("いつかアイスランドに行ってみたいです。写真でオーロラを何度も見たので、"
+                   "自分の目で見てみたいと思っています。車を借りて海沿いを走るつもりです。"),
+          "wpm": 180, "long_pauses": 0}],
+        {"answers": [
+            {"q": 0, "cefr": "A2", "comment": "좋아하는 아침을 전했지만 문장이 짧고 잇는 말이 적었어요."},
+            {"q": 1, "cefr": "B1", "comment": "이유와 계획을 잘 이었지만 쓰는 표현이 조금 단순했어요."},
+        ]},
+    ),
+}
+
+
+def level_answers_schema() -> dict:
+    return {"type": "object", "properties": {
+        "answers": {"type": "array", "items": {"type": "object", "properties": {
+            "q": {"type": "integer"},
+            "cefr": {"type": "string", "enum": list(leveltest.CEFR)},
+            "comment": {"type": "string"},
+        }, "required": ["q", "cefr", "comment"]}},
+    }, "required": ["answers"]}
+
+
+def _level_answers_request(qa) -> str:
+    blocks = []
+    for a in qa:
+        blocks.append(f"[{a['q']}] 질문: {a['question']}\n"
+                      f"답: {a['text'] or '(말이 없음)'}\n"
+                      f"분당 낱말 수: {a['wpm']} · 3초 넘게 멈춤: {a['long_pauses']}번")
+    return "\n\n".join(blocks) + f"\n\n답 {len(qa)}개를 각각 판정해 주세요."
+
+
+LEVEL_ANSWERS_RETRY = ("방금 답의 comment에 한국어가 아닌 글자가 섞였습니다. 판정은 그대로 두고 "
+                       "comment만 한국어로 다시 쓰세요. 답의 낱말을 인용할 때만 「」 안에 씁니다.")
+
+
+def build_level_answers_retry_messages(messages, bad_answer) -> list[dict]:
+    """The answer whose comments leaked, shown back once with a Korean-only ask --
+    the same shape as build_translate_retry_messages."""
+    return [*messages,
+            {"role": "assistant", "content": bad_answer},
+            {"role": "user", "content": LEVEL_ANSWERS_RETRY}]
+
+
+def build_level_answers_messages(language, qa) -> list[dict]:
+    system = LEVEL_ANSWERS_SYSTEM.format(lang=KOREAN_LANGUAGE_NAMES[language])
+    example_qa, example = LEVEL_ANSWERS_EXAMPLES[language]
+    return [{"role": "system", "content": system},
+            {"role": "user", "content": _level_answers_request(example_qa)},
+            {"role": "assistant", "content": json.dumps(example, ensure_ascii=False)},
+            {"role": "user", "content": _level_answers_request(qa)}]

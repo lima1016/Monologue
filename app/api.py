@@ -15,8 +15,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Response, Uploa
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from app import (config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, text_match,
-                 timed, tts)
+from app import (config, db, leveltest, library, llm, prompts, reading, scenarios, stt, text_cleanup,
+                 text_match, timed, tts)
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
@@ -479,7 +479,7 @@ class _NoMeaning(Exception):
     pass
 
 
-def _cached_translation(language: str, text: str) -> str | None:
+def _cached_translation(language: str, text: str, answer: str | None = None) -> str | None:
     """성공한 뜻만 기억한다. 실패(None)는 캐시하지 않는다.
 
     실패는 모델이 죽은 경우만이 아니다 -- 일본어 줄은 되묻고도 두 번 새는
@@ -488,19 +488,28 @@ def _cached_translation(language: str, text: str) -> str | None:
     펼칠 때마다 14b를 다시 두드리는 비용은 학습자가 버튼을 누를 때뿐이라
     감수할 만하다.
     lru_cache는 예외를 캐시하지 않으므로, 실패를 예외로 바꿔 그 아래로
-    보내고 여기서 None으로 되돌린다."""
+    보내고 여기서 None으로 되돌린다.
+
+    `answer` is the level test learner's own answer text, opt-in and only
+    ever passed from the level-test comment translation fallback -- the ▸ 뜻
+    button's call leaves it None. When given, a bare CJK/kana run in the
+    model's translation that names the learner's own word (週末) is not
+    treated as a leak either, same tolerance as _drop_answers_own_words."""
     try:
-        return _successful_translation(language, text)
+        return _successful_translation(language, text, answer)
     except _NoMeaning:
         return None
 
 
 @functools.lru_cache(maxsize=512)
-def _successful_translation(language: str, text: str) -> str:
+def _successful_translation(language: str, text: str, answer: str | None = None) -> str:
+    def korean_enough(meaning: str) -> bool:
+        checked = _drop_answers_own_words(meaning, answer) if answer else meaning
+        return _is_korean_meaning(checked, source=text)
     try:
         messages = prompts.build_translate_messages(language, text)
         meaning = _first_line(_translate_call(messages))
-        if meaning and not _is_korean_meaning(meaning, source=text):
+        if meaning and not korean_enough(meaning):
             # One retry, with the leaked answer in view. In the prompt probe
             # (29 Japanese lines x3 = 87 calls on the real model, judged by the
             # probe's own Korean check) it took Korean meanings from 56% to
@@ -513,7 +522,7 @@ def _successful_translation(language: str, text: str) -> str:
             meaning = _first_line(_translate_call(messages))
     except Exception as exc:
         raise _NoMeaning from exc
-    if not (meaning and _is_korean_meaning(meaning, source=text)):
+    if not (meaning and korean_enough(meaning)):
         raise _NoMeaning
     return meaning
 
@@ -1902,9 +1911,16 @@ def mypage_stats(language: Language):
     today = _today()
     sample = db.level_sample(language)
     enough = sample["sessions"] >= _LEVEL_NEED_SESSIONS and sample["utterances"] >= _LEVEL_NEED_UTTERANCES
+    # A finished level test is the level however thin the practice sample is
+    # (db.stable_level reads it first); the thin-sample gate is only for the
+    # session-mode guess.
+    test = db.latest_level_test(language)
+    summary = ({k: test["result"].get(k) for k in ("cefr", "step", "ielts", "toefl", "jf", "finished_at")}
+               if test else None)
     return {
-        "level": {"value": db.stable_level(language) if enough else None, **sample,
-                  "need_sessions": _LEVEL_NEED_SESSIONS, "need_utterances": _LEVEL_NEED_UTTERANCES},
+        "level": {"value": db.stable_level(language) if test or enough else None, **sample,
+                  "need_sessions": _LEVEL_NEED_SESSIONS, "need_utterances": _LEVEL_NEED_UTTERANCES,
+                  "test": summary},
         "accuracy": db.accuracy_since(language, today - timedelta(days=_ACCURACY_DAYS - 1)),
         "tags": db.wrong_tag_counts(language),
         "review": db.review_counts(language, today),
@@ -1995,3 +2011,283 @@ def session_detail(session_id: int):
             if m["speaker"] == "bot" else None
         )
     return {"session": session, "messages": messages}
+
+
+
+# ---------------------------------------------------------------------------
+# 레벨 테스트 (docs/superpowers/specs/2026-09-19-monologue-level-test-design.md).
+# Nothing here is practice: no session, no messages row, no review, and no
+# recording is kept -- each upload is transcribed and thrown away. A finished
+# test's app_level becomes db.stable_level's answer, which every level consumer
+# reads, so the whole app follows it.
+# ---------------------------------------------------------------------------
+
+LEVEL_STT_UNAVAILABLE = "받아쓰기를 할 수 없어요"
+LEVEL_NOT_DONE = "아직 따라 말하기가 끝나지 않았어요"
+LEVEL_NO_VOICE = "지금은 문장 음성을 준비할 수 없어요"
+LEVEL_NO_STT = "지금은 받아쓰기를 할 수 없어요"
+_LEVEL_ANSWER_MAX_SECONDS = 60
+
+
+class LevelTestStart(BaseModel):
+    language: Language
+
+
+@router.post("/level-test")
+def start_level_test(payload: LevelTestStart):
+    """The sentences go out as audio only: the learner repeats what they
+    heard, so sending the text would hand them the answer -- which also means
+    there is no browser-voice fallback. No voice, no test: the voices are made
+    first, the first one TTS cannot make is a 503, and only then is a test row
+    created, so a failed start leaves nothing behind. Every step is judged
+    from a transcription, so a speech model that failed to load stops the
+    test here rather than seven minutes in; one still loading is let through,
+    since the uploads retry on 503 until it is ready."""
+    if stt.status() == "unavailable":
+        raise HTTPException(503, LEVEL_NO_STT)
+    language = payload.language
+    bank = leveltest.load_bank(language)
+    items = []
+    for it in bank["items"]:
+        key = _speak(it["text"], language)
+        if key is None:
+            raise HTTPException(503, LEVEL_NO_VOICE)
+        items.append({"i": it["i"], "audio_key": key})
+    test_id = db.create_level_test(language)
+    return {"test_id": test_id, "items": items,
+            "questions": [{"q": q["q"], "text": q["text"], "meaning": q["meaning"]}
+                          for q in bank["questions"]]}
+
+
+def _open_level_test(test_id: int) -> dict:
+    test = db.get_level_test(test_id)
+    if test is None:
+        raise HTTPException(404, "no such level test")
+    if test["finished_at"]:
+        raise HTTPException(409, "this level test is already finished")
+    return test
+
+
+async def _read_level_audio(file: UploadFile) -> bytes:
+    audio = await file.read(_MAX_TRANSCRIBE_BYTES + 1)
+    if len(audio) > _MAX_TRANSCRIBE_BYTES:
+        raise HTTPException(413, "녹음이 너무 큽니다")
+    return audio
+
+
+async def _level_stt(fn, audio: bytes, language: str):
+    try:
+        return await run_in_threadpool(fn, audio, language)
+    except stt.SttUnavailable:
+        log.debug("stt unavailable for a level test upload; the client retries")
+        raise HTTPException(503, LEVEL_STT_UNAVAILABLE)
+    except Exception:
+        # A real failure, not a model still loading -- see /transcribe.
+        log.warning("level test transcription failed", exc_info=True)
+        raise HTTPException(503, LEVEL_STT_UNAVAILABLE)
+
+
+@router.post("/level-test/{test_id}/items/{i}")
+async def level_test_item(test_id: int, i: int, file: UploadFile = File(...)):
+    """One repeated sentence: transcribe, score against the hidden original,
+    keep only what was heard and the score. Uploading the same i again
+    replaces it (the client retries a failed upload)."""
+    test = _open_level_test(test_id)
+    language = test["language"]
+    items = leveltest.load_bank(language)["items"]
+    if not 0 <= i < len(items):
+        raise HTTPException(404, "no such item")
+    audio = await _read_level_audio(file)
+    heard = await _level_stt(stt.transcribe, audio, language)
+    db.set_level_item(test_id, i, heard, leveltest.item_score(heard, items[i]["text"], language))
+    return {"i": i, "done": True}
+
+
+@router.post("/level-test/{test_id}/answers/{q}")
+async def level_test_answer(test_id: int, q: int, seconds: float = Form(...),
+                            file: UploadFile = File(...)):
+    test = _open_level_test(test_id)
+    language = test["language"]
+    if not 0 <= q < len(leveltest.load_bank(language)["questions"]):
+        raise HTTPException(404, "no such question")
+    # 45 s on the client's clock; wpm divides by it, so nan/inf/0 never get in.
+    if not (math.isfinite(seconds) and 0 < seconds <= _LEVEL_ANSWER_MAX_SECONDS):
+        raise HTTPException(422, "seconds must be a real length, 0 < seconds <= 60")
+    audio = await _read_level_audio(file)
+    segments = await _level_stt(stt.transcribe_segments, audio, language)
+    stats = timed.round_stats(segments, language, seconds)
+    # Japanese is written without spaces between sentences.
+    joiner = "" if language == "ja" else " "
+    db.set_level_answer(test_id, q, {"text": joiner.join(stats["sentences"]), "seconds": seconds,
+                                     "words": stats["words"], "wpm": stats["wpm"],
+                                     "long_pauses": stats["long_pauses"]})
+    return {"q": q, "done": True}
+
+
+# CJK ideographs and kana together -- a comment naming the learner's own
+# Japanese word (週末) may leave it bare, not just quoted (「週末」). Deliberately
+# narrower than _CJK_IDEOGRAPH: it drops that range's 豈-﫿 block (CJK
+# compatibility ideographs, legacy duplicate glyphs for characters that
+# already have a canonical code point elsewhere), which a transcribed spoken
+# answer is not going to produce, so there is nothing there worth matching.
+_CJK_OR_KANA_RUN = re.compile(r"[一-鿿぀-ヿ]+")
+
+
+def _drop_answers_own_words(comment: str, source: str) -> str:
+    """Remove every run of CJK ideographs/kana in `comment` that occurs
+    verbatim in `source` (that learner's own answer text). A comment
+    reasonably calls out the learner's own words by name; that is not the
+    language leaking, so it should not fail the Korean check. A run of
+    ideographs the model invented -- not present in the answer -- stays, and
+    still fails the check.
+
+    Like _quote_dropper, a run has to be word-sized to count: at least two
+    characters (one common kanji -- 日, 人, 今, 友 -- turning up anywhere in
+    the answer is a coincidence, not the learner's own word being named), no
+    longer than _MAX_QUOTED_EXPRESSION, and under half the length of the
+    answer (so a comment that echoes most of the answer verbatim and calls
+    that "own words" still fails)."""
+    def drop(m: re.Match) -> str:
+        run = m.group(0)
+        word_sized = 2 <= len(run) <= _MAX_QUOTED_EXPRESSION and len(run) * 2 < len(source)
+        return "" if word_sized and run in source else run
+    return _CJK_OR_KANA_RUN.sub(drop, comment)
+
+
+def _level_judgments(raw, answers: dict) -> dict:
+    """{q: {"cefr", "comment"}} from one model answer. The comment is "" unless
+    it is Korean; a word quoted from that learner's own answer (「週末」) is
+    not a leak, and neither is one named bare (週末의 활동을...) -- see
+    _drop_answers_own_words. "raw_comment" keeps the untranslated comment when
+    it failed the Korean check, so _judge_level_answers can try translating it
+    instead of dropping it outright."""
+    items = raw.get("answers") if isinstance(raw, dict) else None
+    out: dict = {}
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        q, cefr = item.get("q"), item.get("cefr")
+        if not isinstance(q, int) or q not in answers or q in out or cefr not in leveltest.CEFR:
+            continue
+        comment = item.get("comment")
+        comment = _first_line(comment) if isinstance(comment, str) else None
+        source = answers[q]["text"] or ""
+        korean = comment and _is_korean_meaning(_drop_answers_own_words(comment, source), source=source)
+        out[q] = {"cefr": cefr, "comment": comment if korean else "",
+                  "raw_comment": None if korean else comment}
+    return out
+
+
+def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
+    """{q: {"cefr", "comment"}} from the model, or {} when there is nothing
+    to judge or the model fails -- the test then stands on the sentences alone.
+
+    A comment that is not Korean earns one re-ask (a Japanese answer pulls the
+    comment into Japanese even with a Korean example); the comments come from
+    the retry, falling back to a ja->ko translation of whichever call's raw
+    Japanese comment is freshest when both calls leak, and "" only when
+    neither call's raw comment looks Japanese or the translation itself
+    fails. The cefr stays either way -- the label is the part the score uses
+    -- and the first call's label holds wherever the retry fails or leaves
+    it out."""
+    if not answers:
+        return {}
+    by_q = {q["q"]: q for q in questions}
+    qa = [{"q": q, "question": by_q[q]["text"], "text": a["text"], "wpm": a["wpm"],
+           "long_pauses": a["long_pauses"]} for q, a in sorted(answers.items())]
+    messages = prompts.build_level_answers_messages(language, qa)
+    schema = prompts.level_answers_schema()
+    try:
+        raw = llm.chat_json(messages, schema)
+    except Exception:
+        log.warning("level test answer judging failed; the result stands on the sentences",
+                    exc_info=True)
+        return {}
+    out = _level_judgments(raw, answers)
+    # raw_comment only matters for the merge and the translation fallback
+    # below; strip it from what a caller sees so the {"cefr", "comment"}
+    # contract holds either way out.
+    result = {q: {"cefr": j["cefr"], "comment": j["comment"]} for q, j in out.items()}
+    if all(j["comment"] for j in result.values()):
+        return result
+    try:
+        retry = _level_judgments(llm.chat_json(
+            prompts.build_level_answers_retry_messages(messages, json.dumps(raw, ensure_ascii=False)),
+            schema), answers)
+    except Exception:
+        log.warning("level test comment re-ask failed; the first labels stand", exc_info=True)
+        retry = {}
+    for q, j in retry.items():
+        first = result.get(q, {})
+        comment = j["comment"] or first.get("comment", "")
+        result[q] = {"cefr": j["cefr"], "comment": comment}
+    # Measured on the real model twice: a Japanese B1 answer pulls the
+    # comment into Japanese, and the Korean re-ask ALSO comes back Japanese
+    # -- or the re-ask raises, comes back unparseable, or simply omits that
+    # q, in which case the FIRST call's Japanese comment is the only one
+    # there is. Either way, rather than drop it, translate it with the same
+    # checked ja->ko path the ▸ 뜻 button uses (_cached_translation) -- it
+    # already rejects Chinese leaks and returns None on failure. Prefer the
+    # retry's raw comment when it looks Japanese (has kana); otherwise fall
+    # back to the first call's, only if that one has kana. A raw comment
+    # with no kana at all -- from either call -- is never a translation
+    # candidate: it is not Japanese to translate (or, if it merely isn't
+    # Korean, it is left "").
+    for q in result:
+        if result[q]["comment"]:
+            continue
+        retry_raw = retry.get(q, {}).get("raw_comment")
+        first_raw = out.get(q, {}).get("raw_comment")
+        if retry_raw and _KANA.search(retry_raw):
+            raw_comment = retry_raw
+        elif first_raw and _KANA.search(first_raw):
+            raw_comment = first_raw
+        else:
+            raw_comment = None
+        if raw_comment:
+            answer_text = answers[q]["text"] or ""
+            translated = _cached_translation(language, raw_comment, answer_text)
+            # Same own-word tolerance as _level_judgments: the translation may
+            # name the learner's own word (週末) bare, and that is not a leak
+            # either -- see _drop_answers_own_words.
+            if translated and _is_korean_meaning(
+                    _drop_answers_own_words(translated, answer_text), source=answer_text):
+                result[q]["comment"] = translated
+    return result
+
+
+@router.post("/level-test/{test_id}/finish")
+def finish_level_test(test_id: int):
+    """Once finished, the stored result comes back as it is -- no second
+    model call, no second score."""
+    test = db.get_level_test(test_id)
+    if test is None:
+        raise HTTPException(404, "no such level test")
+    if test["result"] is not None:
+        return test["result"]
+    language = test["language"]
+    bank = leveltest.load_bank(language)
+    if any(it["i"] not in test["items"] for it in bank["items"]):
+        raise HTTPException(400, LEVEL_NOT_DONE)
+    scores = [test["items"][it["i"]]["score"] for it in bank["items"]]
+    judged = _judge_level_answers(language, test["answers"], bank["questions"])
+    score = sum(scores)
+    cefr, step = leveltest.cefr_from_ei(score)
+    cefr, step = leveltest.apply_boundary(
+        score, cefr, step, leveltest.answers_level([j["cefr"] for j in judged.values()]))
+    app_level = leveltest.app_level(cefr)
+    answers = [{"q": q, "question": bank["questions"][q]["text"], "text": a["text"],
+                "cefr": judged.get(q, {}).get("cefr"),
+                "comment": judged.get(q, {}).get("comment"), "wpm": a["wpm"],
+                "long_pauses": a["long_pauses"]} for q, a in sorted(test["answers"].items())]
+    result = {"test_id": test_id, "language": language, "cefr": cefr, "step": step,
+              "app_level": app_level,
+              "ei": {"score": score, "max": 48, "by_level": leveltest.by_level(scores, bank["items"])},
+              "answers": answers, **leveltest.conversions(cefr, step, language)}
+    return db.finish_level_test(test_id, result, app_level)
+
+
+@router.get("/level-test/latest")
+def latest_level_test(language: Language):
+    test = db.latest_level_test(language)
+    return {"result": test["result"] if test else None}

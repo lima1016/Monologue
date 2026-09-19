@@ -1041,7 +1041,7 @@ def test_v7_adds_shadowing_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "v7.db")
     from app import db as store
     store.init_db()
-    assert store.schema_version() == 9
+    assert store.schema_version() == 10
     sid = store.create_session("en", "script", scenario_id="x", shadowing=True)
     assert store.get_session(sid)["shadowing"] == 1
     assert store.get_session(store.create_session("en", "free"))["shadowing"] == 0
@@ -1072,7 +1072,7 @@ def test_v8_adds_coach_notes_and_round_trips(tmp_path, monkeypatch):
     from app import config
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
     db.init_db()
-    assert db.schema_version() == 9
+    assert db.schema_version() == 10
     assert db.get_coach("en") is None
     db.save_coach("en", "2026-09-19", [{"habit": "a", "tip": "b", "said": "x", "fixed": "y", "tag": "시제"}])
     db.save_coach("en", "2026-09-20", [{"habit": "c", "tip": "d", "said": "x", "fixed": "y", "tag": None}])
@@ -1091,7 +1091,7 @@ def test_v7_database_migrates_to_v8_keeping_rows(tmp_path, monkeypatch):
         conn.execute("DROP TABLE coach_notes")
         conn.execute("PRAGMA user_version = 7")
     db.init_db()
-    assert db.schema_version() == 9
+    assert db.schema_version() == 10
     assert db.get_coach("en") is None
     assert db.wrong_tag_counts("en")[0]["n"] == 1
 
@@ -1100,7 +1100,7 @@ def test_v9_adds_timed_rounds_table(tmp_path, monkeypatch):
     from app import config
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "v9.db")
     db.init_db()
-    assert db.schema_version() == 9
+    assert db.schema_version() == 10
     sid = db.create_session("en", "timed")
     assert db.next_round(sid) == 1
     assert db.get_rounds(sid) == []
@@ -1116,7 +1116,7 @@ def test_v8_database_migrates_to_v9_keeping_rows(tmp_path, monkeypatch):
         conn.execute("DROP TABLE timed_rounds")
         conn.execute("PRAGMA user_version = 8")
     db.init_db()
-    assert db.schema_version() == 9
+    assert db.schema_version() == 10
     assert db.wrong_tag_counts("en")[0]["n"] == 1
     assert db.next_round(sid) == 1
 

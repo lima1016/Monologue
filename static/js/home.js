@@ -102,9 +102,12 @@ export async function loadHome() {
   }).format(new Date());
 
   try {
-    const [{ session }, stats] = await Promise.all([
+    const [{ session }, stats, latest] = await Promise.all([
       getJSON(`/sessions/resumable?language=${lang}`),
       getJSON(`/stats/home?language=${lang}`),
+      // The level test card is a nicety on top of a nicety: a failure here
+      // only means no card, never a home that did not load.
+      getJSON(`/level-test/latest?language=${lang}`).catch(() => undefined),
     ]);
 
     if (state.language !== lang) return; // a newer switch already won
@@ -117,6 +120,7 @@ export async function loadHome() {
     }
 
     renderReviewHome(stats.review, { instant: firstPaint });
+    renderLevelTestHome(latest, lang, { instant: firstPaint });
 
     $('home-greeting').textContent = stats.has_history
       ? '오늘은 뭘 연습할까요?' : '첫 연습을 시작해 보세요';
@@ -173,6 +177,7 @@ export async function loadHome() {
 function hideHistory() {
   setResumeShown(false);
   setReviewHomeShown(false);
+  setCollapsedShown($('leveltest-home'), false);
   $('today-alt').hidden = true;
   $('recommend').hidden = true;
   clearWeekSkeleton();
@@ -186,7 +191,7 @@ function hideHistory() {
    are `display: contents` (so the phone order can interleave their children),
    and opacity on a box-less element does nothing. The mode cards are not
    here -- they never depend on the request. */
-const REFRESHED = ['today-card', 'today-alt', 'review-home', 'recommend', 'resume-card',
+const REFRESHED = ['today-card', 'today-alt', 'review-home', 'leveltest-home', 'recommend', 'resume-card',
   'week-card', 'recent-themes-wrap', 'library-progress'];
 
 /* Dimmed also means asleep. After a language switch the cards still show the
@@ -244,6 +249,30 @@ function setResumeShown(on, opts) {
 
 function setReviewHomeShown(on, opts) {
   setCollapsedShown($('review-home'), on, opts);
+}
+
+/* ---------- 레벨 테스트 카드 ---------- */
+
+export const LEVEL_TEST_CARD = {
+  title: '레벨 테스트',
+  en: '7분이면 내 수준과 IELTS·TOEFL 예상 점수를 알 수 있어요',
+  ja: '7분이면 내 수준과 JF 스탠다드 레벨을 알 수 있어요',
+};
+
+/* Offered only while this language has no finished test: `latest` is
+   /level-test/latest's answer, and only `{result: null}` -- the server saying
+   there is none -- opens the card. A result, or no answer at all (the request
+   failed), keeps it shut: a learner who has a level is not asked again here,
+   and a failed request is not taken as "never tested". 시작 is wired in
+   main.js (openLevelTest), like every start button on this screen. */
+function renderLevelTestHome(latest, lang, { instant = false } = {}) {
+  const none = Boolean(latest) && latest.result === null;
+  if (none) {
+    const text = $('leveltest-home-text');
+    text.replaceChildren(el('b', '', LEVEL_TEST_CARD.title),
+      document.createTextNode(` · ${lang === 'ja' ? LEVEL_TEST_CARD.ja : LEVEL_TEST_CARD.en}`));
+  }
+  setCollapsedShown($('leveltest-home'), none, { instant });
 }
 
 /* Shaped like paintToday's card -- title line (the wait's own words sit

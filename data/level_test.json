@@ -1,0 +1,42 @@
+{
+  "en": {
+    "items": [
+      {"i": 0, "cefr": "A1", "text": "I drink coffee every morning."},
+      {"i": 1, "cefr": "A1", "text": "My sister has a small dog."},
+      {"i": 2, "cefr": "A2", "text": "We went to the beach last summer."},
+      {"i": 3, "cefr": "A2", "text": "Could you tell me where the station is?"},
+      {"i": 4, "cefr": "B1", "text": "If it rains tomorrow, we'll have to cancel the picnic."},
+      {"i": 5, "cefr": "B1", "text": "I've been learning English for about three years now."},
+      {"i": 6, "cefr": "B1", "text": "The movie was much better than I had expected it to be."},
+      {"i": 7, "cefr": "B2", "text": "Although the restaurant was crowded, the service was surprisingly quick."},
+      {"i": 8, "cefr": "B2", "text": "She would have called you if she had known you were in town."},
+      {"i": 9, "cefr": "B2", "text": "It's not the price that bothers me, but the fact that it broke so quickly."},
+      {"i": 10, "cefr": "C1", "text": "Had I realized how demanding the job would be, I might have thought twice before accepting it."},
+      {"i": 11, "cefr": "C1", "text": "The committee's decision, however controversial it may seem, reflects a careful weighing of long-term costs."}
+    ],
+    "questions": [
+      {"q": 0, "text": "Tell me about how you usually spend your weekends.", "meaning": "주말을 보통 어떻게 보내는지 말해 주세요."},
+      {"q": 1, "text": "What is one thing you would change about your city, and why?", "meaning": "사는 도시에서 하나를 바꾼다면 무엇을, 왜 바꾸고 싶어요?"}
+    ]
+  },
+  "ja": {
+    "items": [
+      {"i": 0, "cefr": "A1", "text": "毎朝コーヒーを飲みます。"},
+      {"i": 1, "cefr": "A1", "text": "私の姉は小さい犬を飼っています。"},
+      {"i": 2, "cefr": "A2", "text": "去年の夏、家族と海に行きました。"},
+      {"i": 3, "cefr": "A2", "text": "駅はどこにあるか教えてくれませんか。"},
+      {"i": 4, "cefr": "B1", "text": "もし明日雨が降ったら、ピクニックは中止になります。"},
+      {"i": 5, "cefr": "B1", "text": "日本語を勉強し始めてから、もう三年になります。"},
+      {"i": 6, "cefr": "B1", "text": "思っていたより、ずっと面白い映画でした。"},
+      {"i": 7, "cefr": "B2", "text": "レストランは混んでいたのに、料理が出てくるのは意外と早かった。"},
+      {"i": 8, "cefr": "B2", "text": "値段が高いことより、すぐに壊れてしまったことが気になります。"},
+      {"i": 9, "cefr": "B2", "text": "町にいると知っていたら、彼女はきっとあなたに連絡したでしょう。"},
+      {"i": 10, "cefr": "C1", "text": "仕事がこれほど大変だと分かっていたら、引き受ける前にもう少し考えたかもしれない。"},
+      {"i": 11, "cefr": "C1", "text": "委員会の決定は、一見議論を呼びそうに見えるが、長期的な費用を慎重に検討した結果だと言える。"}
+    ],
+    "questions": [
+      {"q": 0, "text": "普段の週末はどのように過ごしていますか。", "meaning": "주말을 보통 어떻게 보내는지 말해 주세요."},
+      {"q": 1, "text": "あなたの町で一つ変えたいことは何ですか。それはなぜですか。", "meaning": "사는 동네에서 하나를 바꾼다면 무엇을, 왜 바꾸고 싶어요?"}
+    ]
+  }
+}

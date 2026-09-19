@@ -169,7 +169,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
    an id. The dim side waits 200ms, so a fast local reload never visibly dims.
    pointer-events is the belt to home.js's `inert` braces: a dimmed card may
    be showing the previous language. */
-:where(#today-card, #today-alt, #review-home, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
+:where(#today-card, #today-alt, #review-home, #leveltest-home, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
   transition: opacity var(--dur-fast) ease;
 }
 .is-refreshing { opacity: .55; transition-delay: 200ms; pointer-events: none; }
@@ -189,7 +189,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .screen-enter, .toast, .skeleton { animation: none; }
   .fade { transition: none; }
   .toast { transition: none; }
-  .is-refreshing, :where(#today-card, #today-alt, #review-home, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
+  .is-refreshing, :where(#today-card, #today-alt, #review-home, #leveltest-home, #recommend, #resume-card, #week-card, #recent-themes-wrap, #library-progress) {
     transition: none; transition-delay: 0s;
   }
 }
@@ -589,6 +589,71 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
   .timed-slot.timed-enter, .timed-dot { animation: none; }
 }
 
+/* --- 레벨 테스트 (#leveltest) ---
+   One card, one .lt-slot at a time (intro, a sentence, an answer, trouble,
+   finishing, the result), every slot on the same floor (min-height), so a step
+   change -- or one sentence to the next -- changes what is inside the card,
+   never its height. A slot coming in fades by opacity only (.lt-enter); no
+   transform anywhere here. Within a slot every line that comes and goes
+   (the recording row, the buttons, a note) holds its room with .is-invisible,
+   and the two buttons of a sentence share one grid cell.
+   - The remaining-time bar shrinks by width, not by a transform.
+   - The answer clock is tabular: 0:45 -> 0:44 does not change width. */
+#leveltest { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+.lt-top { display: flex; align-items: center; gap: var(--space-3); }
+.lt-top h2 { margin: 0; }
+.lt-card { display: grid; align-content: start; padding: var(--space-5);
+           border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.lt-card p { margin: 0; }
+.lt-slot { min-height: 20rem; display: grid; align-content: center; justify-items: center;
+           gap: var(--space-4); text-align: center; }
+.lt-slot.lt-enter { animation: lt-fade var(--dur-fast) ease-out; }
+@keyframes lt-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.lt-lead { font-size: var(--text-lg); font-weight: 600; }
+.lt-note { min-height: calc(2 * 1.55em); color: var(--warn-ink); }
+.lt-status { min-height: 1.55em; color: var(--text-dim); }
+.lt-question { font-size: var(--text-xl); font-weight: 600; line-height: 1.45; min-height: calc(2 * 1.45em); }
+.lt-rec { display: flex; align-items: center; gap: var(--space-2); width: min(100%, 320px); }
+.lt-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--correct);
+          animation: lt-blink 1.2s ease-in-out infinite; }
+@keyframes lt-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .35; }
+}
+.lt-bar { flex: 1; height: 6px; border-radius: var(--radius-pill); background: var(--line); overflow: hidden; }
+.lt-bar-fill { height: 100%; width: 100%; background: var(--correct); }
+.lt-clock-row { display: flex; align-items: center; gap: var(--space-2); }
+.lt-big { font-size: var(--text-3xl); font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.lt-actions { display: grid; justify-items: center; }
+.lt-actions > * { grid-area: 1 / 1; }
+.lt-result { align-content: start; justify-items: stretch; text-align: left; }
+/* The result: the level large, then its lines. The level bars fill by width
+   (set in leveltest.js), never by a transform. */
+.lt-result-body { display: grid; gap: var(--space-4); }
+.lt-cefr { font-size: var(--text-3xl); font-weight: 700; line-height: 1.1; }
+.lt-scales { display: grid; gap: var(--space-1); font-size: var(--text-lg); font-weight: 600; }
+.lt-ei { display: grid; gap: var(--space-2); }
+.lt-ei-head { display: flex; align-items: baseline; gap: var(--space-2); }
+.lt-ei-score { font-variant-numeric: tabular-nums; }
+.lt-level-bars { display: grid; gap: var(--space-1); }
+.lt-level-bar { display: grid; grid-template-columns: 2.5em 1fr 3.5em; align-items: center;
+                gap: var(--space-2); font-size: var(--text-sm); }
+.lt-level-name { color: var(--text-dim); font-weight: 600; }
+.lt-level-track { height: 8px; border-radius: var(--radius-pill); background: var(--line); overflow: hidden; }
+.lt-level-fill { height: 100%; background: var(--accent); }
+.lt-level-n { text-align: right; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.lt-answers { display: grid; gap: var(--space-2); }
+.lt-answer-line b { font-weight: 650; }
+.lt-result-note { font-size: var(--text-sm); color: var(--text-dim); }
+.lt-app-level { font-weight: 600; color: var(--accent-ink); }
+#lt-result-back { justify-self: start; }
+@media (prefers-reduced-motion: reduce) {
+  .lt-slot.lt-enter, .lt-dot { animation: none; }
+}
+
 /* --- home ---
 
    왼쪽은 할 일(오늘의 추천 → 모드 → 최근 테마), 오른쪽은 맥락(이어서 하기·이번 주).
@@ -904,6 +969,26 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 #review-home-go { color: var(--accent); font-weight: 650; border-color: transparent; }
 #review-home-go:hover { background: var(--accent-soft); }
 
+/* 레벨 테스트 card: there only while this language has no finished test, so a
+   language switch opens and shuts it -- #review-home's problem and fix, the
+   same one-row grid going 1fr -> 0fr, clipped, with the visible card inside
+   the clip. Opacity and grid rows only; no transform. */
+#leveltest-home { display: grid; grid-template-rows: 1fr; }
+:where(#leveltest-home) {
+  transition: grid-template-rows var(--dur-fast) ease, opacity var(--dur-fast) ease,
+              margin-bottom var(--dur-fast) ease;
+}
+#leveltest-home.is-collapsed { grid-template-rows: 0fr; opacity: 0; margin-bottom: calc(-1 * var(--space-4)); }
+#leveltest-home.no-motion { transition: none; }
+.leveltest-home-clip { overflow: hidden; min-height: 0; }
+@media (prefers-reduced-motion: reduce) {
+  #leveltest-home { transition: none; }
+}
+.leveltest-home-box { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+                      gap: var(--space-3); }
+.leveltest-home-text { margin: 0; flex: 1 1 16rem; color: var(--text-dim); }
+.leveltest-home-text b { color: var(--text); font-weight: 700; }
+
 /* 이번 주: seven day cells, a streak line, progress, and the goal stepper. */
 #week-card { display: flex; flex-direction: column; gap: var(--space-2); }
 #week-card .label, #week-progress { margin: 0; }
@@ -972,6 +1057,9 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
   #today-card { order: 3; }
   #today-alt { order: 4; }
   #review-home { order: 5; }
+  /* Same order as #review-home: it follows it in the markup, and a tie keeps
+     the markup's order. */
+  #leveltest-home { order: 5; }
   #resume-card { order: 6; }
   #week-card { order: 7; }
   #recommend { order: 8; }
@@ -1046,7 +1134,18 @@ button.meaning:hover { color: var(--accent-ink); }
    and the room it took is what the tabs below need. */
 .level-strip { flex-basis: 100%; }
 :where(#level-body) > p { margin: 0; }
-.level-line { font-size: var(--text-sm); color: var(--text-dim); }
+/* One line with its small buttons on it (결과 보기 · 다시 테스트, or 레벨
+   테스트 (7분)). Every level line -- the skeleton included -- holds the room
+   of one button row, so the buttons arriving grow nothing; on a phone the
+   buttons may wrap below the words, so there every line holds two rows. */
+.level-line { font-size: var(--text-sm); color: var(--text-dim);
+              display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--space-3);
+              row-gap: var(--space-1); min-height: calc(var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px); }
+.level-actions { display: inline-flex; gap: var(--space-2); }
+.level-actions button { font-size: var(--text-xs); padding: var(--space-1) var(--space-2); }
+@media (max-width: 560px) {
+  .level-line { min-height: calc((var(--text-xs) * 1.55 + var(--space-1) * 2 + 2px) + var(--text-sm) * 1.55 + var(--space-1)); }
+}
 .level-line b { color: var(--text); font-weight: 700; }
 .level-line.skeleton { width: 40%; }
 

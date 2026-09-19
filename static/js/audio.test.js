@@ -310,3 +310,59 @@ test('the browser voice is cancelled by the next play', () => {
   }
   assert.equal(cancelled, 1);
 });
+
+/* Why a sound ended, for the one caller that must know (the level test: a
+   sentence only counts as heard when its clip played to the end). */
+function eventAudio({ reject = false } = {}) {
+  const made = [];
+  const Real = globalThis.Audio;
+  globalThis.Audio = class {
+    constructor(src) { this.src = src; this.listeners = {}; made.push(this); }
+    addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+    fire(type) { for (const fn of this.listeners[type] || []) fn(); }
+    play() { return reject ? Promise.reject(new Error('NotAllowedError')) : Promise.resolve(); }
+    pause() { this.paused = true; }
+  };
+  return { made, restore: () => { globalThis.Audio = Real; } };
+}
+
+test('onDone says why: ended, error, or stopped', () => {
+  const { made, restore } = eventAudio();
+  const why = [];
+  try {
+    audio.play('a', 't', (r) => why.push(r));
+    made[0].fire('ended');
+    audio.play('b', 't', (r) => why.push(r));
+    made[1].fire('error');
+    audio.play('c', 't', (r) => why.push(r));
+    audio.stopPlayback();
+  } finally {
+    restore();
+  }
+  assert.deepEqual(why, ['ended', 'error', 'stopped']);
+});
+
+test('onDone says fallback when the browser voice stood in -- a clip that would not play, or no clip', async () => {
+  const { restore } = eventAudio({ reject: true });
+  const why = [];
+  globalThis.SpeechSynthesisUtterance = class {
+    constructor(text) { this.text = text; this.listeners = {}; }
+    addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  };
+  const spoken = [];
+  globalThis.speechSynthesis = { speak: (u) => spoken.push(u), cancel() {} };
+  window.speechSynthesis = globalThis.speechSynthesis;
+  try {
+    audio.play('a', 't', (r) => why.push(r));
+    await new Promise((r) => setTimeout(r, 0));
+    for (const fn of spoken[0].listeners.end) fn();
+    audio.play(null, 't', (r) => why.push(r));
+    for (const fn of spoken[1].listeners.end) fn();
+  } finally {
+    restore();
+    delete window.speechSynthesis;
+    delete globalThis.speechSynthesis;
+    delete globalThis.SpeechSynthesisUtterance;
+  }
+  assert.deepEqual(why, ['fallback', 'fallback']);
+});

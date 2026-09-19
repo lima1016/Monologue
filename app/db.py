@@ -196,6 +196,22 @@ MIGRATIONS = [
         UNIQUE(session_id, round)
     );
     """],
+    # v9 -> v10: 레벨 테스트 (docs/superpowers/specs/2026-09-19-monologue-level-
+    # test-design.md). A finished test's app_level is the level the whole app
+    # teaches at (db.stable_level reads it first); nothing here is practice.
+    ["""
+    CREATE TABLE IF NOT EXISTS level_tests (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        language     TEXT NOT NULL,
+        started_at   TEXT NOT NULL,
+        finished_at  TEXT,
+        items_json   TEXT NOT NULL DEFAULT '{}',
+        answers_json TEXT NOT NULL DEFAULT '{}',
+        result_json  TEXT,
+        app_level    TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_level_tests_lang ON level_tests(language, finished_at);
+    """],
 ]
 
 
@@ -684,7 +700,18 @@ def stable_level(language, recent=5, min_sessions=3):
 
     Returns None when the sample is too thin to say anything, which callers
     must handle rather than defaulting silently.
+
+    A finished level test takes precedence over all of the above (user
+    decision, 2026-09-19): the learner sat twelve fixed sentences and two
+    answers precisely to say where they stand, which is better evidence than
+    any window of practice sessions, whose per-session estimate is the noise
+    described above. So the latest finished test's app_level is returned
+    first, regardless of how few sessions exist; only with no test does the
+    session mode decide. A newer test replaces an older one's level.
     """
+    test = latest_level_test(language)
+    if test:
+        return test["app_level"]
     with connect() as conn:
         rows = conn.execute(
             "SELECT level FROM sessions"
@@ -1294,3 +1321,74 @@ def history(language, offset, limit) -> list[dict]:
             " FROM sessions s WHERE s.language = ? AND s.report IS NOT NULL"
             " ORDER BY s.ended_at DESC, s.id DESC LIMIT ? OFFSET ?", (language, limit, offset)).fetchall()
     return [dict(r) for r in rows]
+
+
+# 레벨 테스트 (docs/superpowers/specs/2026-09-19-monologue-level-test-design.md).
+# Not practice: nothing here touches messages, review_queue or sessions, and
+# no recording is kept -- only what was heard and its score.
+def create_level_test(language) -> int:
+    with connect() as conn:
+        cur = conn.execute("INSERT INTO level_tests (language, started_at) VALUES (?, ?)",
+                           (language, _now()))
+        return cur.lastrowid
+
+
+def _level_test(row) -> dict:
+    item = dict(row)
+    # JSON object keys are strings; the index is an int everywhere else.
+    item["items"] = {int(k): v for k, v in json.loads(item.pop("items_json")).items()}
+    item["answers"] = {int(k): v for k, v in json.loads(item.pop("answers_json")).items()}
+    raw = item.pop("result_json")
+    item["result"] = json.loads(raw) if raw else None
+    return item
+
+
+def get_level_test(test_id) -> dict | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM level_tests WHERE id = ?", (test_id,)).fetchone()
+    return _level_test(row) if row else None
+
+
+def _set_level_json(test_id, column, key, value) -> None:
+    # column is one of two names written in this file, never user input.
+    # finished_at IS NULL: an upload still in flight when /finish landed must
+    # not rewrite a test whose result is already stored.
+    with connect() as conn:
+        conn.execute(
+            f"UPDATE level_tests SET {column} = json_set({column}, ?, json(?))"
+            " WHERE id = ? AND finished_at IS NULL",
+            (f'$."{int(key)}"', json.dumps(value, ensure_ascii=False), test_id))
+
+
+def set_level_item(test_id, i, heard, score) -> None:
+    """A second upload of the same sentence replaces the first."""
+    _set_level_json(test_id, "items_json", i, {"heard": heard, "score": score})
+
+
+def set_level_answer(test_id, q, data: dict) -> None:
+    _set_level_json(test_id, "answers_json", q, data)
+
+
+def finish_level_test(test_id, result: dict, app_level) -> dict:
+    """Stamps finished_at into the result too, so the stored result is the
+    whole answer a second /finish returns. Only the first finish writes
+    (finished_at IS NULL): two /finish calls racing through the model call
+    both land here, and the second must not overwrite the first. Gives back
+    what is stored, whichever call wrote it."""
+    result = {**result, "finished_at": _now()}
+    with connect() as conn:
+        conn.execute(
+            "UPDATE level_tests SET finished_at = ?, result_json = ?, app_level = ?"
+            " WHERE id = ? AND finished_at IS NULL",
+            (result["finished_at"], json.dumps(result, ensure_ascii=False), app_level, test_id))
+        row = conn.execute("SELECT result_json FROM level_tests WHERE id = ?", (test_id,)).fetchone()
+    return json.loads(row["result_json"])
+
+
+def latest_level_test(language) -> dict | None:
+    """The newest *finished* test; one started and left unfinished never counts."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM level_tests WHERE language = ? AND finished_at IS NOT NULL"
+            " ORDER BY finished_at DESC, id DESC LIMIT 1", (language,)).fetchone()
+    return _level_test(row) if row else None

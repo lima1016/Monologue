@@ -150,7 +150,7 @@ def test_report_wait_fades_in_with_opacity_only():
     assert "opacity" in frames and "transform" not in frames
 
 
-REFRESHED_CARDS = ("#today-card", "#today-alt", "#review-home", "#recommend", "#resume-card",
+REFRESHED_CARDS = ("#today-card", "#today-alt", "#review-home", "#leveltest-home", "#recommend", "#resume-card",
                    "#week-card", "#recent-themes-wrap", "#library-progress")
 
 
