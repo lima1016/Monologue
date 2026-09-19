@@ -337,3 +337,17 @@ def test_the_question_list_holds_three_cards_and_never_transforms():
 
 def test_header_buttons_do_not_wrap():
     assert re.search(r"\.status button\s*\{[^}]*white-space:\s*nowrap", _all_css())
+
+
+def test_health_notice_fades_without_transform():
+    """#health-notice (session.js: refreshHealth) replaces the old status
+    dots. It overlays the header rather than pushing the page below it, and
+    fades by opacity alone -- a transform here would read as the bar sliding
+    in rather than the plain appear/disappear the header calls for."""
+    css = _all_css()
+    body = _rule_body(css, ".health-notice {")
+    assert "position: absolute" in body or "position: sticky" in body
+    assert "opacity" in body
+    assert "transform" not in body
+    hidden = _rule_body(css, ".health-notice[hidden] {")
+    assert "transform" not in hidden

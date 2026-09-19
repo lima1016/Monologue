@@ -45,7 +45,7 @@ globalThis.Audio = class Audio {
 const lastClip = () => clips[clips.length - 1];
 
 const session = await import('./session.js');
-const { startSession, nextScriptLine, endSession } = session;
+const { startSession, nextScriptLine, endSession, refreshHealth } = session;
 
 /* dom-shim's textContent is a plain field, not an aggregate of children --
  * these walk the tree the way a browser's textContent would. Same helpers as
@@ -1256,4 +1256,71 @@ test('1분 말하기 리포트의 첫 숫자는 문장, 다른 리포트로 돌�
   session.renderReport({ kind: 'timed', topic: 'x', rounds: [], stats: { turns: 0, wrong: 0, minutes: 0 } });
   session.renderReport({ kind: 'shadow', lines: [], stats: { turns: 3, minutes: 2 } });
   assert.equal($('rep-turns-label').textContent, '턴', 'a shadowing report after a timed one');
+});
+
+/* #health-notice replaces the old status dots: nothing shown while every
+ * service answers, one plain-language line -- possibly several joined with
+ * " · " -- the moment something doesn't, and gone again the moment it
+ * recovers. */
+test('every service up: the health notice stays hidden and empty', async () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ ollama: true, voicevox: true, whisper: 'ready' }));
+  await refreshHealth();
+  assert.equal($('health-notice').hidden, true);
+  assert.equal($('health-notice').textContent, '');
+});
+
+test('whisper "loading" reads the same as "ready": nothing shown', async () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ ollama: true, voicevox: true, whisper: 'loading' }));
+  await refreshHealth();
+  assert.equal($('health-notice').hidden, true);
+  assert.equal($('health-notice').textContent, '');
+});
+
+test('ollama down: the AI line, and only it', async () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ ollama: false, voicevox: true, whisper: 'ready' }));
+  await refreshHealth();
+  assert.equal($('health-notice').hidden, false);
+  assert.equal($('health-notice').textContent, 'AI가 꺼져 있어요 — 대화·교정·리포트가 안 돼요');
+});
+
+test('voicevox down: the Japanese-voice line', async () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ ollama: true, voicevox: false, whisper: 'ready' }));
+  await refreshHealth();
+  assert.equal($('health-notice').hidden, false);
+  assert.equal($('health-notice').textContent, '일본어 음성이 꺼져 있어요 — 일본어 문장을 들을 수 없어요');
+});
+
+test('whisper unavailable: the dictation line', async () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ ollama: true, voicevox: true, whisper: 'unavailable' }));
+  await refreshHealth();
+  assert.equal($('health-notice').hidden, false);
+  assert.equal($('health-notice').textContent, '받아쓰기가 꺼져 있어요 — 브라우저 인식으로 대신해요');
+});
+
+test('every one of the three down joins into one line with " · "', async () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ ollama: false, voicevox: false, whisper: 'unavailable' }));
+  await refreshHealth();
+  assert.equal($('health-notice').hidden, false);
+  assert.equal(
+    $('health-notice').textContent,
+    'AI가 꺼져 있어요 — 대화·교정·리포트가 안 돼요 · 일본어 음성이 꺼져 있어요 — 일본어 문장을 들을 수 없어요 · 받아쓰기가 꺼져 있어요 — 브라우저 인식으로 대신해요'
+  );
+});
+
+test('recovery: a later healthy poll hides the notice again', async () => {
+  resetDom();
+  let ollama = false;
+  stubFetch(async () => jsonResponse({ ollama, voicevox: true, whisper: 'ready' }));
+  await refreshHealth();
+  assert.equal($('health-notice').hidden, false);
+  ollama = true;
+  await refreshHealth();
+  assert.equal($('health-notice').hidden, true);
+  assert.equal($('health-notice').textContent, '');
 });

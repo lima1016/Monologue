@@ -349,15 +349,23 @@ setInterimHandler((text) => {
 
 /* ---------- status ---------- */
 
+/* One plain-language line for whichever services are down, replacing the old
+   status dots (the learner had no way to know what a red dot meant). Nothing
+   down -> the bar stays [hidden] and empty, faded out by
+   .health-notice[hidden] (components.css). Several down -> one line, parts
+   joined with " · " so it stays the single compact element the layout rule
+   calls for, instead of stacking separate notices that would each take their
+   own space. */
 export async function refreshHealth() {
+  const bar = $('health-notice');
   try {
     const h = await getJSON('/health');
-    $('status-ollama').className = `dot ${h.ollama ? 'up' : 'down'}`;
-    $('status-voicevox').className = `dot ${h.voicevox ? 'up' : 'down'}`;
-    if (!h.ollama) notify('Ollama가 실행 중이 아닙니다. 터미널에서 ollama serve를 실행하세요.');
-    else if (!h.voicevox && state.language === 'ja')
-      notify('VOICEVOX가 꺼져 있습니다. docker compose up -d 를 실행하세요.');
-    else notify('');
+    const parts = [];
+    if (!h.ollama) parts.push('AI가 꺼져 있어요 — 대화·교정·리포트가 안 돼요');
+    if (!h.voicevox) parts.push('일본어 음성이 꺼져 있어요 — 일본어 문장을 들을 수 없어요');
+    if (h.whisper === 'unavailable') parts.push('받아쓰기가 꺼져 있어요 — 브라우저 인식으로 대신해요');
+    bar.textContent = parts.join(' · ');
+    bar.hidden = parts.length === 0;
   } catch {
     notify('서버에 연결할 수 없습니다.');
   }

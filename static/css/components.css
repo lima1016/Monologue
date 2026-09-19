@@ -1,4 +1,5 @@
 header {
+  position: relative;
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--space-4) 0; border-bottom: 1px solid var(--line);
   margin-bottom: var(--space-5);
@@ -16,8 +17,22 @@ header {
   .brand { flex-shrink: 0; }
 }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); }
-.dot.up { background: #2a9d5c; }
-.dot.down { background: #c0392b; }
+
+/* Sits over whatever is below the header rather than pushing it down --
+   `header` is its containing block (position: relative below). Empty and
+   [hidden] while every service answers; refreshHealth (session.js) fills
+   the text and clears [hidden] the moment one doesn't. Opacity only, no
+   transform: nothing here needs to survive being a containing block for a
+   fixed/sticky descendant, but a translate would still read as the bar
+   sliding in, and this is meant to read as a plain appear/disappear. */
+.health-notice {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 15;
+  padding: var(--space-2) var(--space-3); text-align: center;
+  background: var(--warn-bg); color: var(--warn-ink); font-size: var(--text-sm);
+  opacity: 1; transition: opacity var(--dur-fast) ease;
+}
+.health-notice[hidden] { display: block; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .health-notice { transition: none; } }
 
 .row { display: flex; gap: var(--space-4); }
 label { display: block; margin-bottom: var(--space-3); font-size: var(--text-sm); }
