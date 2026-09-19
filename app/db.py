@@ -1070,7 +1070,10 @@ _TAG_EXAMPLES = 3
 
 def wrong_tag_counts(language) -> list[dict]:
     """Every wrong tag with its count and its newest few sentences: a count
-    alone says *that* something goes wrong, the sentences say *what*."""
+    alone says *that* something goes wrong, the sentences say *what*. The
+    same sentence said again (a review, a retry) is one example, not three
+    copies of itself -- grouped before the LIMIT so the slots go to distinct
+    sentences; `n` still counts every time."""
     with connect() as conn:
         rows = conn.execute(
             "SELECT m.tag, COUNT(*) n FROM messages m JOIN sessions s ON s.id = m.session_id"
@@ -1080,11 +1083,13 @@ def wrong_tag_counts(language) -> list[dict]:
         out = []
         for r in rows:
             examples = conn.execute(
-                "SELECT m.text, m.fixed, m.correction FROM messages m JOIN sessions s ON s.id = m.session_id"
+                "SELECT m.text, m.fixed, m.correction, MAX(m.created_at) last"
+                " FROM messages m JOIN sessions s ON s.id = m.session_id"
                 " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0 AND m.tag = ?"
-                " ORDER BY m.created_at DESC, m.id DESC LIMIT ?",
+                " GROUP BY m.text, m.fixed ORDER BY last DESC, MAX(m.id) DESC LIMIT ?",
                 (language, r["tag"], _TAG_EXAMPLES)).fetchall()
-            out.append({"tag": r["tag"], "n": r["n"], "examples": [dict(e) for e in examples]})
+            out.append({"tag": r["tag"], "n": r["n"],
+                        "examples": [{k: e[k] for k in ("text", "fixed", "correction")} for e in examples]})
     return out
 
 
@@ -1106,12 +1111,15 @@ _COACH_WHERE = (
 
 
 def coach_inputs(language, since, limit=30) -> list[dict]:
+    """The newest `limit` distinct wrong sentences, each with `reps`, how many
+    times it was said: grouped before the LIMIT so a sentence said five times
+    takes one slot, and the model still hears that it keeps coming back."""
     with connect() as conn:
         rows = conn.execute(
-            "SELECT m.text, m.fixed, m.tag, m.correction" + _COACH_WHERE +
-            " ORDER BY m.created_at DESC, m.id DESC LIMIT ?",
+            "SELECT m.text, m.fixed, m.tag, m.correction, COUNT(*) reps, MAX(m.created_at) last" + _COACH_WHERE +
+            " GROUP BY m.text, m.fixed ORDER BY last DESC, MAX(m.id) DESC LIMIT ?",
             (language, _local_cutoff(since), since.isoformat(), limit)).fetchall()
-    return [dict(r) for r in rows]
+    return [{k: r[k] for k in ("text", "fixed", "tag", "correction", "reps")} for r in rows]
 
 
 def wrong_count_since(language, since) -> int:

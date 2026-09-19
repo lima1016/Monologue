@@ -226,6 +226,31 @@ def test_coach_inputs_skip_script_graded_ok_and_old_rows(client, monkeypatch):
     _finished(mode="script", scenario_id="standup-meeting-en", turns=[("read", 0, "x.", "어순")])
     rows = db.coach_inputs("en", date(2026, 8, 20))
     assert [r["text"] for r in rows] == ["I go"]
-    assert rows[0] == {"text": "I go", "fixed": "I went.", "tag": "시제", "correction": "설명"}
+    assert rows[0] == {"text": "I go", "fixed": "I went.", "tag": "시제", "correction": "설명", "reps": 1}
     assert db.wrong_count_since("en", date(2026, 8, 20)) == 1
     assert db.coach_inputs("en", date(2099, 1, 1)) == []
+
+
+def test_a_repeated_sentence_is_one_example_but_every_time_counts(client):
+    _finished(turns=[("I go", 0, "I went.", "시제"), ("I go 2", 0, "I went 2.", "시제"),
+                     ("I go", 0, "I went.", "시제"), ("I go", 0, "I went.", "시제")])
+    tense = client.get("/api/stats/mypage?language=en").json()["tags"][0]
+    assert tense["n"] == 4
+    assert [e["text"] for e in tense["examples"]] == ["I go", "I go 2"]
+    assert set(tense["examples"][0]) == {"text", "fixed", "correction"}
+
+
+def test_tag_examples_limit_counts_distinct_sentences(client):
+    _finished(turns=[("a", 0, "A.", "시제"), ("b", 0, "B.", "시제"), ("c", 0, "C.", "시제"),
+                     ("d", 0, "D.", "시제"), ("d", 0, "D.", "시제"), ("d", 0, "D.", "시제")])
+    tense = client.get("/api/stats/mypage?language=en").json()["tags"][0]
+    assert [e["text"] for e in tense["examples"]] == ["d", "c", "b"]
+
+
+def test_coach_inputs_group_a_repeated_sentence_and_keep_the_total(client):
+    _finished(turns=[("I go", 0, "I went.", "시제"), ("She have", 0, "She has.", "단복수"),
+                     ("I go", 0, "I went.", "시제"), ("I go", 0, "I went.", "시제"), ("x", 0, "X.", "어휘")])
+    rows = db.coach_inputs("en", date(2026, 8, 20))
+    assert [(r["text"], r["reps"]) for r in rows] == [("x", 1), ("I go", 3), ("She have", 1)]
+    assert [r["text"] for r in db.coach_inputs("en", date(2026, 8, 20), limit=2)] == ["x", "I go"]
+    assert db.wrong_count_since("en", date(2026, 8, 20)) == 5

@@ -808,7 +808,8 @@ def _coach_input(rows) -> str:
     lines = []
     for i, r in enumerate(rows, 1):
         why = (r.get("correction") or "").replace("\n", " ")[:_COACH_CORRECTION_CHARS]
-        lines.append(f"{i}. 학생: {r['text']} / 고친 문장: {r['fixed']} / 설명: {why} / 분류: {r.get('tag') or '-'}")
+        again = f" ({r['reps']}번 반복)" if (r.get("reps") or 1) > 1 else ""
+        lines.append(f"{i}. 학생: {r['text']} / 고친 문장: {r['fixed']} / 설명: {why} / 분류: {r.get('tag') or '-'}{again}")
     return "틀린 문장들:\n" + "\n".join(lines) + "\n\n되풀이되는 습관을 2~3개 주세요."
 
 

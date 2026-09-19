@@ -139,3 +139,19 @@ def test_a_habit_copied_from_the_few_shot_answer_is_dropped(client, monkeypatch)
     _model(monkeypatch, {"items": [copied, GOOD["items"][1]]}, {"items": [copied, GOOD["items"][1]]})
     items = client.get("/api/mypage/coach?language=en").json()["items"]
     assert [i["habit"] for i in items] == ["문장을 끊지 않고 이어 말해요"]
+
+
+def test_a_repeated_sentence_reaches_the_model_once_with_how_often(client, monkeypatch):
+    sid = db.create_session("en", "free", scenario_id="airport-checkin-en")
+    for text, fixed in [("I go", "I went."), ("She have", "She has."), ("I go", "I went."), ("I go", "I went."),
+                        ("He don't", "He doesn't."), ("I go", "I went.")]:
+        db.add_message(sid, "user", text, correction="설명", ok=0, fixed=fixed, tag="시제")
+    calls = _model(monkeypatch, GOOD)
+    body = client.get("/api/mypage/coach?language=en").json()
+    assert body["count"] == 6
+    query = calls[0][-1]["content"]
+    assert query.count("학생: I go /") == 1
+    assert "1. 학생: I go / 고친 문장: I went. / 설명: 설명 / 분류: 시제 (4번 반복)" in query
+    assert "2. 학생: He don't / 고친 문장: He doesn't. / 설명: 설명 / 분류: 시제\n" in query
+    # example_no still names a distinct row, and the sentence shown is the learner's own words
+    assert [(i["said"], i["fixed"]) for i in body["items"]] == [("I go", "I went."), ("He don't", "He doesn't.")]
