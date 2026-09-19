@@ -1194,15 +1194,19 @@ def next_round(session_id) -> int:
     return (row[0] or 0) + 1
 
 
-def add_round(session_id, round, seconds, words, long_pauses, sentences, audio_path) -> int:
-    """sentences is a list of sentence strings, fresh off timed.round_stats --
-    nothing has graded them yet, so every row starts graded: False and every
-    other field None."""
-    sentences_json = json.dumps(
+def _fresh_sentences_json(sentences) -> str:
+    return json.dumps(
         [{"text": s, "graded": False, "ok": None, "fixed": None, "correction": None,
           "suggestion": None, "tag": None, "message_id": None} for s in sentences],
         ensure_ascii=False,
     )
+
+
+def add_round(session_id, round, seconds, words, long_pauses, sentences, audio_path) -> int:
+    """sentences is a list of sentence strings, fresh off timed.round_stats --
+    nothing has graded them yet, so every row starts graded: False and every
+    other field None."""
+    sentences_json = _fresh_sentences_json(sentences)
     with connect() as conn:
         conn.execute(
             "INSERT INTO timed_rounds (session_id, round, seconds, words, long_pauses,"
@@ -1230,6 +1234,18 @@ def set_round_sentences(session_id, round, sentences) -> None:
         conn.execute(
             "UPDATE timed_rounds SET sentences_json = ? WHERE session_id = ? AND round = ?",
             (json.dumps(sentences, ensure_ascii=False), session_id, round),
+        )
+
+
+def set_round_transcript(session_id, round, words, long_pauses, sentences) -> None:
+    """A round whose first transcription failed, transcribed again from its
+    stored recording: new stats and fresh, ungraded sentences (strings, as
+    add_round takes them)."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE timed_rounds SET words = ?, long_pauses = ?, sentences_json = ?"
+            " WHERE session_id = ? AND round = ?",
+            (words, long_pauses, _fresh_sentences_json(sentences), session_id, round),
         )
 
 

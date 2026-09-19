@@ -880,3 +880,95 @@ def build_timed_questions_messages(language, theme_title, level) -> list[dict]:
             {"role": "user", "content": ask(example_theme)},
             {"role": "assistant", "content": json.dumps({"questions": example}, ensure_ascii=False)},
             {"role": "user", "content": ask(theme_title)}]
+
+
+# 원어민이라면: 학생이 1분 동안 한 말을 원어민이 같은 질문에 답하듯 다시 말한 것.
+# 학생 수준보다 한 단계 위(i+1)로 -- 고급은 그대로 고급.
+_NATIVE_TARGET = {"beginner": "중급", "intermediate": "고급", "advanced": "고급"}
+
+_NATIVE_LENGTH_RULE = {
+    "en": "영어 120~160단어",
+    "ja": "일본어 250~350자",
+}
+
+# Editing this string? Look at a few real answers afterward (spec: Korean
+# leaking in, length).
+TIMED_NATIVE_SYSTEM = """당신은 한국인 학생의 {lang} 말하기를 돕는 {lang} 원어민 교사입니다.
+학생이 질문 하나에 1분 동안 {lang}로 답했습니다. 학생이 한 말을 문장별로 받아 적어 줍니다.
+
+- native: 같은 질문에 원어민이 1분 동안 답하듯, 학생이 한 이야기를 자연스러운 {lang} 입말로 다시 말해 주세요
+  - 학생이 말한 내용과 순서를 따릅니다. 학생이 하지 않은 새 이야기를 지어내지 않습니다
+  - 학생 수준은 {level}입니다. native는 {target} 수준의 단어와 문장으로 씁니다
+  - 길이는 {length_rule}입니다
+  - {lang}로만 씁니다. 한국어, 설명, 괄호, 번역, 로마자를 넣지 않습니다
+- level: 학생이 한 말로 본 학생 수준. beginner, intermediate, advanced 중 하나
+
+마크다운과 이모지는 쓰지 않습니다."""
+
+# One synthetic example per language -- invented for this prompt, never a real
+# learner's sentences.
+TIMED_NATIVE_EXAMPLES = {
+    "en": (
+        "What did you do last weekend?",
+        ["Last weekend I went to the park with my sister.",
+         "We ate sandwiches and we played badminton.",
+         "The weather was very good, so we stayed long time.",
+         "I was tired but it was fun."],
+        {"native": (
+            "Last weekend was really nice, actually. On Saturday I went to the park with my "
+            "younger sister. We don't get to hang out that often, so we'd been planning it for a "
+            "while. We packed some sandwiches and a couple of drinks, found a quiet spot under a "
+            "tree, and just ate and chatted for a bit. After lunch we played badminton. Neither of "
+            "us is very good at it, so we spent most of the time laughing and chasing the "
+            "shuttlecock around. The weather was perfect, sunny but not too hot, with a light "
+            "breeze, so we ended up staying much longer than we'd planned. We didn't leave until "
+            "the sun started to go down. By the time I got home I was completely worn out, but it "
+            "was honestly one of the best days I've had in a while, and we've already said we "
+            "want to do it again soon."),
+         "level": "beginner"},
+    ),
+    "ja": (
+        "先週末は何をしましたか。",
+        ["先週末は妹と公園に行きました。",
+         "サンドイッチを食べて、バドミントンをしました。",
+         "天気がとてもよかったので、長い時間いました。",
+         "疲れましたが、楽しかったです。"],
+        {"native": (
+            "先週末は、妹と一緒に近所の公園に行ってきました。二人とも忙しくて、なかなか"
+            "ゆっくり会えないので、前から行こうねと話していたんです。朝のうちにサンドイッチを"
+            "作って、飲み物と一緒に持っていきました。木の下の静かな場所を見つけて、お昼を"
+            "食べながらいろいろおしゃべりしました。そのあとはバドミントンをしたんですが、"
+            "二人ともあまり上手じゃないので、ずっと笑いっぱなしでした。天気もすごくよくて、"
+            "暑すぎず、風も気持ちよかったので、つい予定よりずっと長くいてしまいました。"
+            "夕方になってやっと帰りましたが、家に着いたらもうくたくたでした。それでも本当に"
+            "楽しい一日だったので、また近いうちに行きたいねと話しています。"),
+         "level": "beginner"},
+    ),
+}
+
+
+def timed_native_schema() -> dict:
+    return {"type": "object", "properties": {
+        "native": {"type": "string"},
+        "level": {"type": "string", "enum": list(config.LEVELS)},
+    }, "required": ["native", "level"]}
+
+
+def _timed_native_request(topic, sentences) -> str:
+    lines = "\n".join(f"- {s}" for s in sentences)
+    return f"질문: {topic}\n학생이 한 말:\n{lines}\n원어민이라면 어떻게 말할지 보여 주세요."
+
+
+def build_timed_native_messages(language, topic, sentences, level) -> list[dict]:
+    lang = KOREAN_LANGUAGE_NAMES[language]
+    system = TIMED_NATIVE_SYSTEM.format(
+        lang=lang, level=_LEVEL_KOREAN.get(level, "초급"),
+        target=_NATIVE_TARGET.get(level, "중급"), length_rule=_NATIVE_LENGTH_RULE[language],
+    )
+    if language == "ja":
+        system += "\n" + JAPANESE_SCRIPT_ONLY_RULE
+    example_topic, example_sentences, example = TIMED_NATIVE_EXAMPLES[language]
+    return [{"role": "system", "content": system},
+            {"role": "user", "content": _timed_native_request(example_topic, example_sentences)},
+            {"role": "assistant", "content": json.dumps(example, ensure_ascii=False)},
+            {"role": "user", "content": _timed_native_request(topic, sentences)}]
