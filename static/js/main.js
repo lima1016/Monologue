@@ -4,13 +4,16 @@ import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
 import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome } from './home.js';
 import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
-         startFromPick, startTheme, syncLanguageButtons } from './pick.js';
+         startFromPick, startTheme, syncLanguageButtons,
+         selectQuestion, retryQuestions, onOwnInput } from './pick.js';
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
          selectTab, onTabKey, onTagClick, loadCoach, showMoreReviews } from './mypage.js';
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
+import { leaveTimed, startNow, stopNow, retryTranscribe, backToPrep, again, endTimed, playMine,
+         playNative, retryNative } from './timed.js';
 import * as router from './router.js';
 
 /* ---------- screens ---------- */
@@ -20,9 +23,17 @@ router.register('pick', 'pick');
 router.register('session', 'session');
 router.register('report', 'report');
 router.register('mypage', 'mypage');
+router.register('timed', 'timed');
 router.show('home');
 
 /* ---------- wiring ---------- */
+
+/* What every way off a screen cleans up first. 1분 말하기 is the one screen with
+   a live microphone and a clock of its own: a minute still recording is
+   dropped (never uploaded) and its timers stop. A no-op anywhere else. */
+function leaving() {
+  leaveTimed();
+}
 
 /* Home, pick and my page each carry a language segment; all are the one
    state.language, so they share this handler and are kept in step by
@@ -48,7 +59,10 @@ $('mypage-language-seg').addEventListener('click', switchLanguage);
 
 // Arrow functions, not openMypage itself: it takes { tab }, and a click
 // handler's first argument is the Event.
-$('btn-mypage').addEventListener('click', () => openMypage());
+$('btn-mypage').addEventListener('click', () => {
+  leaving();
+  openMypage();
+});
 $('btn-mypage-home').addEventListener('click', () => {
   leaveMypage();
   loadHome();
@@ -99,9 +113,27 @@ $('review-home-go').addEventListener('click', () => openMypage({ tab: 'review' }
 $('notice-close').addEventListener('click', () => notify(''));
 
 $('btn-home').addEventListener('click', () => {
+  leaving();
   router.show('home');
   loadHome();
 });
+
+/* 1분 말하기's card. Arrow functions: a click handler's first argument is the
+   Event, and startNow/stopNow take the stage event they raise. */
+$('btn-timed-home').addEventListener('click', () => {
+  leaving();
+  router.show('home');
+  loadHome();
+});
+$('timed-start').addEventListener('click', () => startNow());
+$('timed-stop').addEventListener('click', () => stopNow());
+$('timed-retry-btn').addEventListener('click', () => retryTranscribe());
+$('timed-empty-btn').addEventListener('click', () => backToPrep());
+$('timed-native-play').addEventListener('click', () => playNative());
+$('timed-native-retry').addEventListener('click', () => retryNative());
+$('timed-mine').addEventListener('click', () => playMine());
+$('timed-again').addEventListener('click', () => again());
+$('timed-end').addEventListener('click', () => endTimed());
 
 $('category-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-category]');
@@ -115,9 +147,19 @@ $('theme-grid').addEventListener('click', (e) => {
   if (own) selectScenario(own.dataset.scenario);
 });
 
+/* 1분 말하기's questions: a card chooses, 다시 시도 asks again, and the field
+   under them is the learner's own question (Enter starts, as #wish does). */
+$('pick-question-list').addEventListener('click', (e) => {
+  const card = e.target.closest('button[data-question]');
+  if (card && !card.disabled) selectQuestion(Number(card.dataset.question));
+});
+$('pick-question-retry').addEventListener('click', retryQuestions);
+$('pick-own').addEventListener('input', onOwnInput);
+$('pick-own').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) startFromPick(); });
+
 $('btn-start').addEventListener('click', startFromPick);
 $('btn-resume').addEventListener('click', resumeSession);
-$('wish').addEventListener('keydown', (e) => { if (e.key === 'Enter') startFromPick(); });
+$('wish').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) startFromPick(); });
 $('btn-send').addEventListener('click', sendTurn);
 $('btn-next').addEventListener('click', nextScriptLine);
 $('btn-end').addEventListener('click', endSession);

@@ -93,6 +93,9 @@
         <button type="button" data-mode="lesson" class="mode">
           <span class="n">수업</span><span class="d">선생님과 주제를 잡고</span>
         </button>
+        <button type="button" data-mode="timed" class="mode">
+          <span class="n">1분 말하기</span><span class="d">질문 하나에 1분 동안 말하고 다시 말해 비교</span>
+        </button>
       </div>
 
       <div id="recent-themes-wrap" hidden>
@@ -149,7 +152,16 @@
       <div id="category-tabs" class="tabs" role="tablist"></div>
       <div id="theme-grid" class="theme-grid"></div>
     </div>
-    <div class="home-ask">
+    <!-- 1분 말하기 only: a theme's three questions, or the learner's own. -->
+    <div id="pick-questions" hidden>
+      <div class="question-head">
+        <p id="pick-questions-status" class="hint fade" role="status" aria-live="polite"></p>
+        <button id="pick-question-retry" type="button" class="ghost fade is-invisible" aria-hidden="true"></button>
+      </div>
+      <div id="pick-question-list" class="question-list"></div>
+      <input id="pick-own" type="text" aria-label="직접 입력" placeholder="직접 입력: 말하고 싶은 질문을 써 보세요">
+    </div>
+    <div class="home-ask" id="wish-box">
       <input id="wish" type="text" aria-label="직접 만들기">
       <p id="wish-hint" class="hint"></p>
     </div>
@@ -266,6 +278,74 @@
     </div>
   </section>
 
+  <!-- 1분 말하기: one card. The head (the question) never changes during a
+       round; the body shows one stage slot at a time, each holding the same
+       floor (components.css), so a stage change fades in place. timed.js
+       reaches every part it writes by id. -->
+  <section id="timed" hidden>
+    <div class="timed-top">
+      <button id="btn-timed-home" class="ghost" type="button">← 홈</button>
+      <h2>1분 말하기</h2>
+    </div>
+    <section id="timed-card" class="timed-card">
+      <div class="timed-head">
+        <p id="timed-topic" class="timed-topic"></p>
+        <p id="timed-meaning" class="hint"></p>
+        <p id="timed-starter" class="hint"></p>
+      </div>
+      <div class="timed-body">
+        <div id="timed-prep" class="timed-slot">
+          <p id="timed-prep-count" class="timed-big" aria-live="polite">10</p>
+          <p class="hint">생각해 보세요. 0이 되면 녹음이 시작돼요</p>
+          <button id="timed-start" type="button" class="primary btn-stable">바로 시작</button>
+          <p id="timed-mic-note" class="timed-note fade is-invisible" aria-hidden="true"></p>
+        </div>
+        <div id="timed-rec" class="timed-slot" hidden>
+          <p class="timed-clock-row"><span class="timed-dot" aria-hidden="true"></span><span id="timed-clock" class="timed-big">1:00</span></p>
+          <div class="timed-live"><p id="timed-live"></p></div>
+          <button id="timed-stop" type="button" class="primary btn-stable">다 말했어요</button>
+        </div>
+        <div id="timed-upload" class="timed-slot" hidden>
+          <div class="thinking"><i></i><i></i><i></i></div>
+          <p id="timed-upload-text">받아쓰는 중이에요</p>
+        </div>
+        <div id="timed-retry" class="timed-slot" hidden>
+          <p id="timed-retry-text">받아쓰기를 하지 못했어요</p>
+          <button id="timed-retry-btn" type="button" class="btn-stable">받아쓰기 다시 시도</button>
+        </div>
+        <div id="timed-empty" class="timed-slot" hidden>
+          <p id="timed-empty-text"></p>
+          <button id="timed-empty-btn" type="button" class="btn-stable">다시 하기</button>
+        </div>
+        <!-- Grading and the result share this slot: the lines drawn while
+             grading are the result's lines, and the result only fills in the
+             numbers and shows the buttons already holding their room. -->
+        <div id="timed-review" class="timed-slot timed-review" hidden>
+          <div class="timed-status-row">
+            <p id="timed-progress" aria-live="polite"></p>
+            <p id="timed-numbers" hidden></p>
+          </div>
+          <ol id="timed-lines" class="timed-lines"></ol>
+          <div id="timed-native" class="timed-native">
+            <p class="label">원어민이라면</p>
+            <div id="timed-native-text" class="timed-native-text"></div>
+            <p id="timed-native-status" class="hint timed-native-status fade is-invisible" aria-live="polite" aria-hidden="true"></p>
+            <div class="timed-native-actions">
+              <button id="timed-native-play" type="button" class="ghost btn-stable fade is-invisible" aria-hidden="true">▶ 듣기</button>
+              <button id="timed-native-retry" type="button" class="ghost btn-stable fade is-invisible" aria-hidden="true">다시 시도</button>
+            </div>
+          </div>
+          <div id="timed-actions" class="timed-actions fade is-invisible" aria-hidden="true">
+            <button id="timed-mine" type="button" class="ghost btn-stable">▶ 내 녹음</button>
+            <button id="timed-again" type="button" class="primary btn-stable">같은 주제로 다시 1분</button>
+            <button id="timed-end" type="button" class="btn-stable">끝내기</button>
+          </div>
+          <p id="timed-end-status" class="hint fade is-invisible" aria-hidden="true">리포트를 만들고 있어요</p>
+        </div>
+      </div>
+    </section>
+  </section>
+
   <section id="report" hidden>
     <div class="report-main">
       <h2 id="report-headline"></h2>
@@ -278,7 +358,7 @@
       <div class="panel" id="report-numbers">
         <p class="label">이번 세션</p>
         <div class="stat-row">
-          <div class="stat"><span class="v" id="rep-turns">0</span><span class="k">턴</span></div>
+          <div class="stat"><span class="v" id="rep-turns">0</span><span class="k" id="rep-turns-label">턴</span></div>
           <div class="stat"><span class="v" id="rep-wrong">0</span><span class="k">고침</span></div>
           <div class="stat"><span class="v" id="rep-minutes">0</span><span class="k">분</span></div>
         </div>

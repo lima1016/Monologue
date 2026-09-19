@@ -2,6 +2,7 @@
 import functools
 import json
 import logging
+import math
 import re
 import threading
 import uuid
@@ -14,7 +15,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Response, Uploa
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from app import config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, text_match, tts
+from app import (config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, text_match,
+                 timed, tts)
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
@@ -24,7 +26,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 Language = Literal["en", "ja"]
-Mode = Literal["free", "script", "lesson"]
+Mode = Literal["free", "script", "lesson", "timed"]
 
 
 class VoiceSelection(BaseModel):
@@ -206,6 +208,106 @@ def generate_scenario(payload: ScenarioWish):
     db.add_user_scenario(item)
     return {"id": item["id"], "title": item["title"], "type": item["type"],
             "goal": item.get("goal")}
+
+
+TIMED_QUESTIONS_UNAVAILABLE = "지금은 질문을 만들 수 없어요"
+_TIMED_MAX_QUESTIONS = 3
+
+
+class _NoQuestions(Exception):
+    pass
+
+
+def _timed_question_text_ok(text: str, language: str) -> bool:
+    """Can the learner be asked this in `language`? Reuses the script checks
+    _sayable uses for a spoken reply (_HANGUL, _LATIN_LETTER, _KANA) -- but a
+    1분 말하기 question is read once rather than repeated back, so there is no
+    length cap here."""
+    if _HANGUL.search(text):
+        return False
+    if language == "ja":
+        return bool(_KANA.search(text)) and not _LATIN_LETTER.search(text)
+    return bool(_LATIN_LETTER.search(text))
+
+
+def _valid_questions(raw, language: str, kept=()) -> list[dict]:
+    """The model's timed questions that pass, after whatever was already kept.
+
+    Mirrors _valid_replies: never raises on malformed output, drops a
+    duplicate (by normalised text) of one already kept, and caps at three.
+    Two differences from a suggested reply: a bad or missing `starter` is not
+    fatal to the question -- it becomes "" and the card shows no hint, rather
+    than the whole question being dropped -- and `meaning` is Korean prose
+    checked with _is_korean_meaning, not a spoken line in the target language.
+    """
+    out = [dict(q) for q in kept]
+    seen = {normalize(q["text"]) for q in out}
+    for item in raw if isinstance(raw, list) else []:
+        if len(out) >= _TIMED_MAX_QUESTIONS:
+            break
+        if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+            continue
+        text = _first_line(item["text"])
+        if not text or not _timed_question_text_ok(text, language):
+            continue
+        meaning = item.get("meaning")
+        if not isinstance(meaning, str) or not _is_korean_meaning(meaning, source=text):
+            continue
+        key = normalize(text)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        starter = item.get("starter")
+        starter = starter.strip() if isinstance(starter, str) else ""
+        if _HANGUL.search(starter):
+            starter = ""
+        out.append({"text": text, "meaning": meaning.strip(), "starter": starter})
+    return out
+
+
+def _generate_timed_questions(language, theme_title, level) -> list[dict]:
+    """Two or three 1분 말하기 questions for a theme, or _NoQuestions.
+
+    Same retry shape as _generate_suggestions: fewer than two survivors earns
+    one more sample, but a model call that raised outright is not retried --
+    a second call would only wait out the same timeout again.
+    """
+    messages = prompts.build_timed_questions_messages(language, theme_title, level)
+    kept: list[dict] = []
+    for _ in range(2):
+        try:
+            result = llm.chat_json(messages, prompts.timed_questions_schema())
+        except Exception as exc:
+            raise _NoQuestions from exc
+        raw = result.get("questions") if isinstance(result, dict) else None
+        kept = _valid_questions(raw, language, kept)
+        if len(kept) >= 2:
+            break
+    if not kept:
+        raise _NoQuestions
+    return kept
+
+
+@functools.lru_cache(maxsize=128)
+def _cached_timed_questions(language: str, theme_id: str, level: str, today_iso: str) -> tuple[dict, ...]:
+    """Successful question sets only -- lru_cache never caches an exception, so
+    a model failure is retried on the next request rather than sticking until
+    the process restarts. Keyed by day, so the same theme gets a fresh set of
+    questions tomorrow rather than the same three forever."""
+    theme_title = library.get_theme(theme_id)["title"]
+    return tuple(_generate_timed_questions(language, theme_title, level))
+
+
+@router.get("/timed/questions")
+def timed_questions(language: Language, theme_id: str):
+    if library.get_theme(theme_id) is None:
+        raise HTTPException(404, "no such theme")
+    level = db.stable_level(language) or "beginner"
+    try:
+        questions = _cached_timed_questions(language, theme_id, level, _today().isoformat())
+    except _NoQuestions:
+        raise HTTPException(503, TIMED_QUESTIONS_UNAVAILABLE)
+    return {"questions": [dict(q) for q in questions]}
 
 
 @router.get("/voices")
@@ -715,6 +817,17 @@ def _feedback(language: str, text: str, *, scenario_title=None,
 def start_session(payload: SessionStart):
     if payload.shadowing and payload.mode != "script":
         raise HTTPException(400, "shadowing is a script session")
+    if payload.mode == "timed":
+        # 질문 화면에서 학생이 고른 질문이 topic으로 온다. 시나리오도 모델 호출도
+        # 봇 첫마디도 없다 -- 1분 말하기는 학생 혼자 타이머 앞에서 말하는 시간이고,
+        # 질문은 GET /timed/questions에서 이미 골랐다.
+        if payload.scenario_id:
+            raise HTTPException(400, "timed mode has no scenario")
+        topic = (payload.topic or "").strip()
+        if not topic:
+            raise HTTPException(400, "timed mode needs a topic")
+        session_id = db.create_session(payload.language, payload.mode, topic=topic)
+        return {"session_id": session_id, "mode": "timed", "topic": topic}
     scenario = None
     if payload.mode in ("free", "script"):
         if not payload.scenario_id:
@@ -1126,6 +1239,225 @@ def get_recording(message_id: int):
     return Response(content=matches[0].read_bytes(), media_type="audio/webm")
 
 
+# ---------------------------------------------------------------------------
+# 1분 말하기: 회차 올리기, 문장 교정, 원어민이라면
+# ---------------------------------------------------------------------------
+
+TIMED_STT_UNAVAILABLE = "받아쓰기를 할 수 없어요"
+TIMED_NATIVE_UNAVAILABLE = "지금은 원어민 답을 만들 수 없어요"
+# 원어민이라면의 길이 상한. 목표(en 120~160단어, ja 250~350자)를 넘어도 이 정도까지는
+# 받아 주고, 그 이상은 자르지 않고 거절한다 -- 잘린 1분 답은 문장 중간에서 끝난다.
+_NATIVE_MAX = {"en": 220, "ja": 450}
+# 한 회차 문장 목록의 읽기-고치기-쓰기를 한 줄로 세운다. 교정 호출(수 초) 자체는
+# 밖에서 돈다 -- 잠그는 것은 DB를 다시 읽고 문장 하나를 바꿔 쓰는 순간뿐이다.
+_ROUND_WRITE = threading.Lock()
+_TIMED_MAX_SECONDS = 120
+# What is left of a sentence once its fillers are gone: "Um." leaves ".", so
+# "nothing left" means no letter or digit at all, not an empty string.
+_WORD_CHAR = re.compile(r"\w")
+
+
+def _timed_session(session_id: int) -> dict:
+    session = db.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "no such session")
+    if session["mode"] != "timed":
+        raise HTTPException(400, "not a timed session")
+    if session["ended_at"] is not None:
+        raise HTTPException(409, "this session has already ended")
+    return session
+
+
+def _timed_round(session_id: int, n: int) -> dict:
+    for r in db.get_rounds(session_id):
+        if r["round"] == n:
+            return r
+    raise HTTPException(404, "no such round")
+
+
+def _round_response(n: int, seconds: float, stats: dict) -> dict:
+    return {"round": n, "seconds": seconds, "words": stats["words"], "wpm": stats["wpm"],
+            "long_pauses": stats["long_pauses"],
+            "sentences": [{"text": s} for s in stats["sentences"]]}
+
+
+async def _transcribe_round(audio: bytes, language: str, seconds: float, n: int) -> dict:
+    """Segments -> round_stats, or a 503 carrying the round number so the
+    client can retry /transcribe on the recording that is already saved."""
+    try:
+        segments = await run_in_threadpool(stt.transcribe_segments, audio, language)
+    except stt.SttUnavailable:
+        log.debug("stt unavailable for a timed round; the recording is kept for a retry")
+        raise HTTPException(503, detail={"message": TIMED_STT_UNAVAILABLE, "round": n})
+    except Exception:
+        # A real failure, not a model still loading -- see /transcribe.
+        log.warning("timed round transcription failed; the recording is kept for a retry",
+                    exc_info=True)
+        raise HTTPException(503, detail={"message": TIMED_STT_UNAVAILABLE, "round": n})
+    return timed.round_stats(segments, language, seconds)
+
+
+@router.post("/sessions/{session_id}/timed/rounds")
+async def upload_timed_round(session_id: int, seconds: float = Form(...),
+                             file: UploadFile = File(...)):
+    """One round = one continuous recording. The file and the round number are
+    kept *before* transcription, so a failed transcription never loses the
+    learner's minute: the round is stored with no sentences and the 503 says
+    which round to retry."""
+    session = _timed_session(session_id)
+    # The client's own clock: it stops at 60 s. Anything not a real length
+    # (nan, inf, zero, negative, far past the safety cap) is refused before a
+    # file is written or a round number is taken -- wpm divides by it.
+    if not (math.isfinite(seconds) and 0 < seconds <= _TIMED_MAX_SECONDS):
+        raise HTTPException(422, "seconds must be a real length, 0 < seconds <= 120")
+    audio = await file.read(_MAX_TRANSCRIBE_BYTES + 1)
+    if len(audio) > _MAX_TRANSCRIBE_BYTES:
+        raise HTTPException(413, "녹음이 너무 큽니다")
+    n = db.next_round(session_id)
+    config.AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    name = f"s{session_id}_r{n}.webm"
+    (config.AUDIO_DIR / name).write_bytes(audio)
+    stored = f"audio/{name}"
+    try:
+        stats = await _transcribe_round(audio, session["language"], seconds, n)
+    except HTTPException:
+        db.add_round(session_id, n, seconds, 0, 0, [], stored)
+        raise
+    db.add_round(session_id, n, seconds, stats["words"], stats["long_pauses"],
+                 stats["sentences"], stored)
+    return _round_response(n, seconds, stats)
+
+
+@router.post("/sessions/{session_id}/timed/rounds/{n}/transcribe")
+async def retranscribe_timed_round(session_id: int, n: int):
+    """Transcribe a round again from its saved recording -- the retry after a 503."""
+    session = _timed_session(session_id)
+    rnd = _timed_round(session_id, n)
+    if rnd["sentences"]:
+        raise HTTPException(409, "this round is already transcribed")
+    path = config.AUDIO_DIR / Path(rnd["audio_path"] or "").name
+    if not rnd["audio_path"] or not path.is_file():
+        raise HTTPException(404, "no recording for this round")
+    stats = await _transcribe_round(path.read_bytes(), session["language"], rnd["seconds"], n)
+    db.set_round_transcript(session_id, n, stats["words"], stats["long_pauses"], stats["sentences"])
+    return _round_response(n, rnd["seconds"], stats)
+
+
+def _graded_response(i: int, s: dict) -> dict:
+    out = {"i": i, "text": s["text"], "ok": s["ok"], "fixed": s["fixed"],
+           "correction": s["correction"], "suggestion": s["suggestion"], "tag": s["tag"]}
+    if s.get("filler"):
+        out["filler"] = True
+    return out
+
+
+def _is_filler_only(text: str, language: str) -> bool:
+    return not _WORD_CHAR.search(text_cleanup.strip_fillers(text, language))
+
+
+@router.post("/sessions/{session_id}/timed/rounds/{n}/grade/{i}")
+def grade_timed_sentence(session_id: int, n: int, i: int):
+    """Grade one sentence of a round with the same _feedback every turn gets.
+
+    Only round 1 is practice record: its sentences become messages rows (and a
+    wrong one joins tomorrow's review), so a retelling of the same minute never
+    counts twice toward accuracy, weak spots or reviews. A sentence already
+    graded comes back as stored, with no model call and no second row.
+    """
+    session = _timed_session(session_id)
+    rnd = _timed_round(session_id, n)
+    if not 0 <= i < len(rnd["sentences"]):
+        raise HTTPException(404, "no such sentence")
+    sentence = rnd["sentences"][i]
+    if sentence["graded"]:
+        return _graded_response(i, sentence)
+
+    language = session["language"]
+    text = sentence["text"]
+    if _is_filler_only(text, language):
+        # Nothing but "Um." -- there is nothing to grade, and _feedback would
+        # either skip it (ok None, so the client retries forever) or send the
+        # bare punctuation to the model. It is done: graded, no verdict, no
+        # messages row, no model call.
+        with _ROUND_WRITE:
+            current = _timed_round(session_id, n)["sentences"]
+            if not current[i]["graded"]:
+                current[i] = {**current[i], "graded": True, "ok": None, "fixed": None,
+                              "correction": None, "suggestion": None, "tag": None,
+                              "message_id": None, "filler": True}
+                db.set_round_sentences(session_id, n, current)
+        return _graded_response(i, current[i])
+    # The question is literally what the learner is answering -- the line
+    # said right before, not a lesson topic ("오늘 수업 주제" in the prompt).
+    feedback = _feedback(language, text, bot_last=session["topic"])
+    if feedback["ok"] is None:
+        # The model failed: leave it ungraded so the client can offer a retry.
+        return {"i": i, "text": text, **feedback}
+
+    with _ROUND_WRITE:
+        current = _timed_round(session_id, n)["sentences"]
+        if current[i]["graded"]:
+            # Another request graded it while the model was thinking.
+            return _graded_response(i, current[i])
+        message_id = None
+        if n == 1:
+            message_id = db.add_message(session_id, "user", text,
+                                        correction=feedback["correction"],
+                                        suggestion=feedback["suggestion"],
+                                        ok=feedback["ok"], fixed=feedback["fixed"],
+                                        tag=feedback["tag"])
+            if feedback["ok"] is False and feedback["fixed"]:
+                db.enqueue_review(message_id, language, _today() + timedelta(days=1))
+        current[i] = {**current[i], **feedback, "graded": True, "message_id": message_id}
+        db.set_round_sentences(session_id, n, current)
+    return _graded_response(i, current[i])
+
+
+def _native_ok(text: str, language: str) -> bool:
+    if _HANGUL.search(text):
+        return False
+    if language == "ja":
+        return bool(_KANA.search(text))
+    return bool(_LATIN_LETTER.search(text))
+
+
+@router.post("/sessions/{session_id}/timed/rounds/{n}/native")
+def timed_native(session_id: int, n: int):
+    """원어민이라면: one model call rewriting the round as a native speaker's
+    one-minute answer, a step above the learner's level -- plus, for round 1
+    only, the model's read of the learner's level. Stored once; asked again,
+    the stored answer comes back with no model call."""
+    session = _timed_session(session_id)
+    rnd = _timed_round(session_id, n)
+    language = session["language"]
+    if rnd["native"]:
+        return {"native": rnd["native"], "level": rnd["level"],
+                "audio_key": _speak(rnd["native"], language)}
+    said = [s["fixed"] if s["ok"] is False and s["fixed"] else s["text"]
+            for s in rnd["sentences"]
+            if not (s.get("filler") or _is_filler_only(s["text"], language))]
+    if not said:
+        raise HTTPException(503, TIMED_NATIVE_UNAVAILABLE)
+    messages = prompts.build_timed_native_messages(
+        language, session["topic"], said, db.stable_level(language) or "beginner")
+    try:
+        result = llm.chat_json(messages, prompts.timed_native_schema())
+        native = result.get("native")
+        level = result.get("level")
+    except Exception:
+        log.warning("timed native answer failed", exc_info=True)
+        raise HTTPException(503, TIMED_NATIVE_UNAVAILABLE)
+    native = native.strip() if isinstance(native, str) else ""
+    if (not native or not _native_ok(native, language)
+            or timed.count_words(native, language) > _NATIVE_MAX[language]):
+        raise HTTPException(503, TIMED_NATIVE_UNAVAILABLE)
+    level = str(level or "").strip().lower() if n == 1 else None
+    if level not in config.LEVELS:
+        level = None
+    db.set_round_native(session_id, n, native, level)
+    return {"native": native, "level": level, "audio_key": _speak(native, language)}
+
+
 REPORT_UNAVAILABLE = "리포트를 만들지 못했습니다. 대화 기록은 그대로 저장되어 있습니다."
 
 
@@ -1210,6 +1542,49 @@ def _shadow_report(session: dict) -> dict:
             "level": None, "stats": stats, "shadow": summary}
 
 
+def _timed_report(session: dict) -> dict:
+    """1분 말하기's report: every round exactly as it was graded live, plus the
+    level round 1 settled on. No model call, like _shadow_report -- a timed
+    session is graded sentence by sentence as it happens, so by the time it
+    ends there is nothing left to ask the model for.
+
+    wpm is recomputed here rather than read back from storage (round rows
+    don't carry it): round(words / (max(seconds, 1) / 60)), same formula as
+    app/timed.py's round_stats so a round's number never drifts from what the
+    learner saw while recording it.
+
+    `stats` mirrors what the free/lesson report shows, but built from round 1
+    alone: `turns` is every sentence round 1 produced (whether graded or
+    not), `wrong` is how many of them came back marked wrong, and `minutes`
+    sums every round's own seconds -- round 2+ took real time even though
+    only round 1 becomes messages rows. Minutes round half up (not Python's
+    banker's round(), which reads 30 s as 0) and are at least 1 once there is
+    a round.
+    """
+    rounds = db.get_rounds(session["id"])
+    round_reports = [{
+        "round": r["round"],
+        "seconds": r["seconds"],
+        "words": r["words"],
+        "wpm": round(r["words"] / (max(r["seconds"], 1) / 60)),
+        "long_pauses": r["long_pauses"],
+        "fixed": sum(1 for s in r["sentences"] if s["ok"] is False),
+        "graded": sum(1 for s in r["sentences"] if s["graded"] and not s.get("filler")),
+        "sentences": r["sentences"],
+        "native": r["native"],
+    } for r in rounds]
+    first_sentences = rounds[0]["sentences"] if rounds else []
+    return {
+        "kind": "timed", "topic": session["topic"], "level": rounds[0]["level"] if rounds else None,
+        "rounds": round_reports, "summary": "", "weak_points": [], "expressions": [], "next_focus": "",
+        "stats": {
+            "turns": len(first_sentences),
+            "wrong": sum(1 for s in first_sentences if s["ok"] is False),
+            "minutes": max(int(sum(r["seconds"] for r in rounds) / 60 + 0.5), 1) if rounds else 0,
+        },
+    }
+
+
 @router.post("/sessions/{session_id}/end")
 def finish_session(session_id: int):
     session = db.get_session(session_id)
@@ -1224,6 +1599,12 @@ def finish_session(session_id: int):
         tomorrow = _today() + timedelta(days=1)
         for h in result["shadow"]["hard"]:
             db.enqueue_review(h["message_id"], session["language"], tomorrow)
+        _sweep_recordings(session_id)
+        return result
+
+    if session["mode"] == "timed":
+        result = _timed_report(session)
+        db.end_session(session_id, json.dumps({"kind": "timed"}), result["level"])
         _sweep_recordings(session_id)
         return result
 
@@ -1570,7 +1951,8 @@ def session_history_page(language: Language, offset: int = Query(default=0, ge=0
         titled = _recent_row({**row, "fixed": row["wrong"]})
         items.append({"id": row["id"], "ended_at": row["ended_at"], "title": titled["title"],
                       "mode": row["mode"], "turns": row["turns"], "wrong": row["wrong"],
-                      "graded": row["graded"], "shadowing": bool(row.get("shadowing"))})
+                      "graded": row["graded"], "shadowing": bool(row.get("shadowing")),
+                      "rounds": row["rounds"]})
     return {"items": items, "more": len(rows) > _HISTORY_PAGE}
 
 
@@ -1591,6 +1973,8 @@ def session_report(session_id: int):
         graded = False
     if session["shadowing"]:
         return {**_shadow_report(session), "mode": session["mode"], "shadowing": True, "graded": True}
+    if report.get("kind") == "timed":
+        return {**_timed_report(session), "mode": session["mode"], "graded": True}
     stats = db.session_stats(session_id)
     stats["minutes"] = db.active_minutes(session_id)
     return {"summary": report.get("summary") or "", "weak_points": report.get("weak_points") or [],

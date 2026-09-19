@@ -1069,3 +1069,17 @@ const hasClass = (node, cls) => node.classList.contains(cls)
   || node.children.some((c) => hasClass(c, cls));
 const hasTag = (node, tag) => node.tagName === tag
   || node.children.some((c) => hasTag(c, tag));
+
+/* 1분 말하기 (Task 5): its rows count rounds (one minute of speaking each), not
+ * turns, and an ungraded one does not claim 고친 곳 0. */
+test('a 1분 말하기 history row reads 1분 말하기 and counts rounds', async () => {
+  routes({ history: () => ({ items: [
+    { id: 1, ended_at: '2026-09-13T05:00:00+00:00', title: 'q', mode: 'timed', turns: 5, rounds: 2, wrong: 3, graded: 5 },
+    { id: 2, ended_at: '2026-09-13T05:00:00+00:00', title: 'q', mode: 'timed', turns: 0, rounds: 1, wrong: 0, graded: 0 },
+  ], more: false }) });
+  await mypage.openMypage();
+  const [graded, ungraded] = $('history-list').children;
+  assert.match(text(graded), /q · 1분 말하기/);
+  assert.equal(findByClass(graded, 'sub').textContent, '2회 · 고친 곳 3');
+  assert.equal(findByClass(ungraded, 'sub').textContent, '1회');
+});

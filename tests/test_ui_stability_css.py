@@ -317,5 +317,23 @@ def test_four_modes_go_two_by_two_on_a_phone():
     assert any(re.search(r"\.modes\s*\{[^}]*grid-template-columns:\s*1fr 1fr", b) for b in phone)
 
 
+def test_the_fifth_mode_takes_a_whole_row_on_a_phone():
+    """1분 말하기 is the fifth card: in the phone's two-column grid it spans the
+    last row instead of sitting in half of it beside a hole."""
+    css = _all_css()
+    phone = re.findall(r"@media \(max-width: 480px\)\s*\{(.*?)\n\}", css, re.S)
+    assert any(re.search(r"\.modes \.mode:nth-child\(5\)\s*\{[^}]*grid-column:\s*1 / -1", b) for b in phone)
+
+
+def test_the_question_list_holds_three_cards_and_never_transforms():
+    """#pick-questions changes from words to placeholders to cards in place:
+    the list keeps a floor of three cards and nothing in it moves by transform."""
+    css = _all_css()
+    assert "min-height: calc(3 *" in _rule_body(css, ".question-list {")
+    for sel in (".question-list {", ".question-card {", "#pick-questions {", ".question-head {"):
+        assert "transform" not in _rule_body(css, sel), sel
+    assert "min-height:" in _rule_body(css, ".question-head {")
+
+
 def test_header_buttons_do_not_wrap():
     assert re.search(r"\.status button\s*\{[^}]*white-space:\s*nowrap", _all_css())

@@ -12,6 +12,7 @@ import { $, getJSON, postJSON, state, notify, setShown, syncLanguageButtons } fr
 import * as router from './router.js';
 import { startSession } from './session.js';
 import { isBusy, setBusy } from './home.js';
+import { openTimed } from './timed.js';
 
 export const STATUS = {
   pickScript: '대본 고르는 중...',
@@ -19,6 +20,15 @@ export const STATUS = {
   makeScript: '대본 만드는 중...',
   makeScene: '상황 만드는 중...',
   opening: '첫 대사 만드는 중...',
+  timed: '시작하는 중...',
+};
+
+/* 1분 말하기's question area (#pick-questions): the words for each state. */
+export const QUESTION_TEXT = {
+  idle: '테마를 고르면 질문 3개를 만들어요',
+  loading: '질문을 만들고 있어요',
+  failed: '질문을 만들지 못했어요',
+  retry: '다시 시도',
 };
 
 export const CATEGORY_LABELS = {
@@ -28,9 +38,14 @@ export const CATEGORY_LABELS = {
 // Same order as config.THEME_CATEGORIES on the server.
 const THEME_CATEGORIES = ['daily', 'travel', 'smalltalk', 'business'];
 
-const MODE_LABELS = { free: '자유 상황극', script: '스크립트', lesson: '수업', shadow: '쉐도잉' };
+const MODE_LABELS = { free: '자유 상황극', script: '스크립트', lesson: '수업', shadow: '쉐도잉', timed: '1분 말하기' };
+
+/* Where a 1분 말하기 start hands off. An object rather than the bare import so a
+   test can stand in for the screen: an imported binding cannot be reassigned. */
+export const handoff = { openTimed };
 
 const SKELETON_CARDS = 5;                       // about one tab's worth of themes
+const SKELETON_QUESTIONS = 3;                   // the server sends up to three
 const NBSP = String.fromCharCode(0xa0);         // an empty span is zero tall
 
 let themes = [];          // GET /themes for the language this screen was loaded under
@@ -46,7 +61,22 @@ let pending = null;       // { themeId, language, mode, promise, done } | null
 let locked = false;       // a start is in flight: tabs, cards and the field are off
 let loading = false;      // /themes is out: the grid says so and 시작 is off
 
-const isReady = (theme, mode) => (mode === 'script' ? theme.ready.script > 0 : Boolean(theme.ready.free));
+/* 1분 말하기: a theme brings three questions, one of which (or the learner's own,
+   typed into #pick-own) is what 시작 starts. `questionToken` is bumped by every
+   request and by every reload of the screen, so an answer that lands after the
+   learner moved to another theme -- or another language or mode -- is dropped
+   rather than painted over the newer one. */
+let questions = [];          // [{ text, meaning, starter }]
+let questionState = 'idle';  // 'idle' | 'loading' | 'ready' | 'failed'
+let questionTheme = null;    // the theme the questions on screen (or coming) are for
+let chosen = null;           // index into `questions` | null
+let questionToken = 0;
+
+// 1분 말하기 needs nothing prepared: its questions are made when the theme is chosen.
+const isReady = (theme, mode) => {
+  if (mode === 'timed') return true;
+  return mode === 'script' ? theme.ready.script > 0 : Boolean(theme.ready.free);
+};
 
 /* The step line keeps its row whether or not it has anything to say (spec R5):
    it sits under 시작, and a line that appeared and vanished there made the
@@ -79,6 +109,12 @@ export async function openPick(mode) {
   $('pick-mode').textContent = MODE_LABELS[mode] || mode;
   const lesson = mode === 'lesson';
   $('pick-themes').hidden = lesson;
+  // 1분 말하기 has its own field (#pick-own, under the questions): #wish would
+  // build a scenario, which this mode does not have.
+  const timed = mode === 'timed';
+  $('pick-questions').hidden = !timed;
+  $('wish-box').hidden = timed;
+  $('pick-own').value = '';
   $('wish').value = '';
   $('wish').placeholder = lesson ? '예: 과거형, 식당에서 쓰는 표현' : '직접 만들기: 예) 이사 업체에 견적 묻기';
   $('wish-hint').textContent = lesson ? '비워두면 선생님이 골라줍니다' : '목록에 없는 상황을 쓰면 새로 만들어요';
@@ -103,13 +139,15 @@ export async function loadThemes() {
   category = THEME_CATEGORIES[0];
   selected = null;
   pending = null;
+  resetQuestions();
   loading = mode !== 'lesson';     // lesson takes a topic, not a theme
   render();
   if (!loading) return;
   try {
     const [themeList, own] = await Promise.all([
       getJSON(`/themes?language=${language}`),
-      getJSON(`/scenarios?language=${language}&mode=${mode}`),
+      // 1분 말하기 has no scenarios of its own to list.
+      mode === 'timed' ? { scenarios: [] } : getJSON(`/scenarios?language=${language}&mode=${mode}`),
     ]);
     if (state.language !== language || state.mode !== mode) return; // a newer switch already won
     themes = themeList.themes || [];
@@ -146,6 +184,15 @@ export async function selectTheme(themeId) {
   // A failed pick clears `pending`, so that card can still be tried again.
   if (selected?.kind === 'theme' && selected.id === themeId && pending
       && pending.themeId === themeId && pending.language === language && pending.mode === mode) return;
+  if (mode === 'timed') {
+    // The theme already on screen, its questions out or landed: asking again
+    // would only throw away the three the learner may be reading.
+    if (selected?.kind === 'theme' && selected.id === themeId && questionState !== 'failed') return;
+    selected = { kind: 'theme', id: themeId };
+    pending = null;
+    await loadQuestions(themeId);
+    return;
+  }
   selected = { kind: 'theme', id: themeId };
   render();
   if (mode !== 'script') { pending = null; return; }
@@ -170,6 +217,103 @@ export function selectScenario(scenarioId) {
   render();
 }
 
+function resetQuestions() {
+  questionToken += 1;
+  questions = [];
+  questionState = 'idle';
+  questionTheme = null;
+  chosen = null;
+}
+
+/* The three questions for a theme, sized to the learner's level by the server.
+   The area holds three card-sized placeholders under the words while they come,
+   so it is the same height waiting and loaded. */
+export async function loadQuestions(themeId) {
+  const token = ++questionToken;
+  const language = state.language;
+  questions = [];
+  chosen = null;
+  questionTheme = themeId;
+  questionState = 'loading';
+  render();
+  try {
+    const data = await getJSON(`/timed/questions?language=${language}&theme_id=${encodeURIComponent(themeId)}`);
+    if (token !== questionToken) return;     // another theme, language or mode already won
+    questions = (data.questions || []).filter((q) => q && q.text);
+    questionState = questions.length ? 'ready' : 'failed';
+  } catch {
+    if (token !== questionToken) return;
+    questionState = 'failed';
+  }
+  render();
+}
+
+/* 다시 시도: the same theme again. */
+export function retryQuestions() {
+  if (locked || !questionTheme) return undefined;
+  return loadQuestions(questionTheme);
+}
+
+/* A question card. Choosing one empties #pick-own: one choice on screen at a
+   time, so 시작 never starts something the learner is not looking at. */
+export function selectQuestion(index) {
+  if (locked || questionState !== 'ready' || !questions[index]) return;
+  chosen = index;
+  $('pick-own').value = '';
+  render();
+  // render() rebuilds the cards, so the one just chosen (by Enter or Space,
+  // too) is a new element and focus fell to the page. Put it back on the card.
+  const card = Array.from($('pick-question-list').children)[index];
+  if (card) card.focus();
+}
+
+/* Typing into #pick-own makes that the question, so no card stays chosen. */
+export function onOwnInput() {
+  if (locked) return;
+  if ($('pick-own').value.trim()) chosen = null;
+  render();
+}
+
+/* What 시작 would start in 1분 말하기, or null: the learner's own words first,
+   else the chosen card. */
+export function timedChoice() {
+  const own = $('pick-own').value.trim();
+  if (own) return { topic: own, meaning: '', starter: '' };
+  const q = chosen === null ? null : questions[chosen];
+  if (!q || !String(q.text).trim()) return null;
+  return { topic: String(q.text).trim(), meaning: q.meaning || '', starter: q.starter || '' };
+}
+
+async function startTimed(language) {
+  const choice = timedChoice();
+  if (!choice) return;
+  // Inside the try for the same reason as startFromPick's: a throw between
+  // setting the guard and the finally would latch it for the page's life.
+  try {
+    setBusy(true);
+    lock(true);
+    setStatus(STATUS.timed);
+    const data = await postJSON('/sessions', { language, mode: 'timed', topic: choice.topic });
+    state.sessionId = data.session_id;
+    state.language = language;
+    state.mode = 'timed';
+    state.shadowing = false;
+    notify('');
+    handoff.openTimed({
+      sessionId: data.session_id,
+      topic: data.topic || choice.topic,
+      meaning: choice.meaning,
+      starter: choice.starter,
+    });
+  } catch (err) {
+    notify(`시작하지 못했어요: ${err.message}`);
+  } finally {
+    setBusy(false);
+    lock(false);
+    setStatus(null);
+  }
+}
+
 function sendPick(themeId, language, mode) {
   const entry = { themeId, language, mode, done: false };
   entry.promise = postJSON('/library/pick', { language, mode, theme_id: themeId })
@@ -180,6 +324,7 @@ function sendPick(themeId, language, mode) {
 function lock(on) {
   locked = on;
   $('wish').disabled = on;
+  $('pick-own').disabled = on;
   render();                        // sets #btn-start from locked and loading
 }
 
@@ -188,6 +333,7 @@ function lock(on) {
    the chosen theme, or a ready one from the current tab when nothing is. */
 export async function startFromPick() {
   if (isBusy()) return;
+  if (state.mode === 'timed') { await startTimed(state.language); return; }
   // The themes are still coming: "nothing to choose" would be false. Only a
   // typed wish (or a lesson topic) needs no list. 시작 itself is disabled; this
   // is Enter in the field.
@@ -289,6 +435,8 @@ export async function startTheme(mode, themeId) {
     return;
   }
   await selectTheme(themeId);
+  // 1분 말하기 stops at its questions: the learner chooses one before 시작.
+  if (effectiveMode === 'timed') return;
   if (router.current() !== 'pick') return;
   if (state.language !== language || state.mode !== effectiveMode) return;
   if (selected?.kind !== 'theme' || selected.id !== themeId) return;
@@ -305,7 +453,8 @@ function drawFromTab(mode) {
 }
 
 function render() {
-  $('btn-start').disabled = locked || loading;
+  $('btn-start').disabled = state.mode === 'timed' ? (locked || !timedChoice()) : (locked || loading);
+  renderQuestions();
   const tabs = $('category-tabs');
   tabs.replaceChildren();
   const keys = mine.length ? [...THEME_CATEGORIES, 'mine'] : THEME_CATEGORIES;
@@ -380,4 +529,55 @@ function render() {
     card.disabled = locked || !ready;
     grid.append(card);
   }
+}
+
+/* #pick-questions, 1분 말하기 only. The words line and the 다시 시도 row are
+   held in place whatever the state (the button hides by .is-invisible, not
+   `hidden`), and the list keeps a three-card floor in CSS, so nothing under it
+   -- #pick-own, 시작 -- moves as the questions come and go. */
+function renderQuestions() {
+  const area = $('pick-question-list');
+  if (state.mode !== 'timed') { area.replaceChildren(); return; }
+  const status = $('pick-questions-status');
+  const retry = $('pick-question-retry');
+  status.textContent = questionState === 'ready' ? '' : QUESTION_TEXT[questionState];
+  setShown(status, questionState !== 'ready');
+  retry.textContent = QUESTION_TEXT.retry;
+  setShown(retry, questionState === 'failed');
+  retry.disabled = locked || questionState !== 'failed';
+  area.replaceChildren();
+  if (questionState === 'loading') {
+    for (let i = 0; i < SKELETON_QUESTIONS; i += 1) {
+      const card = document.createElement('div');
+      card.className = 'question-card skeleton';
+      card.setAttribute('aria-hidden', 'true');
+      for (const cls of ['q', 'm', 'h']) {
+        const line = document.createElement('span');
+        line.className = cls;
+        line.textContent = NBSP;
+        card.append(line);
+      }
+      area.append(card);
+    }
+    return;
+  }
+  if (questionState !== 'ready') return;
+  questions.forEach((q, i) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'question-card';
+    card.dataset.question = String(i);
+    card.setAttribute('aria-pressed', String(chosen === i));
+    card.classList.toggle('on', chosen === i);
+    // Every card has all three lines, blank or not, so the cards are one height.
+    const lines = [['q', q.text], ['m', q.meaning || NBSP], ['h', q.starter ? `힌트: ${q.starter}` : NBSP]];
+    for (const [cls, words] of lines) {
+      const line = document.createElement('span');
+      line.className = cls;
+      line.textContent = words;
+      card.append(line);
+    }
+    card.disabled = locked;
+    area.append(card);
+  });
 }

@@ -298,6 +298,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .fix-row .mine { font-size: var(--text-sm); color: var(--text-dim); }
 .fix-row .label { display: inline; margin: 0 var(--space-2) 0 0; }
 
+/* 1분 말하기 리포트의 회차 표: 한 줄에 한 회차, 회차 번호만 굵게 -- 뒤따르는
+   .timed-metric/.timed-better(static/css의 다른 곳, #timed 결과 화면과 공유)은
+   새로 정의하지 않는다. */
+.timed-report-round-n { font-weight: 700; margin-right: var(--space-1); }
+
 #weak-list { list-style: none; margin: 0; padding: 0; }
 #weak-list li { display: flex; align-items: center; justify-content: space-between;
                 padding: var(--space-2) 0; border-bottom: 1px solid var(--line);
@@ -517,6 +522,73 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .shadow-actions .btn-stable { min-width: 0; }
 .side-panel .shadow-hidden { color: var(--text-faint); letter-spacing: .15em; }
 
+/* --- 1분 말하기 (#timed) ---
+   One card. The head (the question, its meaning, the hint) is written once per
+   session and never changes. The body shows one .timed-slot at a time, and
+   every slot stands on the same floor (min-height), so prep -> rec -> upload
+   -> retry changes what is inside the card, never its height or where its top
+   edge sits. A slot coming in fades by opacity only (.timed-enter): a
+   transform would slide the card's contents, which is exactly the jump this
+   screen is built to avoid. Grading and the result are one slot: the lines
+   drawn while grading are the result's lines, and the result's buttons hold
+   their room (.is-invisible) from the start, so GRADED only fills in.
+   - The big numbers are tabular: 10 -> 9 or 1:00 -> 0:59 does not change width.
+   - The live line is two lines tall, always, and shows the bottom two (a flex
+     column packed to the end, overflow hidden): speech arriving never grows it.
+   - The one slot that can outgrow the floor is the review, with many
+     sentences; it grows downward only, under a head that does not move. */
+#timed { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+.timed-top { display: flex; align-items: center; gap: var(--space-3); }
+.timed-top h2 { margin: 0; }
+.timed-card { display: grid; align-content: start; gap: var(--space-4);
+              padding: var(--space-5); border: 1px solid var(--line);
+              border-radius: var(--radius); background: var(--surface); }
+.timed-card p { margin: 0; }
+.timed-head { display: grid; gap: var(--space-1); }
+.timed-topic { font-size: var(--text-xl); font-weight: 600; line-height: 1.45; }
+.timed-slot { min-height: 18rem; display: grid; align-content: center; justify-items: center;
+              gap: var(--space-4); text-align: center; }
+.timed-slot.timed-enter { animation: timed-fade var(--dur-fast) ease-out; }
+@keyframes timed-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.timed-big { font-size: var(--text-3xl); font-weight: 700; line-height: 1.1;
+             font-variant-numeric: tabular-nums; }
+.timed-clock-row { display: flex; align-items: center; gap: var(--space-2); }
+.timed-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--correct);
+             animation: timed-blink 1.2s ease-in-out infinite; }
+@keyframes timed-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .35; }
+}
+.timed-live { width: 100%; height: calc(2 * 1.6em); line-height: 1.6; overflow: hidden;
+              display: flex; flex-direction: column; justify-content: flex-end;
+              color: var(--text-dim); }
+.timed-note { min-height: calc(2 * 1.55em); color: var(--warn-ink); }
+.timed-review { align-content: start; justify-items: stretch; text-align: left; }
+.timed-status-row { min-height: 1.55em; color: var(--text-dim); }
+.timed-better { color: var(--suggest-ink); font-weight: 600; }
+.timed-lines { margin: 0; padding-left: 1.4em; display: grid; gap: var(--space-3); }
+.timed-line { display: grid; gap: var(--space-1); }
+.timed-verdict { min-height: 1.55em; display: grid; gap: var(--space-1); font-size: var(--text-sm); }
+.timed-verdict .timed-label { font-weight: 600; color: var(--correct-ink); }
+.timed-good { color: var(--suggest-ink); }
+.timed-why, .timed-failed { color: var(--text-dim); }
+.timed-failed { display: flex; align-items: center; gap: var(--space-2); }
+.timed-native { display: grid; gap: var(--space-2); padding-top: var(--space-3);
+                border-top: 1px solid var(--line); }
+.timed-native-text { min-height: calc(2 * 1.6em); line-height: 1.6; }
+/* One line tall even while hidden (.is-invisible holds it), so a status
+   coming and going never moves the buttons under it. */
+.timed-native-status { min-height: 1.55em; }
+.timed-native-actions, .timed-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/* ▸ 뜻 has no handler on this card, and opening it would grow the card. */
+.timed-card .meaning, .timed-card .meaning-body { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .timed-slot.timed-enter, .timed-dot { animation: none; }
+}
+
 /* --- home ---
 
    왼쪽은 할 일(오늘의 추천 → 모드 → 최근 테마), 오른쪽은 맥락(이어서 하기·이번 주).
@@ -606,8 +678,10 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 #home .modes .mode:hover { background: var(--accent-soft); }
 /* Four modes at phone width left each 78px -- 자유 상황극 broke mid-word.
    Two by two there instead. */
+/* The fifth, 1분 말하기, has the last row to itself rather than half of it. */
 @media (max-width: 480px) {
   .modes { display: grid; grid-template-columns: 1fr 1fr; }
+  .modes .mode:nth-child(5) { grid-column: 1 / -1; }
 }
 #home .modes .mode:hover .d { color: var(--text-dim); }
 
@@ -655,6 +729,41 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 /* A placeholder card: the real card's padding and its two lines (.t, .s) as
    blank text, so it is the loaded card's height. */
 .theme-card.skeleton { pointer-events: none; }   /* no hover tint, no pointer */
+
+/* 1분 말하기's questions (#pick-questions). The words line and 다시 시도 share
+   one row that is always there (held by .is-invisible, R5); the list keeps a
+   floor of three one-line cards, so #pick-own and 시작 under it stay put while
+   the questions are made, land, or fail. Every line has a fixed line-height so
+   that floor is the loaded cards' own height. */
+#pick-questions { display: flex; flex-direction: column; gap: var(--space-2); }
+.question-head { display: flex; align-items: center; gap: var(--space-3);
+                 min-height: calc(var(--text-sm) * 1.55 + var(--space-1) * 2); }
+.question-head .hint { flex: 1; color: var(--text-dim); }
+#pick-question-retry { font-size: var(--text-sm); padding: var(--space-1) var(--space-3); }
+.question-list {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  min-height: calc(3 * (var(--space-3) * 2 + var(--space-1) * 2
+                        + var(--text-base) * 1.5 + var(--text-sm) * 1.45 + var(--text-xs) * 1.45)
+                   + 2 * var(--space-2));
+}
+/* A theme card's tile: sunken, raised when chosen (.on), tinted on hover. */
+.question-card { display: flex; flex-direction: column; gap: var(--space-1); text-align: left;
+                 border: 0; background: var(--surface-sunken); border-radius: var(--radius-sm);
+                 padding: var(--space-3); }
+.question-card .q { font-size: var(--text-base); font-weight: 650; line-height: 1.5; }
+.question-card .m { font-size: var(--text-sm); color: var(--text-dim); line-height: 1.45; }
+.question-card .h { font-size: var(--text-xs); color: var(--text-faint); line-height: 1.45; }
+.question-card:hover:not(:disabled):not(.on) { background: var(--accent-soft); }
+.question-card.on { background: var(--surface); box-shadow: var(--shadow); }
+.question-card.skeleton { pointer-events: none; }
+/* The learner's own question: #wish's field, since it stands where #wish does. */
+#pick-own {
+  font-size: var(--text-lg); padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius); margin-top: var(--space-2); box-shadow: var(--shadow);
+}
+#pick-own::placeholder { color: var(--text-faint); }
+#pick-own:hover { border-color: var(--text-faint); }
+#pick-own:focus { border-color: var(--accent); }
 
 /* One line tall even while empty: the row is held by .is-invisible (R5). */
 .start-status { display: flex; align-items: center; gap: var(--space-2);

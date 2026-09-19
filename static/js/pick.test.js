@@ -11,7 +11,7 @@
  * test that fails with a start still pending cannot turn the next test's own
  * start into a vacuous early return.
  */
-import { beforeEach, test } from 'node:test';
+import { afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { $, state } from './api.js';
@@ -30,6 +30,14 @@ beforeEach(async () => {
   state.sessionId = null;
   home.setBusy(false);
   pick = await import(`./pick.js?instance=${++instance}`);
+});
+
+/* A test that stands in for the timed screen on pick.handoff puts the real
+   one back afterwards, so nothing else ever sees the stand-in. */
+let restoreHandoff = null;
+afterEach(() => {
+  if (restoreHandoff) restoreHandoff();
+  restoreHandoff = null;
 });
 
 const THEMES = [
@@ -687,4 +695,255 @@ test('시작 (or Enter) while the themes load does not claim there is no theme',
   await pick.startFromPick();
   assert.equal(seen.picks.length, 1);
   assert.equal(seen.sessions, 1);
+});
+
+/* ---------- 1분 말하기: a theme, then three questions ---------- */
+
+const QUESTIONS = [
+  { text: 'What did you do last weekend?', meaning: '지난 주말에 뭐 했어요?', starter: 'Last weekend, I...' },
+  { text: 'What is your favourite café?', meaning: '제일 좋아하는 카페는?', starter: '' },
+  { text: 'How do you order coffee?', meaning: '커피를 어떻게 주문해요?', starter: 'Usually I...' },
+];
+
+/* `questions(url)` answers GET /api/timed/questions; the default sends the three
+   above. Records every questions URL and every session body, and puts a
+   stand-in for the timed screen on pick.handoff so the hand-off can be seen. */
+function timedRoutes({ questions } = {}) {
+  const seen = { questions: [], sessions: [], opened: [] };
+  stubFetch(async (url, options = {}) => {
+    if (url.startsWith('/api/themes')) return jsonResponse({ themes: THEMES });
+    if (url.startsWith('/api/scenarios?')) return jsonResponse({ scenarios: [] });
+    if (url.startsWith('/api/timed/questions')) {
+      seen.questions.push(url);
+      return questions ? questions(url) : jsonResponse({ questions: QUESTIONS });
+    }
+    if (url === '/api/sessions') {
+      const body = JSON.parse(options.body);
+      seen.sessions.push(body);
+      return jsonResponse({ session_id: 42, mode: body.mode, topic: body.topic });
+    }
+    return jsonResponse({});
+  });
+  const { handoff } = pick;
+  const real = handoff.openTimed;
+  restoreHandoff = () => { handoff.openTimed = real; };
+  handoff.openTimed = (ctx) => seen.opened.push(ctx);
+  return seen;
+}
+
+const questionCards = () => $('pick-question-list').children;
+const lines = (card) => card.children.map((l) => l.textContent);
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+test('1분 말하기 opens the pick screen with its name, every theme choosable, and its own field', async () => {
+  timedRoutes();
+  await pick.openPick('timed');
+  assert.equal(router.current(), 'pick');
+  assert.equal(state.mode, 'timed');
+  assert.equal(state.shadowing, false);
+  assert.equal($('pick-mode').textContent, '1분 말하기');
+  assert.equal($('pick-questions').hidden, false);
+  assert.equal($('wish-box').hidden, true);
+  // Nothing needs preparing: a theme with no script or free scenario is still open.
+  assert.ok(cards().length > 0 && cards().every((c) => !c.disabled));
+  assert.equal($('btn-start').disabled, true, '시작 with no question chosen');
+  assert.equal($('pick-questions-status').textContent, '테마를 고르면 질문 3개를 만들어요');
+});
+
+test('another mode after 1분 말하기 hides the questions and brings #wish back', async () => {
+  timedRoutes();
+  await pick.openPick('timed');
+  await pick.selectTheme('cafe-restaurant');
+  await pick.openPick('free');
+  assert.equal($('pick-questions').hidden, true);
+  assert.equal($('wish-box').hidden, false);
+  assert.equal(questionCards().length, 0);
+  assert.equal($('btn-start').disabled, false);
+});
+
+test('choosing a theme asks for its questions, says so over three placeholders, then shows three cards', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const seen = timedRoutes({ questions: async () => { await held; return jsonResponse({ questions: QUESTIONS }); } });
+  state.language = 'ja';
+  await pick.openPick('timed');
+  const choosing = pick.selectTheme('cafe-restaurant');
+  await tick();
+  assert.deepEqual(seen.questions, ['/api/timed/questions?language=ja&theme_id=cafe-restaurant']);
+  assert.equal($('pick-questions-status').textContent, '질문을 만들고 있어요');
+  assert.equal($('pick-questions-status').classList.contains('is-invisible'), false);
+  assert.equal(questionCards().length, 3);
+  assert.ok(questionCards().every((c) => c.classList.contains('skeleton') && c.dataset.question === undefined),
+    'a placeholder must not be a question a click could choose');
+  release();
+  await choosing;
+  const shown = questionCards();
+  assert.deepEqual(shown.map(lines), [
+    ['What did you do last weekend?', '지난 주말에 뭐 했어요?', '힌트: Last weekend, I...'],
+    ['What is your favourite café?', '제일 좋아하는 카페는?', String.fromCharCode(0xa0)],
+    ['How do you order coffee?', '커피를 어떻게 주문해요?', '힌트: Usually I...'],
+  ]);
+  assert.ok(shown.every((c) => c.getAttribute('aria-pressed') === 'false'));
+  // The words line holds its row once the questions are in (R5).
+  assert.equal($('pick-questions-status').classList.contains('is-invisible'), true);
+  assert.equal($('btn-start').disabled, true, 'a theme is not a question');
+});
+
+test('a question card is chosen with aria-pressed, and 시작 opens up', async () => {
+  timedRoutes();
+  await pick.openPick('timed');
+  await pick.selectTheme('cafe-restaurant');
+  pick.selectQuestion(1);
+  assert.deepEqual(questionCards().map((c) => c.getAttribute('aria-pressed')), ['false', 'true', 'false']);
+  assert.equal($('btn-start').disabled, false);
+});
+
+test('choosing a card keeps focus on it, though the list is rebuilt (keyboard users stay put)', async () => {
+  timedRoutes();
+  await pick.openPick('timed');
+  await pick.selectTheme('cafe-restaurant');
+  Array.from(questionCards())[1].focus();
+  pick.selectQuestion(1);
+  assert.equal(document.activeElement, Array.from(questionCards())[1]);
+  assert.equal(document.activeElement.getAttribute('aria-pressed'), 'true');
+});
+
+test('the questions status line is announced (role=status, aria-live=polite)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const tag = html.match(/<p id="pick-questions-status"[^>]*>/)[0];
+  assert.match(tag, /role="status"/);
+  assert.match(tag, /aria-live="polite"/);
+});
+
+test('the stand-in timed screen is put back after a test', () => {
+  const real = pick.handoff.openTimed;
+  timedRoutes();
+  assert.notEqual(pick.handoff.openTimed, real);
+  if (restoreHandoff) restoreHandoff();
+  assert.equal(pick.handoff.openTimed, real);
+});
+
+test("typing one's own question opens 시작 and unchooses the card; choosing a card empties the field", async () => {
+  timedRoutes();
+  await pick.openPick('timed');
+  $('pick-own').value = '   ';
+  pick.onOwnInput();
+  assert.equal($('btn-start').disabled, true, 'blank is not a question');
+  $('pick-own').value = 'Tell me about your job';
+  pick.onOwnInput();
+  assert.equal($('btn-start').disabled, false, 'own words need no theme');
+  await pick.selectTheme('cafe-restaurant');
+  pick.selectQuestion(0);
+  assert.equal($('pick-own').value, '');
+  $('pick-own').value = 'My own';
+  pick.onOwnInput();
+  assert.ok(questionCards().every((c) => c.getAttribute('aria-pressed') === 'false'));
+  assert.equal($('btn-start').disabled, false);
+});
+
+test('시작 with a chosen card creates a timed session with its text and hands off to the timed screen', async () => {
+  const seen = timedRoutes();
+  await pick.openPick('timed');
+  await pick.selectTheme('cafe-restaurant');
+  pick.selectQuestion(0);
+  await pick.startFromPick();
+  assert.deepEqual(seen.sessions, [{ language: 'en', mode: 'timed', topic: 'What did you do last weekend?' }]);
+  assert.deepEqual(seen.opened, [{
+    sessionId: 42, topic: 'What did you do last weekend?', meaning: '지난 주말에 뭐 했어요?', starter: 'Last weekend, I...',
+  }]);
+  assert.equal(state.sessionId, 42);
+  assert.equal(home.isBusy(), false);
+});
+
+test("시작 with the learner's own question sends it trimmed, with no meaning or hint", async () => {
+  const seen = timedRoutes();
+  await pick.openPick('timed');
+  $('pick-own').value = '  Tell me about your job  ';
+  pick.onOwnInput();
+  await pick.startFromPick();
+  assert.deepEqual(seen.sessions, [{ language: 'en', mode: 'timed', topic: 'Tell me about your job' }]);
+  assert.deepEqual(seen.opened, [{ sessionId: 42, topic: 'Tell me about your job', meaning: '', starter: '' }]);
+});
+
+test('시작 (or Enter) with no question starts nothing', async () => {
+  const seen = timedRoutes();
+  await pick.openPick('timed');
+  await pick.selectTheme('cafe-restaurant');
+  await pick.startFromPick();
+  assert.equal(seen.sessions.length, 0);
+  assert.equal(seen.opened.length, 0);
+});
+
+test('failed questions say so with 다시 시도, which asks again; the own field still works', async () => {
+  let fail = true;
+  const seen = timedRoutes({ questions: () => (fail
+    ? jsonResponse({ detail: '지금은 질문을 만들 수 없어요' }, { ok: false, status: 503 })
+    : jsonResponse({ questions: QUESTIONS })) });
+  await pick.openPick('timed');
+  await pick.selectTheme('hotel');
+  assert.equal($('pick-questions-status').textContent, '질문을 만들지 못했어요');
+  assert.equal($('pick-question-retry').textContent, '다시 시도');
+  assert.equal($('pick-question-retry').classList.contains('is-invisible'), false);
+  assert.equal($('pick-question-retry').disabled, false);
+  assert.equal(questionCards().length, 0);
+  assert.equal($('notice-text').textContent, '', 'only the question area says it failed');
+  $('pick-own').value = 'Mine';
+  pick.onOwnInput();
+  assert.equal($('btn-start').disabled, false);
+  $('pick-own').value = '';
+  pick.onOwnInput();
+  fail = false;
+  await pick.retryQuestions();
+  assert.equal(seen.questions.length, 2);
+  assert.ok(seen.questions[1].includes('theme_id=hotel'));
+  assert.equal(questionCards().length, 3);
+  assert.equal($('pick-question-retry').classList.contains('is-invisible'), true);
+});
+
+test("a late answer for the theme left behind is not painted over the new theme's questions", async () => {
+  let releaseOld;
+  const oldHeld = new Promise((r) => { releaseOld = r; });
+  const OLD = [{ text: 'OLD question', meaning: '옛 질문', starter: '' }];
+  timedRoutes({ questions: async (url) => {
+    if (url.includes('theme_id=cafe-restaurant')) { await oldHeld; return jsonResponse({ questions: OLD }); }
+    return jsonResponse({ questions: QUESTIONS });
+  } });
+  await pick.openPick('timed');
+  const first = pick.selectTheme('cafe-restaurant');
+  await tick();
+  pick.selectCategory('travel');
+  await pick.selectTheme('hotel');
+  pick.selectQuestion(2);
+  releaseOld();
+  await first;
+  assert.deepEqual(questionCards().map((c) => c.children[0].textContent), QUESTIONS.map((q) => q.text));
+  assert.equal(questionCards()[2].getAttribute('aria-pressed'), 'true', 'the choice survives the late answer');
+});
+
+test('a late answer after a language switch is not painted under the new language', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  timedRoutes({ questions: async () => { await held; return jsonResponse({ questions: QUESTIONS }); } });
+  await pick.openPick('timed');
+  const choosing = pick.selectTheme('cafe-restaurant');
+  await tick();
+  state.language = 'ja';
+  await pick.loadThemes();
+  release();
+  await choosing;
+  assert.equal(questionCards().length, 0);
+  assert.equal($('pick-questions-status').textContent, '테마를 고르면 질문 3개를 만들어요');
+});
+
+test("startTheme('timed', …) goes to the theme's questions and does not start", async () => {
+  const seen = timedRoutes();
+  await pick.startTheme('timed', 'hotel');
+  assert.equal(router.current(), 'pick');
+  assert.equal($('pick-mode').textContent, '1분 말하기');
+  assert.equal(seen.questions.length, 1);
+  assert.ok(seen.questions[0].includes('theme_id=hotel'));
+  assert.equal(questionCards().length, 3);
+  assert.equal(seen.sessions.length, 0);
+  assert.equal(seen.opened.length, 0);
 });

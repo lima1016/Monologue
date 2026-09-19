@@ -56,6 +56,13 @@ function findByClass(el, cls) {
   for (const c of el.children || []) { const hit = findByClass(c, cls); if (hit) return hit; }
   return null;
 }
+/* Task 7: the round table has more than one row, so a test needs every match,
+ * not just the first. */
+function findAllByClass(el, cls, out = []) {
+  if (el.classList && el.classList.contains(cls)) out.push(el);
+  for (const c of el.children || []) findAllByClass(c, cls, out);
+  return out;
+}
 
 test('a script line with HTML-like text is escaped, not injected, into the panel', async () => {
   resetDom();
@@ -413,6 +420,147 @@ test('쉐도잉 리포트: 어려웠던 줄이 없으면 축하 문구만 보인
   const bodyText = text($('report-body'));
   assert.match(bodyText, /전부 대본대로 따라 했어요 🎉/);
   assert.ok(!bodyText.includes('어려웠던 줄'));
+});
+
+/* Task 7: 1분 말하기's report (kind: 'timed') -- every round side by side, the
+ * later ones measured against round 1 with the same compareRounds/
+ * formatMetric/.timed-better the live result screen (timed.js) uses, round
+ * 1's own sentences, and the last round's 원어민이라면. Fixture shape matches
+ * _timed_report's actual output (app/api.py). */
+test('1분 말하기 리포트: 회차 표 두 줄, 강조 방향, 1회차 문장 목록, 마지막 회차의 원어민이라면', async () => {
+  resetDom();
+  let fetched = false;
+  stubFetch(async () => { fetched = true; return jsonResponse({ top_tags: [] }); });
+  state.language = 'en';
+
+  session.renderReport({
+    kind: 'timed', topic: 'Weekend plans', level: 'B1',
+    rounds: [
+      {
+        round: 1, seconds: 60, words: 87, wpm: 87, long_pauses: 5, fixed: 1, graded: 3,
+        sentences: [
+          { text: 'I like cats.', graded: true, ok: true, fixed: null, correction: null, suggestion: null, tag: null, message_id: 10 },
+          { text: 'They is cute.', graded: true, ok: false, fixed: 'They are cute.', correction: '복수 주어에는 are를 써요', suggestion: null, tag: 'agreement', message_id: 11 },
+          { text: 'Um.', graded: true, ok: null, fixed: null, correction: null, suggestion: null, tag: null, message_id: null, filler: true },
+        ],
+        native: 'On weekends I usually relax at home.',
+      },
+      {
+        round: 2, seconds: 55, words: 112, wpm: 80, long_pauses: 3, fixed: 0, graded: 2,
+        sentences: [
+          { text: 'I like cats.', graded: true, ok: true, fixed: null, correction: null, suggestion: null, tag: null, message_id: null },
+          { text: 'They are cute.', graded: true, ok: true, fixed: null, correction: null, suggestion: null, tag: null, message_id: null },
+        ],
+        native: 'On weekends I like to relax and see friends.',
+      },
+    ],
+    summary: '', weak_points: [], expressions: [], next_focus: '',
+    stats: { turns: 3, wrong: 1, minutes: 2 },
+  });
+
+  assert.equal($('report-headline').textContent, '1분 말하기 2회');
+  assert.equal($('report-counts').textContent, 'Weekend plans');
+
+  const body = $('report-body');
+  const rows = findAllByClass(body, 'timed-report-round-n').map((el) => el.parentNode);
+  assert.equal(rows.length, 2, '회차 표는 회차마다 한 줄');
+  assert.equal(text(rows[0]), '1회차 · 단어 87 · 분당 87 · 긴 멈춤 5 · 고친 곳 1');
+  assert.equal(text(rows[1]), '2회차 · 단어 87 → 112 · 분당 87 → 80 · 긴 멈춤 5 → 3 · 고친 곳 1 → 0');
+
+  // 1회차 대비 변화 강조: 단어 늘고 긴 멈춤·고친 곳 줄면 좋아진 것, 분당이 줄어든 것은 아니다.
+  const metrics2 = findAllByClass(rows[1], 'timed-metric');
+  assert.deepEqual(metrics2.map((m) => m.classList.contains('timed-better')), [true, false, true, true]);
+  // 1회차 자신은 비교할 대상이 없다 -- 아무 것도 강조되지 않는다.
+  const metrics1 = findAllByClass(rows[0], 'timed-metric');
+  assert.deepEqual(metrics1.map((m) => m.classList.contains('timed-better')), [false, false, false, false]);
+
+  const bodyText = text(body);
+  assert.match(bodyText, /1회차에 말한 문장/);
+  assert.match(bodyText, /They is cute\./);
+  assert.match(bodyText, /They are cute\./);
+  assert.match(bodyText, /복수 주어에는 are를 써요/);
+  assert.match(bodyText, /원어민이라면/);
+  assert.match(bodyText, /On weekends I like to relax and see friends\./);
+  assert.ok(!bodyText.includes('On weekends I usually relax at home.'),
+    '리포트에는 마지막 회차의 원어민이라면만 나온다');
+
+  assert.equal($('rep-turns').textContent, 3);
+  assert.equal($('rep-wrong').textContent, '1');
+  assert.equal($('rep-minutes').textContent, 2);
+  await Promise.resolve();
+  assert.equal(fetched, true, '1회차가 채점한 것은 누적 약점(/stats/home)에 들어간다 -- 쉐도잉과 다르다');
+});
+
+test('1분 말하기 리포트: 맞은 문장은 설명 없이 ✓ 좋아요만 보여준다 (틀린 문장은 그대로 고친 문장+설명)', () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ top_tags: [] }));
+  state.language = 'en';
+  session.renderReport({
+    kind: 'timed', topic: 'x',
+    rounds: [{
+      round: 1, seconds: 60, words: 10, wpm: 10, long_pauses: 0, fixed: 0, graded: 2,
+      sentences: [
+        { text: 'I like cats.', graded: true, ok: true, fixed: null,
+          correction: '이미 맞습니다', suggestion: null, tag: null, message_id: null },
+        { text: 'They is cute.', graded: true, ok: false, fixed: 'They are cute.',
+          correction: '복수 주어에는 are를 써요', suggestion: null, tag: 'agreement', message_id: 11 },
+      ],
+      native: null,
+    }],
+    stats: { turns: 2, wrong: 1, minutes: 1 },
+  });
+  const body = $('report-body');
+  const rows = findAllByClass(body, 'fix-row');
+  assert.equal(rows.length, 2);
+
+  const good = findByClass(rows[0], 'timed-good');
+  assert.ok(good, '맞은 문장에는 ✓ 좋아요가 있다');
+  assert.equal(text(good), '✓ 좋아요');
+  assert.equal(findByClass(rows[0], 'fixed'), null, '맞은 문장에는 고친 문장이 없다');
+  assert.ok(!text(rows[0]).includes('이미 맞습니다'), '맞은 문장은 설명을 보여주지 않는다');
+
+  assert.equal(findByClass(rows[1], 'timed-good'), null, '틀린 문장에는 ✓ 좋아요가 없다');
+  const fixed = findByClass(rows[1], 'fixed');
+  assert.equal(text(fixed), '고친 문장 They are cute.');
+  assert.match(text(rows[1]), /복수 주어에는 are를 써요/);
+});
+
+test('1분 말하기 리포트: 내 말은 취소선이 없고(.said 아님), 원어민이라면이 없으면 카드도 없다', () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ top_tags: [] }));
+  state.language = 'en';
+  session.renderReport({
+    kind: 'timed', topic: 'x',
+    rounds: [{
+      round: 1, seconds: 60, words: 10, wpm: 10, long_pauses: 0, fixed: 1, graded: 1,
+      sentences: [{
+        text: 'He go home.', graded: true, ok: false, fixed: 'He goes home.',
+        correction: '3인칭 단수에는 s를 붙여요', suggestion: null, tag: 'agreement', message_id: 1,
+      }],
+      native: null,
+    }],
+    stats: { turns: 1, wrong: 1, minutes: 1 },
+  });
+  const body = $('report-body');
+  assert.equal(findByClass(body, 'said'), null, '리포트의 문장 목록은 .said(취소선)를 쓰지 않는다');
+  const mine = findByClass(body, 'mine');
+  assert.equal(text(mine), '내 말 He go home.');
+  const fixed = findByClass(body, 'fixed');
+  assert.equal(text(fixed), '고친 문장 He goes home.');
+  assert.ok(!text(body).includes('원어민이라면'), 'native가 없으면 원어민이라면 카드도 없다');
+});
+
+test('1분 말하기 리포트: 회차가 0개면 말한 기록이 없다고 보여준다', () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ top_tags: [] }));
+  state.language = 'en';
+  session.renderReport({
+    kind: 'timed', topic: 'Weekend plans', rounds: [],
+    stats: { turns: 0, wrong: 0, minutes: 0 },
+  });
+  assert.equal($('report-headline').textContent, '1분 말하기 0회');
+  assert.equal($('report-counts').textContent, 'Weekend plans');
+  assert.equal(text($('report-body')), '말한 기록이 없어요');
 });
 
 test('an English bot bubble carries a meaning toggle; a learner bubble does not', () => {
@@ -1051,4 +1199,27 @@ test('leaving my page mid-listen throws the listen away and wakes the card', asy
   assert.deepEqual(posted, []);
   const skip = card.children.find((c) => c.classList.contains('actions')).children.find((c) => c.classList.contains('skip'));
   assert.equal(skip.disabled, false, 'a cancelled listen left the card busy');
+});
+
+/* The report's numbers panel is one DOM for every kind. A 1분 말하기 report
+ * counts round 1's sentences, not conversation turns, so the first stat is
+ * labelled 문장 there -- and the next report of another kind, drawn into the
+ * same panel, must say 턴 again. */
+test('1분 말하기 리포트의 첫 숫자는 문장, 다른 리포트로 돌아가면 다시 턴', () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ top_tags: [] }));
+  state.language = 'en';
+  state.mode = 'free';
+  session.renderReport({
+    kind: 'timed', topic: 'x',
+    rounds: [{ round: 1, seconds: 60, words: 10, wpm: 10, long_pauses: 0, fixed: 0, graded: 1,
+               sentences: [], native: null }],
+    stats: { turns: 1, wrong: 0, minutes: 1 },
+  });
+  assert.equal($('rep-turns-label').textContent, '문장');
+  session.renderReport({ summary: 'x', stats: { turns: 12, wrong: 5, minutes: 9 } });
+  assert.equal($('rep-turns-label').textContent, '턴', 'a free report after a timed one');
+  session.renderReport({ kind: 'timed', topic: 'x', rounds: [], stats: { turns: 0, wrong: 0, minutes: 0 } });
+  session.renderReport({ kind: 'shadow', lines: [], stats: { turns: 3, minutes: 2 } });
+  assert.equal($('rep-turns-label').textContent, '턴', 'a shadowing report after a timed one');
 });

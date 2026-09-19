@@ -104,3 +104,35 @@ test("home's 복습 card opens my page on 복습, and 기록 더 보기 on 기�
     delete globalThis.localStorage;
   }
 });
+
+/* A Japanese IME confirms a conversion with Enter. That Enter arrives as a
+   keydown with isComposing true, and must not start with half-typed text --
+   in #pick-own (1분 말하기's own question) or #wish. */
+test('Enter while an IME is composing starts nothing, in #pick-own or #wish', async () => {
+  const { $, state } = await import('./api.js');
+  const posts = [];
+  stubFetch(async (url, options) => {
+    if (options.method === 'POST') posts.push(url);
+    return jsonResponse({ detail: 'no' }, { ok: false, status: 500 });
+  });
+  const before = { mode: state.mode, language: state.language };
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  try {
+    for (const [id, mode] of [['pick-own', 'timed'], ['wish', 'lesson']]) {
+      state.mode = mode;
+      $(id).value = 'かい';
+      const keydown = $(id).listeners.keydown[0];
+      keydown({ key: 'Enter', isComposing: true });
+      await settle();
+      assert.deepEqual(posts, [], `#${id}: an Enter that confirms a conversion started a session`);
+      keydown({ key: 'Enter', isComposing: false });
+      await settle();
+      assert.equal(posts.length, 1, `#${id}: a plain Enter still starts`);
+      posts.length = 0;
+      $(id).value = '';
+    }
+  } finally {
+    Object.assign(state, before);
+    stubFetch(async () => jsonResponse({}));
+  }
+});

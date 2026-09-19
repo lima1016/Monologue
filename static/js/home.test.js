@@ -817,3 +817,31 @@ test('listening on the home review card shows the preparing copy', async () => {
   assert.equal($('review-home-play').textContent, '▶ 듣기');
   assert.deepEqual(played, ['/api/review/11/audio']);
 });
+
+/* 1분 말하기 (Task 5): the fifth mode card on home, and its name wherever a
+ * past session is listed. The shim has no markup (only ids), so the card is
+ * read out of index.html itself; main.js hands its data-mode straight to
+ * openPick, whose label for it pick.test.js checks. */
+test('home carries a fifth mode card, 1분 말하기, that opens the pick screen as timed', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const modes = html.split('id="modes"')[1].split('</div>')[0];
+  const cardModes = [...modes.matchAll(/data-mode="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(cardModes, ['free', 'script', 'shadow', 'lesson', 'timed']);
+  const timed = modes.split('data-mode="timed"')[1].split('</button>')[0];
+  assert.match(timed, /<span class="n">1분 말하기<\/span>/);
+  assert.match(timed, /<span class="d">질문 하나에 1분 동안 말하고 다시 말해 비교<\/span>/);
+  const pick = await import('./pick.js');
+  stubFetch(async () => jsonResponse({ themes: [], scenarios: [] }));
+  router.register('pick', 'pick');
+  await pick.openPick('timed');
+  assert.equal($('pick-mode').textContent, '1분 말하기');
+});
+
+test('a 1분 말하기 recent theme reads 1분 말하기', async () => {
+  homeRoutes(PAYLOAD({ recent_themes: [{ theme_id: 'cafe-restaurant', title: '카페·음식점 주문', mode: 'timed', shadowing: false }] }));
+  await home.loadHome();
+  const card = $('recent-themes').children[0];
+  assert.equal(text(card), '카페·음식점 주문1분 말하기');
+  assert.equal(card.dataset.mode, 'timed');
+});

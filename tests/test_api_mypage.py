@@ -210,6 +210,21 @@ def test_history_titles_fall_back_library_then_topic_then_default(client):
     assert titles == ["자유 대화", "과거형 연습", "호텔 체크인 대본"]
 
 
+def test_mypage_stats_count_only_round_one_of_a_timed_session(client):
+    sid = db.create_session("en", "timed", topic="What did you do last weekend?")
+    db.add_message(sid, "user", "I go to the park.", correction="설명", ok=0,
+                   fixed="I went to the park.", tag="시제")
+    db.add_round(sid, 1, 30.0, 5, 0, ["I go to the park."], None)
+    # Round 2's wrong sentence lives only in timed_rounds -- it must not
+    # inflate mypage's accuracy or weak-spot tags.
+    db.add_round(sid, 2, 30.0, 5, 0, ["She have a car."], None)
+    db.end_session(sid, json.dumps({"kind": "timed"}), "beginner")
+    body = client.get("/api/stats/mypage?language=en").json()
+    assert body["accuracy"] == {"correct": 0, "graded": 1}
+    assert body["tags"] == [{"tag": "시제", "n": 1, "examples": [
+        {"text": "I go to the park.", "fixed": "I went to the park.", "correction": "설명"}]}]
+
+
 def test_tags_carry_their_three_newest_examples(client):
     _finished(turns=[("I go 1", 0, "I went 1.", "시제"), ("I go 2", 0, "I went 2.", "시제"),
                      ("I go 3", 0, "I went 3.", "시제"), ("I go 4", 0, "I went 4.", "시제"),

@@ -176,6 +176,26 @@ MIGRATIONS = [
         created_at TEXT NOT NULL
     );
     """],
+    # v8 -> v9: 1분 말하기 회차 (docs/superpowers/specs/2026-09-19-monologue-
+    # timed-speaking-design.md, "데이터"). Every round lives here; only round
+    # 1's sentences also become messages rows, so level/accuracy/weak spots/
+    # reviews count a minute once, not once per retelling.
+    ["""
+    CREATE TABLE IF NOT EXISTS timed_rounds (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id     INTEGER NOT NULL REFERENCES sessions(id),
+        round          INTEGER NOT NULL,
+        seconds        REAL    NOT NULL,
+        words          INTEGER NOT NULL,
+        long_pauses    INTEGER NOT NULL,
+        sentences_json TEXT    NOT NULL,
+        native         TEXT,
+        level          TEXT,
+        audio_path     TEXT,
+        created_at     TEXT    NOT NULL,
+        UNIQUE(session_id, round)
+    );
+    """],
 ]
 
 
@@ -420,6 +440,10 @@ def clear_session_audio(session_id) -> list[str]:
     running. Keeping them only accumulates the learner's voice on disk for no
     purpose.
 
+    Covers timed_rounds too -- a 1분 말하기 session's recordings live there,
+    not in messages, and the same "nothing reads it again once the session is
+    over" reasoning applies to them.
+
     Returns the stored paths so the caller can unlink the files; this module
     does not touch the filesystem.
     """
@@ -432,7 +456,27 @@ def clear_session_audio(session_id) -> list[str]:
         conn.execute(
             "UPDATE messages SET audio_path = NULL WHERE session_id = ?", (session_id,)
         )
-    return [r["audio_path"] for r in rows]
+        round_rows = conn.execute(
+            "SELECT audio_path FROM timed_rounds"
+            " WHERE session_id = ? AND audio_path IS NOT NULL",
+            (session_id,),
+        ).fetchall()
+        conn.execute(
+            "UPDATE timed_rounds SET audio_path = NULL WHERE session_id = ?", (session_id,)
+        )
+    return [r["audio_path"] for r in rows] + [r["audio_path"] for r in round_rows]
+
+
+def _last_activity(alias):
+    """SQL for a session's last activity: its newest message or timed round,
+    or started_at when it has neither. A 1분 말하기 session writes rounds, not
+    messages, until round 1 is graded -- judging it by messages alone would
+    call a session in active use abandoned. Both subqueries are NULL when
+    empty; the UNION ALL keeps MAX over whichever rows exist."""
+    return ("COALESCE((SELECT MAX(t) FROM ("
+            f"  SELECT m.created_at AS t FROM messages m WHERE m.session_id = {alias}.id"
+            f"  UNION ALL SELECT tr.created_at FROM timed_rounds tr WHERE tr.session_id = {alias}.id"
+            f")), {alias}.started_at)")
 
 
 def stale_open_sessions(hours=24) -> list[int]:
@@ -445,6 +489,9 @@ def stale_open_sessions(hours=24) -> list[int]:
     nobody has touched since. COALESCE falls back to started_at only for a
     session that never got a single message, since that is the only timestamp
     such a session has.
+
+    A recording is a messages.audio_path or, for a 1분 말하기 session, a
+    timed_rounds.audio_path; activity is the newest of either table's rows.
 
     Restricted to sessions that still hold a recording so a session already
     swept by a previous call drops out on its own, rather than being
@@ -463,12 +510,11 @@ def stale_open_sessions(hours=24) -> list[int]:
         rows = conn.execute(
             "SELECT s.id FROM sessions s"
             " WHERE s.ended_at IS NULL"
-            "   AND COALESCE("
-            "         (SELECT MAX(m.created_at) FROM messages m WHERE m.session_id = s.id),"
-            "         s.started_at"
-            "       ) < ?"
-            "   AND EXISTS (SELECT 1 FROM messages m2"
-            "               WHERE m2.session_id = s.id AND m2.audio_path IS NOT NULL)"
+            f"   AND {_last_activity('s')} < ?"
+            "   AND (EXISTS (SELECT 1 FROM messages m2"
+            "                WHERE m2.session_id = s.id AND m2.audio_path IS NOT NULL)"
+            "        OR EXISTS (SELECT 1 FROM timed_rounds tr"
+            "                   WHERE tr.session_id = s.id AND tr.audio_path IS NOT NULL))"
             " ORDER BY s.id",
             (cutoff,),
         ).fetchall()
@@ -491,6 +537,12 @@ def resumable_session(language):
     browser and is never persisted, so the app has no way to place them back
     where they left off -- and re-reading a short script from the top is
     natural anyway.
+    Timed-mode sessions are excluded too: this card reopens a session as a
+    conversation (POST /chat, a system prompt, a bot reply), and a timed
+    session has none of that -- it is a running clock and a single question
+    with no bot turn to answer. Opening one through this path would try to
+    chat with it and break. An abandoned timed session still gets closed by
+    the existing stale-session sweep, same as any other mode.
     """
     cutoff = _cutoff(hours=24)
     with connect() as conn:
@@ -498,7 +550,7 @@ def resumable_session(language):
             "SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS turns"
             " FROM sessions s"
             " WHERE s.language = ? AND s.ended_at IS NULL AND s.started_at >= ?"
-            "   AND s.mode <> 'script'"
+            "   AND s.mode NOT IN ('script', 'timed')"
             "   AND EXISTS (SELECT 1 FROM messages m2"
             "               WHERE m2.session_id = s.id AND m2.speaker = 'user')"
             " ORDER BY s.id DESC LIMIT 1",
@@ -515,8 +567,7 @@ def abandon_stale_sessions(hours=24) -> int:
         cur = conn.execute(
             "UPDATE sessions SET ended_at = ?"
             " WHERE ended_at IS NULL"
-            "   AND COALESCE((SELECT MAX(m.created_at) FROM messages m"
-            "                 WHERE m.session_id = sessions.id), started_at) < ?",
+            f"   AND {_last_activity('sessions')} < ?",
             (_now(), cutoff),
         )
         return cur.rowcount
@@ -1143,10 +1194,90 @@ def save_coach(language, day, items) -> None:
             (language, day, json.dumps(items, ensure_ascii=False), _now()))
 
 
+# 1분 말하기 (docs/superpowers/specs/2026-09-19-monologue-timed-speaking-design.md,
+# "데이터"). Every round of a session lives in timed_rounds, keyed by
+# (session_id, round); only round 1's sentences also become messages rows
+# (a later task's job), so a minute counts once toward level/accuracy/weak
+# spots/reviews, not once per retelling.
+def next_round(session_id) -> int:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT MAX(round) FROM timed_rounds WHERE session_id = ?", (session_id,)
+        ).fetchone()
+    return (row[0] or 0) + 1
+
+
+def _fresh_sentences_json(sentences) -> str:
+    return json.dumps(
+        [{"text": s, "graded": False, "ok": None, "fixed": None, "correction": None,
+          "suggestion": None, "tag": None, "message_id": None} for s in sentences],
+        ensure_ascii=False,
+    )
+
+
+def add_round(session_id, round, seconds, words, long_pauses, sentences, audio_path) -> int:
+    """sentences is a list of sentence strings, fresh off timed.round_stats --
+    nothing has graded them yet, so every row starts graded: False and every
+    other field None."""
+    sentences_json = _fresh_sentences_json(sentences)
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO timed_rounds (session_id, round, seconds, words, long_pauses,"
+            " sentences_json, audio_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, round, seconds, words, long_pauses, sentences_json, audio_path, _now()),
+        )
+    return round
+
+
+def get_rounds(session_id) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM timed_rounds WHERE session_id = ? ORDER BY round", (session_id,)
+        ).fetchall()
+    out = []
+    for r in rows:
+        item = dict(r)
+        item["sentences"] = json.loads(item.pop("sentences_json"))
+        out.append(item)
+    return out
+
+
+def set_round_sentences(session_id, round, sentences) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE timed_rounds SET sentences_json = ? WHERE session_id = ? AND round = ?",
+            (json.dumps(sentences, ensure_ascii=False), session_id, round),
+        )
+
+
+def set_round_transcript(session_id, round, words, long_pauses, sentences) -> None:
+    """A round whose first transcription failed, transcribed again from its
+    stored recording: new stats and fresh, ungraded sentences (strings, as
+    add_round takes them)."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE timed_rounds SET words = ?, long_pauses = ?, sentences_json = ?"
+            " WHERE session_id = ? AND round = ?",
+            (words, long_pauses, _fresh_sentences_json(sentences), session_id, round),
+        )
+
+
+def set_round_native(session_id, round, native, level) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE timed_rounds SET native = ?, level = ? WHERE session_id = ? AND round = ?",
+            (native, level, session_id, round),
+        )
+
+
 def history(language, offset, limit) -> list[dict]:
     """Finished sessions, newest first. A script session reads fixed lines, so
     none of its turns is wrong or graded; `graded` lets a row that was never
-    graded (an old session, or every grading call failed) skip 고친 곳 0."""
+    graded (an old session, or every grading call failed) skip 고친 곳 0.
+    `rounds` is only meaningful for a timed session -- how many times it was
+    told the whole way through -- and is 0 for every other mode; timed's own
+    `wrong`/`graded` stay the general (non-script) computation above since
+    only round 1's sentences ever become messages rows."""
     with connect() as conn:
         rows = conn.execute(
             "SELECT s.id, s.scenario_id, s.topic, s.mode, s.ended_at, s.shadowing,"
@@ -1156,7 +1287,10 @@ def history(language, offset, limit) -> list[dict]:
             "  END wrong,"
             "  CASE WHEN s.mode = 'script' THEN 0 ELSE"
             "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok IS NOT NULL)"
-            "  END graded"
+            "  END graded,"
+            "  CASE WHEN s.mode = 'timed' THEN"
+            "  (SELECT COUNT(*) FROM timed_rounds tr WHERE tr.session_id = s.id) ELSE 0"
+            "  END rounds"
             " FROM sessions s WHERE s.language = ? AND s.report IS NOT NULL"
             " ORDER BY s.ended_at DESC, s.id DESC LIMIT ? OFFSET ?", (language, limit, offset)).fetchall()
     return [dict(r) for r in rows]
