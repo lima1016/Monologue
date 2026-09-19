@@ -102,6 +102,19 @@ def test_the_target_sentence_can_be_heard(client):
     assert client.post(f"/api/messages/{right}/fixed-audio").json() == {"audio_key": None}
 
 
+def test_target_audio_refuses_a_bot_message_and_speaks_in_the_sessions_language(client, monkeypatch):
+    """Only a learner message's own fixed sentence, in its session's language
+    (review M2)."""
+    spoken = []
+    monkeypatch.setattr(tts, "synthesize", lambda t, l, v: spoken.append((t, l)) or b"RIFFfake")
+    sid = db.create_session("ja", "free", scenario_id=None)
+    mine = db.add_message(sid, "user", "わたし 行く", correction="설명", ok=0, fixed="私は行きます。", tag="시제")
+    bot = db.add_message(sid, "bot", "そうですか。")
+    assert client.post(f"/api/messages/{bot}/fixed-audio").status_code == 404
+    assert client.post(f"/api/messages/{mine}/fixed-audio").json()["audio_key"]
+    assert spoken == [("私は行きます。", "ja")]
+
+
 def test_target_audio_is_null_when_tts_is_down(client, monkeypatch):
     ids = _say([("I go", 0, "I went.", "시제")])
     def dead(t, l, v):

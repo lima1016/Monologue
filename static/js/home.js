@@ -19,7 +19,7 @@ import * as router from './router.js';
 import { addMessage } from './session.js';
 import { setSuggestVisible } from './suggest.js';
 // leveltest.js imports none of home, pick or session, so this closes no cycle.
-import { renderLevelResult, levelName } from './leveltest.js';
+import { renderLevelResult, levelName, RESULT_TEXT } from './leveltest.js';
 
 // Filled by loadHome (Task 8) once a resumable session is found; read by
 // resumeSession (Task 8). Declared here, ahead of either function, so a
@@ -113,9 +113,11 @@ export async function loadHome() {
     setShown($('today-alt'), false);   // its row is held from the start (R5)
     $('today-card').hidden = false;
     $('today-body').replaceChildren(loadingNote(), ...todaySkeleton());
-    // The target panel holds its half of the hero while it may be coming; an
-    // answer without one gives the half back to the recommendation.
-    targetSkeleton();
+    // The target panel holds its place only when this language's last answer
+    // had a target: most answers have none, and a held panel that then goes
+    // away jumps the whole screen (on a phone, everything below it moves up
+    // by the panel's height). No memory: no panel, the hero full width.
+    if (hadTarget(lang)) targetSkeleton();
     weekSkeleton();
   }
 
@@ -152,6 +154,7 @@ export async function loadHome() {
     // sentence itself, so the line stays shut either way.
     $('recommend').hidden = true;
     renderTarget(stats.target);
+    rememberTarget(lang, Boolean(target));
 
     // No numeric goal means the payload is not the one this card is drawn
     // from -- hide the card rather than invent a goal the learner never set.
@@ -231,6 +234,10 @@ function setRefreshing(on) {
     card.classList.toggle('is-refreshing', on);
     card.inert = on || card.classList.contains('is-collapsed');
   }
+  // The tiles themselves never depend on the request, but their 최근 lines
+  // do: after a language switch they still name the previous language's
+  // themes, so they dim with the cards until the answer repaints them.
+  for (const mode of TILE_MODES) $(`mode-recent-${mode}`).classList.toggle('is-refreshing', on);
 }
 
 /* 이어서 하기 opens and shuts by class, never `hidden`, so CSS can slide it
@@ -357,6 +364,20 @@ function targetSkeleton() {
     $(id).classList.add('skeleton');
   }
   setShown($('home-target-play'), false);   // its row is held: .is-invisible, not hidden
+}
+
+/* Whether this language's last answer had a target -- a per-viewer
+   convenience in localStorage, only ever used to decide whether the first
+   paint holds the panel's place. Storage that throws (a private window,
+   blocked site data) or is missing reads as "no". */
+const TARGET_KEY = (lang) => `home-target-${lang}`;
+
+function hadTarget(lang) {
+  try { return globalThis.localStorage?.getItem(TARGET_KEY(lang)) === '1'; } catch { return false; }
+}
+
+function rememberTarget(lang, has) {
+  try { globalThis.localStorage?.setItem(TARGET_KEY(lang), has ? '1' : '0'); } catch { /* fine */ }
 }
 
 function clearTargetSkeleton() {
@@ -541,18 +562,18 @@ export function renderWeek(data, streakDays, acc = null) {
 /* The level beside the ring: the latest level test's CEFR and step with the
    scale it comes to (JF for Japanese, IELTS for English), `레벨 테스트 전`
    with no test yet, and a dash when the request failed -- not knowing is not
-   the same as "not tested". The scale line keeps its row either way. */
-export const LEVEL_LINE = {
-  none: '레벨 테스트 전',
-  unknown: '—',
-  ielts: (band) => `IELTS 말하기 ${band} 예상`,
-};
+   the same as "not tested". The scale line keeps its row either way; its
+   IELTS wording is the result screen's own (leveltest.js RESULT_TEXT). */
+const NO_TEST = '레벨 테스트 전';
+// Not known, or nothing to show: the level on a failed request, and the
+// accuracy with nothing graded.
+const DASH = '—';
 
 export function renderLevel(latest) {
   const known = Boolean(latest) && latest.result !== undefined;
   const r = known ? latest.result : undefined;
-  $('home-level').textContent = r ? levelName(r) : (known ? LEVEL_LINE.none : LEVEL_LINE.unknown);
-  const scale = r ? (r.jf || (r.ielts ? LEVEL_LINE.ielts(r.ielts) : '')) : '';
+  $('home-level').textContent = r ? levelName(r) : (known ? NO_TEST : DASH);
+  const scale = r ? (r.jf || (r.ielts ? RESULT_TEXT.ielts(r.ielts) : '')) : '';
   $('home-level-scale').textContent = scale || NBSP;
 }
 
@@ -586,7 +607,7 @@ function paintWeek() {
   // with nothing graded is a dash rather than a made-up 0%.
   $('week-streak').textContent = `${streak}일`;
   $('home-accuracy').textContent = accuracy && accuracy.graded > 0
-    ? `${Math.round((accuracy.correct / accuracy.graded) * 100)}%` : LEVEL_LINE.unknown;
+    ? `${Math.round((accuracy.correct / accuracy.graded) * 100)}%` : DASH;
   const { sessions: n, goal } = week;
   $('week-ring-num').textContent = `${n}/${goal}`;
   $('week-ring-sub').textContent = n >= goal ? '목표 달성!' : '이번 주';

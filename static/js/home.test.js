@@ -496,7 +496,21 @@ test('a newer switch that lands first clears the dimming even though the stale o
   state.language = 'en';
 });
 
-test('the first load shows skeletons where the cards will be', async () => {
+/* A stand-in localStorage for one test (dom-shim has none). */
+function withStorage(data = {}) {
+  globalThis.localStorage = {
+    getItem: (k) => (k in data ? data[k] : null),
+    setItem: (k, v) => { data[k] = String(v); },
+  };
+  return data;
+}
+
+test('the first load shows skeletons where the cards will be', async (t) => {
+  // This language's last answer had a target, so the panel's place is held
+  // (Task 1 review I1; the no-memory side is its own test below).
+  state.language = 'en';
+  const stored = withStorage({ 'home-target-en': '1' });
+  t.after(() => { delete globalThis.localStorage; });
   let release;
   const held = new Promise((r) => { release = r; });
   homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD()); } });
@@ -515,7 +529,7 @@ test('the first load shows skeletons where the cards will be', async () => {
     assert.equal($(id).textContent, String.fromCharCode(0xa0));
   }
   // The target panel holds its half of the hero while it may be coming.
-  assert.equal($('home-target').hidden, false);
+  assert.equal($('home-target').hidden, false, 'a remembered target is not held');
   assert.ok($('home-hero').classList.contains('has-target'));
   assert.ok($('home-target-fixed').classList.contains('skeleton'));
   assert.ok($('home-target-play').classList.contains('is-invisible'), 'the play row is not held while it loads');
@@ -531,9 +545,76 @@ test('the first load shows skeletons where the cards will be', async () => {
   for (const id of ['home-accuracy', 'home-level', 'home-level-scale', 'home-target-fixed']) {
     assert.equal($(id).classList.contains('skeleton'), false, `#${id} kept its placeholder`);
   }
-  // PAYLOAD has no target: the hero goes back to one column.
+  // PAYLOAD has no target: the hero goes back to one column, and the next
+  // first load will not hold the panel.
   assert.equal($('home-target').hidden, true);
   assert.equal($('home-hero').classList.contains('has-target'), false);
+  assert.equal(stored['home-target-en'], '0');
+});
+
+/* Task 1 review I1: most answers carry no target, and a held panel that then
+   went away jumped the whole screen on every load. Only a language whose last
+   answer had one holds its place; the answer itself is remembered. */
+test('with no memory of a target the first load holds no target panel, and a target answer is remembered', async (t) => {
+  state.language = 'en';
+  const stored = withStorage();
+  t.after(() => { delete globalThis.localStorage; });
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD({ target: TARGET })); } });
+  const loading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal($('home-target').hidden, true, 'a panel was held with nothing saying a target is coming');
+  assert.equal($('home-hero').classList.contains('has-target'), false);
+  release();
+  await loading;
+  assert.equal($('home-target').hidden, false);
+  assert.equal(stored['home-target-en'], '1');
+});
+
+test('the memory is per language: English having a target holds nothing for Japanese', async (t) => {
+  state.language = 'ja';
+  withStorage({ 'home-target-en': '1' });
+  t.after(() => { delete globalThis.localStorage; state.language = 'en'; });
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD()); } });
+  const loading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal($('home-target').hidden, true);
+  release();
+  await loading;
+});
+
+test('blocked storage: no panel held, and home still loads', async (t) => {
+  state.language = 'en';
+  globalThis.localStorage = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
+  t.after(() => { delete globalThis.localStorage; });
+  homeRoutes(PAYLOAD({ target: TARGET }));
+  const loading = home.loadHome();
+  assert.equal($('home-target').hidden, true);
+  await loading;
+  assert.equal($('home-target').hidden, false);
+});
+
+/* Task 1 review M1: the tiles' 최근 lines name the previous language's
+   themes until the answer lands, so they dim with the cards. */
+test("the tiles' 최근 lines dim while home reloads and wake when it lands", async () => {
+  homeRoutes(PAYLOAD());
+  await home.loadHome();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  homeRoutes(null, { stats: async () => { await held; return jsonResponse(PAYLOAD()); } });
+  const reloading = home.loadHome();
+  await new Promise((r) => setTimeout(r, 0));
+  for (const mode of ['free', 'script', 'shadow', 'lesson', 'timed']) {
+    assert.ok($(`mode-recent-${mode}`).classList.contains('is-refreshing'), `${mode}'s line did not dim`);
+  }
+  release();
+  await reloading;
+  for (const mode of ['free', 'script', 'shadow', 'lesson', 'timed']) {
+    assert.equal($(`mode-recent-${mode}`).classList.contains('is-refreshing'), false);
+  }
 });
 
 test('the alternative line keeps its place when there is no alternative', async () => {

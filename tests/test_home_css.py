@@ -62,6 +62,9 @@ def test_home_folds_to_one_column_at_900px_in_the_phone_order():
     assert order["#home-target"] >= order["#today-alt"]
     assert order["#resume-card"] < order["#home .modes-wrap"] < order["#recent-themes-wrap"]
     assert order["#week-card"] < order["#home .modes-wrap"]
+    # The level-test card is open for every tested learner: after 내 상태 (a tie
+    # keeps the markup order), as in the wide aside -- never above 이어서 하기.
+    assert order["#resume-card"] < order["#week-card"] <= order["#leveltest-home"] < order["#home .modes-wrap"]
     # No home rule is left on the old 880px breakpoint.
     assert not any("#home" in b for b in _media_blocks(COMPONENTS, 880))
 
@@ -79,7 +82,7 @@ def test_the_target_play_button_keeps_one_width():
 def test_the_target_panel_dims_by_opacity_and_not_under_reduced_motion():
     assert "transition: opacity var(--dur-fast) ease" in _rule(":where(#home-target)")
     reduced = COMPONENTS[COMPONENTS.index("@media (prefers-reduced-motion: reduce) {\n  .screen-enter"):]
-    assert re.search(r":where\(#home-target\) \{ transition: none; \}", reduced)
+    assert re.search(r":where\(#home-target\)(, [^{]*)? \{ transition: none; \}", reduced)
 
 
 def test_a_tiles_recent_line_holds_its_height_empty_or_not():
@@ -110,3 +113,21 @@ def test_the_start_button_skeleton_is_the_hero_buttons_height():
     assert "padding: var(--space-3)" in _rule(".today-actions button")
     assert "height: calc(1.55em + var(--space-3) * 2 + 2px)" in _rule(".today-skel-btn")
     assert "font-size: var(--text-lg)" in _rule(".today-actions")
+
+
+def test_the_ring_takes_no_fixed_px_sizes_from_css():
+    """Stroke widths and text sizes are the SVG's own attributes, in its
+    viewBox units, so the ring scales with --ring (review M3)."""
+    for sel in (".ring-track", ".ring-fill", ".ring-num", ".ring-sub"):
+        body = _rule(sel)
+        assert "stroke-width" not in body and "font-size" not in body, sel
+    html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    svg = re.search(r'<svg id="week-ring".*?</svg>', html, re.S).group(0)
+    assert svg.count('stroke-width="8"') == 2
+    assert 'font-size="20"' in svg and 'font-size="10"' in svg
+
+
+def test_the_tiles_recent_lines_fade_like_the_cards():
+    assert "transition: opacity var(--dur-fast) ease" in _rule(":where(.mode .m)")
+    reduced = COMPONENTS[COMPONENTS.index("@media (prefers-reduced-motion: reduce) {" + chr(10) + "  .screen-enter"):]
+    assert ":where(#home-target), :where(.mode .m) { transition: none; }" in reduced
