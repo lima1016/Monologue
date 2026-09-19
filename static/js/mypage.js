@@ -299,10 +299,13 @@ export function renderReviewList(items, counts) {
    next, so the list stays at the limit while more are waiting. Returns the
    cards this call brought out. */
 function paintReviewLimit() {
-  const cards = $('review-list').children.filter((c) => c.classList.contains('review-card'));
+  // A live HTMLCollection in a browser: no filter until it is an array.
+  const cards = Array.from($('review-list').children).filter((c) => c.classList.contains('review-card'));
   const revealed = [];
   cards.forEach((card, i) => {
     const hide = i >= reviewLimit;
+    // The fade-in is spent by the next paint; a card keeps no stale class.
+    card.classList.remove('is-revealed');
     if (card.hidden && !hide) {
       card.classList.add('is-revealed');
       revealed.push(card);
@@ -317,11 +320,13 @@ function paintReviewLimit() {
 }
 
 /* main.js's #btn-review-more: five more, and the keyboard lands on the first
-   of them rather than staying on a button that may now be gone. */
+   one's 듣기 (its first action, not ▸ 설명) rather than staying on a button
+   that may now be gone. */
 export function showMoreReviews() {
   reviewLimit += REVIEW_STEP;
   const [first] = paintReviewLimit();
-  const target = first && findTag(first, 'BUTTON');
+  const actions = first && find(first, 'actions');
+  const target = actions && findTag(actions, 'BUTTON');
   if (target) target.focus();
 }
 

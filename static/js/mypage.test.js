@@ -172,12 +172,25 @@ test('the heading counts every due sentence, not the twenty on the list', async 
 
 const MANY = (n) => Array.from({ length: n }, (_, i) => ({
   id: 200 + i, text: `said ${i}`, fixed: `fixed ${i}.`, correction: '', tag: '시제', created_at: 'x' }));
-const reviewCards = () => $('review-list').children.filter((c) => c.classList.contains('review-card'));
+const reviewCards = () => Array.from($('review-list').children).filter((c) => c.classList.contains('review-card'));
+/* A browser's children is a live HTMLCollection -- indexable and iterable, but
+   no filter/map. dom-shim hands back an Array, so the 더 보기 tests put the
+   real shape on #review-list and code that treats it as an Array goes red. */
+function liveChildren(node) {
+  Object.defineProperty(node, 'children', { configurable: true, get() {
+    const kids = this.childNodes.filter((n) => typeof n === 'object' && n && 'tagName' in n);
+    const coll = { length: kids.length, [Symbol.iterator]: () => kids[Symbol.iterator](),
+      item: (i) => kids[i] ?? null };
+    kids.forEach((k, i) => { coll[i] = k; });
+    return coll;
+  } });
+}
 const shownCards = () => reviewCards().filter((c) => !c.hidden);
 const moreShown = () => !$('btn-review-more').classList.contains('is-invisible');
 
 test('복습 shows five at a time; 더 보기 brings the next five and hides when none are left', async () => {
   routes({ items: MANY(12), stats: () => jsonResponse(STATS({ review: { due: 12, mastered: 0, total: 12 } })) });
+  liveChildren($('review-list'));
   await mypage.openMypage();
   assert.equal(reviewCards().length, 12);
   assert.equal(shownCards().length, 5);
@@ -188,14 +201,19 @@ test('복습 shows five at a time; 더 보기 brings the next five and hides whe
   mypage.showMoreReviews();
   assert.equal(shownCards().length, 10);
   assert.equal($('btn-review-more').textContent, '더 보기 (2개 남음)');
+  assert.ok(reviewCards()[5].classList.contains('is-revealed'), 'a revealed card did not fade in');
   mypage.showMoreReviews();
   assert.equal(shownCards().length, 12);
+  // The fade-in class is spent by the next paint.
+  assert.equal(reviewCards()[5].classList.contains('is-revealed'), false);
+  assert.ok(reviewCards()[10].classList.contains('is-revealed'));
   assert.equal(moreShown(), false);
   assert.equal($('btn-review-more').getAttribute('aria-hidden'), 'true');
 });
 
 test('three reviews are all shown, with no 더 보기', async () => {
   routes({ items: MANY(3) });
+  liveChildren($('review-list'));
   await mypage.openMypage();
   assert.equal(shownCards().length, 3);
   assert.equal(moreShown(), false);
@@ -204,6 +222,7 @@ test('three reviews are all shown, with no 더 보기', async () => {
 test('a card that leaves makes room for the next hidden one; the counts still mean all left', async () => {
   const items = MANY(7);
   routes({ items, stats: () => jsonResponse(STATS({ review: { due: 7, mastered: 0, total: 7 } })) });
+  liveChildren($('review-list'));
   await mypage.openMypage();
   const sixth = reviewCards()[5];
   assert.equal(sixth.hidden, true);
@@ -220,6 +239,7 @@ test('a card that leaves makes room for the next hidden one; the counts still me
 
 test('opening my page again starts back at five', async () => {
   routes({ items: MANY(12) });
+  liveChildren($('review-list'));
   await mypage.openMypage();
   mypage.showMoreReviews();
   assert.equal(shownCards().length, 10);
@@ -233,16 +253,20 @@ test('opening my page again starts back at five', async () => {
   assert.equal(moreShown(), false);
 });
 
-test('after 더 보기 the keyboard lands on the first card it brought out', async () => {
-  routes({ items: MANY(12) });
+test('after 더 보기 the keyboard lands on the first card it brought out, on its 듣기', async () => {
+  // With a correction, as real cards have: ▸ 설명 comes first, and is not it.
+  routes({ items: MANY(12).map((it) => ({ ...it, correction: '과거형' })) });
+  liveChildren($('review-list'));
   await mypage.openMypage();
   mypage.showMoreReviews();
   const sixth = reviewCards()[5];
+  assert.ok(findByClass(sixth, 'explain'), 'the card has no ▸ 설명 to skip');
   assert.equal(document.activeElement, findByClass(sixth, 'play'));
 });
 
 test('while loading or failed, 복습 has no 더 보기', async () => {
   routes({ items: MANY(12) });
+  liveChildren($('review-list'));
   const opening = mypage.openMypage();
   assert.equal(moreShown(), false, 'shown over the skeleton');
   await opening;
