@@ -1199,7 +1199,9 @@ button.meaning:hover { color: var(--accent-ink); }
 .review-card > p { margin: 0; }
 .review-card .label { display: inline; margin: 0 var(--space-2) 0 0; }
 .review-card .said { font-size: var(--text-sm); }
-.review-card .said s { color: var(--text-dim); }
+/* The learner's own words are never struck through -- dimmed is enough to
+   read as "before" next to the bold 고친 문장. */
+.review-card .said .said-text { color: var(--text-dim); text-decoration: none; }
 .review-card .fixed { font-size: var(--text-lg); }
 .review-card .fixed b { font-weight: 650; }
 .review-card .said.skeleton { width: 60%; }

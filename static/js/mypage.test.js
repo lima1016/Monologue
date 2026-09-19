@@ -563,7 +563,8 @@ test('a normal review card keeps 내가 한 말 / 고친 문장 and its striketh
   const fixed = findByClass(card, 'fixed');
   assert.equal(findByClass(said, 'label').textContent, '내가 한 말');
   assert.equal(findByClass(fixed, 'label').textContent, '고친 문장');
-  assert.ok(said.children.some((c) => c.tagName === 'S'), '고친 문장이 아니라 틀린 문장이므로 취소선이 있다');
+  assert.ok(!said.children.some((c) => c.tagName === 'S'), '내가 한 말에는 취소선을 긋지 않는다');
+  assert.ok(said.children.some((c) => c.classList.contains('said-text')), '내가 한 말은 흐린 글씨로만 구분한다');
   assert.equal(findByClass(card, 'tag').textContent, '시제');
 });
 

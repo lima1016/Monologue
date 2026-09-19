@@ -442,7 +442,7 @@ function reviewCard(item) {
     said.append(el('span', 'label', '내 말'), document.createTextNode(' '), el('span', '', item.text));
     fixed.append(el('span', 'label', '대본'), document.createTextNode(' '), el('b', '', item.fixed));
   } else {
-    said.append(el('span', 'label', '내가 한 말'), document.createTextNode(' '), el('s', '', item.text));
+    said.append(el('span', 'label', '내가 한 말'), document.createTextNode(' '), el('span', 'said-text', item.text));
     fixed.append(el('span', 'label', '고친 문장'), document.createTextNode(' '), el('b', '', item.fixed));
   }
   card.append(said, fixed);
