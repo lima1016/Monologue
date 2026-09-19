@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="ko" data-theme="default" data-mode="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시안 · 홈 B</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script src="/mock/mock.js"></script>
+<link rel="stylesheet" href="/css/fonts.css">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/mock/mock.css">
+<style>
+  /* 홈 B · 대시보드형. 위에서 아래로: 인사 + 내 상태 타일 4개 → 오늘의 추천(크게) | 이어서 하기
+     → 연습 방법 카드 5장 → 잔디 · 오늘 복습 · 코치 · 최근 세션. 색은 전부 토큰. */
+  .hb { display: flex; flex-direction: column; gap: var(--space-6); }
+  .hb > * { min-width: 0; }
+  .hb .label { margin: 0; }
+  .hb .section-label { margin: 0 0 var(--space-3); }
+
+  /* 인사 */
+  .hb-greet { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3); }
+  .hb-greet .home-date { margin: 0 0 var(--space-1); }
+  .hb-greet h2 { margin: 0; font-size: var(--text-3xl); font-weight: 750; color: var(--text); letter-spacing: -.045em; line-height: 1.2; }
+  .hb-greet .sub { margin: var(--space-1) 0 0; color: var(--text-dim); }
+  .hb-top { display: flex; flex-direction: column; gap: var(--space-4); }
+  .stat-tile .v.lv { font-size: var(--text-2xl); }
+  .stat-tile .mini-bar { height: 6px; margin-top: var(--space-1); background: var(--line); border-radius: var(--radius-pill); overflow: hidden; }
+  .stat-tile .mini-bar > i { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
+
+  /* 오늘의 추천 | 이어서 하기 */
+  .hb-today { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: var(--space-4); align-items: stretch; }
+  .hb .today-card { padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-3); }
+  .hb .today-card .label { margin: 0; }
+  .hb .today-title { margin: 0; font-size: var(--text-3xl); font-weight: 750; letter-spacing: -.04em; line-height: 1.2; }
+  .chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+  .chips li { font-size: var(--text-sm); color: var(--text); background: var(--surface-sunken);
+    border-radius: var(--radius-pill); padding: var(--space-1) var(--space-3); }
+  .why { margin: 0; display: flex; gap: var(--space-3); align-items: flex-start;
+    background: var(--accent-soft); color: var(--accent-ink); border-radius: var(--radius-sm);
+    padding: var(--space-3) var(--space-4); font-size: var(--text-sm); }
+  .why b { flex: 0 0 auto; font-weight: 700; }
+  .hb .today-actions { margin-top: auto; padding-top: var(--space-2); }
+  .hb .today-actions button { padding: var(--space-3) var(--space-5); font-weight: 650; }
+
+  .hb-side { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+  .resume-panel { display: flex; flex-direction: column; gap: var(--space-3); border-left: 3px solid var(--accent); }
+  .resume-panel .top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+  .resume-panel .ttl { margin: 0; font-size: var(--text-lg); font-weight: 700; color: var(--text); }
+  .resume-panel .meta { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+  .resume-panel .next { margin: 0; padding: var(--space-3); background: var(--surface-sunken); border-radius: var(--radius-sm); }
+  .resume-panel .next .k { display: block; font-size: var(--text-xs); color: var(--text-faint); font-weight: 600; margin-bottom: 2px; }
+  .resume-panel .next .s { color: var(--text); font-weight: 600; }
+  .resume-panel .row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  .resume-panel .week-bar { flex: 1; }
+  .resume-panel .week-bar > i { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
+  .alt-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+  .alt-list button { width: 100%; display: flex; justify-content: space-between; gap: var(--space-2); text-align: left;
+    border: 0; background: transparent; padding: var(--space-2) var(--space-1); border-radius: var(--radius-sm); }
+  .alt-list button:hover { background: var(--accent-soft); }
+  .alt-list .t { font-weight: 600; color: var(--text); }
+  .alt-list .m { font-size: var(--text-xs); color: var(--text-dim); white-space: nowrap; }
+
+  /* 연습 방법 5장 */
+  .mode-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-3); }
+  .mode-card { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); text-align: left;
+    padding: var(--space-5) var(--space-4) var(--space-4); border-radius: var(--radius);
+    background: var(--surface); border: 1px solid var(--line); color: var(--text); }
+  .mode-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .mode-card .ic { width: 48px; height: 48px; border-radius: var(--radius-sm); display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); margin-bottom: var(--space-1); }
+  .mode-card:hover .ic { background: var(--surface); }
+  .mode-card .ic svg { width: 28px; height: 28px; }
+  .mode-card .n { font-size: var(--text-lg); font-weight: 700; }
+  .mode-card .d { font-size: var(--text-sm); color: var(--text-dim); line-height: 1.45; flex: 1; }
+  .mode-card .m { font-size: var(--text-xs); color: var(--text-faint); padding-top: var(--space-2);
+    border-top: 1px solid var(--line); width: 100%; }
+
+  /* 아래 줄 넷 */
+  .hb-bottom { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: var(--space-4); align-items: stretch; }
+  .hb-bottom > * { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  .hb-bottom .panel-head { margin: 0; }
+  .hb-bottom .mock-chart { min-height: 0; }
+  .hb-bottom .heat-key { margin-top: 0; }
+  .hb .review-home-first { font-size: var(--text-base); }
+  .hb .review-home-ko { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
+  .hb .review-home-actions { margin-top: auto; }
+  .hb .coach { margin: 0; padding: var(--space-4); border-radius: var(--radius); background: var(--surface); }
+  .hb .coach-head .label { margin: 0; }
+  .hb .coach-tip { margin: 0; }
+  .coach-ex { margin: auto 0 0; font-size: var(--text-sm); display: flex; flex-direction: column; gap: 2px;
+    padding: var(--space-2) var(--space-3); background: var(--surface-sunken); border-radius: var(--radius-sm); }
+  .coach-ex .mine { color: var(--text-dim); }
+  .coach-ex .fixed { color: var(--text); font-weight: 600; }
+  .coach-ex .fixed em { font-style: normal; color: var(--suggest-ink); }
+  .sess-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .sess-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--space-2);
+    padding: var(--space-2) 0; border-top: 1px solid var(--line); }
+  .sess-list li:first-child { border-top: 0; padding-top: 0; }
+  .sess-list .t { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sess-list .m { grid-column: 1; font-size: var(--text-xs); color: var(--text-dim); }
+  .sess-list .s { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: var(--text-sm);
+    font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .hb-bottom .ghost.link { margin-top: auto; }
+
+  @media (max-width: 1100px) {
+    .mode-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .hb-bottom { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 900px) {
+    .hb-today, .hb-bottom { grid-template-columns: 1fr; }
+    .mode-cards { grid-template-columns: 1fr; }
+    .mode-card { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 2px var(--space-3); align-items: center; }
+    .mode-card .ic { grid-row: 1 / span 3; margin: 0; align-self: start; }
+    .mode-card .m { border: 0; padding: 0; }
+    .hb .today-card { padding: var(--space-5); }
+    .hb .today-title { font-size: var(--text-2xl); }
+  }
+</style>
+</head>
+<body>
+<div class="mock-tools" role="group" aria-label="시안 도구">
+  <span class="mock-tag">시안 도구</span>
+  <a href="/mock/index.html">← 시안 목록</a>
+  <span class="mock-group"><span>테마</span>
+    <button type="button" data-mock-theme="default">기본</button><button type="button" data-mock-theme="forest">숲</button><button type="button" data-mock-theme="sea">바다</button><button type="button" data-mock-theme="lavender">보라</button><button type="button" data-mock-theme="ink">먹</button><button type="button" data-mock-theme="white">하양</button>
+  </span>
+  <span class="mock-group"><span>밝기</span>
+    <button type="button" data-mock-mode="auto">자동</button><button type="button" data-mock-mode="light">밝게</button><button type="button" data-mock-mode="dark">어둡게</button>
+  </span>
+  <span class="mock-note">홈 B · 대시보드형. 내 상태 → 오늘 할 일 → 연습 방법 → 기록, 위에서 아래로</span>
+</div>
+
+<header>
+  <h1>
+    <a href="/mock/index.html" class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="10" width="8" height="44" rx="4"/><rect x="17" y="16" width="8" height="32" rx="4"/><rect x="28" y="22" width="8" height="20" rx="4"/><rect x="39" y="16" width="8" height="32" rx="4"/><rect x="51" y="10" width="8" height="44" rx="4"/></svg>
+      Monologue
+    </a>
+  </h1>
+  <div class="status">
+    <button class="ghost" type="button">마이페이지</button>
+    <button class="ghost" type="button">설정</button>
+  </div>
+</header>
+
+<main class="mock-main">
+  <section class="hb mock-growth" aria-label="홈">
+
+    <div class="hb-top">
+      <div class="hb-greet">
+        <div>
+          <p class="home-date">9월 19일 토요일</p>
+          <h2>오늘은 뭘 연습할까요?</h2>
+          <p class="sub">3일째 이어서 하고 있어요. 이번 주 목표까지 한 세션 남았어요.</p>
+        </div>
+        <span class="seg">
+          <button type="button" class="on">English</button>
+          <button type="button">日本語</button>
+        </span>
+      </div>
+
+      <div class="stat-tiles">
+        <div class="stat-tile"><span class="k">현재 레벨</span><span class="v lv">B1 상위</span><span class="d">IELTS 4.5–5.0 · 9/19 테스트</span></div>
+        <div class="stat-tile"><span class="k">연속</span><span class="v">3<small>일</small></span><span class="d">최장 9일</span></div>
+        <div class="stat-tile"><span class="k">이번 주</span><span class="v">4<small>/5 세션</small></span>
+          <div class="mini-bar" role="img" aria-label="목표 5세션 중 4세션"><i style="width: 80%"></i></div></div>
+        <div class="stat-tile"><span class="k">정확도</span><span class="v">72<small>%</small></span><span class="d up">▲ 지난주보다 3%p</span></div>
+      </div>
+    </div>
+
+    <div class="hb-today">
+      <div class="today-card">
+        <div class="panel-head"><p class="label">오늘의 추천</p><span class="today-note">자유 대화 · 약 10분 · 12턴 안팎</span></div>
+        <p class="today-title">공항 체크인에서 짐 문제 해결하기</p>
+        <ul class="chips" aria-label="상황">
+          <li>수하물 무게 초과</li><li>창가 자리 부탁</li><li>탑승구 변경 안내</li><li>기내 반입 물건 묻기</li>
+        </ul>
+        <p class="why"><b>왜 이 테마?</b><span>지난 세션 세 번에서 과거형을 12번 놓쳤어요. 체크인 직원에게 "어제 예약했는데…"처럼 이미 일어난 일을 설명할 일이 많은 상황이라 연습하기 좋아요.</span></p>
+        <div class="today-actions">
+          <button type="button" class="primary btn-stable">자유 대화로 시작</button>
+          <button type="button" class="btn-stable">스크립트로</button>
+          <button type="button" class="ghost">쉐도잉으로</button>
+        </div>
+      </div>
+
+      <div class="hb-side">
+        <div class="panel resume-panel">
+          <div class="top"><p class="label">이어서 하기</p><span class="hint">어제 밤 10:40</span></div>
+          <div>
+            <p class="ttl">호텔 체크인 · 스크립트</p>
+            <p class="meta">12줄 중 7줄까지 읽었어요</p>
+          </div>
+          <div class="row">
+            <div class="week-bar" role="img" aria-label="12줄 중 7줄"><i style="width: 58%"></i></div>
+            <span class="hint">7/12</span>
+          </div>
+          <p class="next"><span class="k">다음 줄</span><span class="s">Could I get a room on a higher floor, please?</span></p>
+          <button type="button" class="primary">계속하기 →</button>
+        </div>
+        <div class="panel">
+          <p class="label section-label">다른 추천</p>
+          <ul class="alt-list">
+            <li><button type="button"><span class="t">카페에서 주문 바꾸기</span><span class="m">스크립트 · 6분</span></button></li>
+            <li><button type="button"><span class="t">동료에게 주말 이야기</span><span class="m">1분 말하기 · 3분</span></button></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <p class="label section-label">연습 방법</p>
+      <div class="mode-cards">
+        <button type="button" class="mode-card">
+          <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h15a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 4v-4H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><path d="M24 12h4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1v4l-5-4h-6a2 2 0 0 1-2-2v-1"/></svg></span>
+          <span class="n">자유 상황극</span>
+          <span class="d">상황을 정하면 상대 역할이 대화를 이끌어요. 말하는 대로 바로 고쳐 줘요</span>
+          <span class="m">최근: 면접 자기소개 · 9/14</span>
+        </button>
+        <button type="button" class="mode-card">
+          <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h12l6 6v18a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M20 3v6h6"/><path d="M11 15h10M11 19h10M11 23h6"/></svg></span>
+          <span class="n">스크립트</span>
+          <span class="d">대본을 한 줄씩 소리 내 읽고, 발음과 억양을 확인해요</span>
+          <span class="m">최근: 호텔 체크인 · 어제</span>
+        </button>
+        <button type="button" class="mode-card">
+          <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 12v4M8 9v10M12 11v6M16 7v14"/><path d="M20 12v4M24 9v10M28 11v6" opacity=".5"/></svg></span>
+          <span class="n">쉐도잉</span>
+          <span class="d">원어민 소리를 듣고 바로 뒤따라 말해요. 속도는 0.8배부터</span>
+          <span class="m">최근: 식당 주문 · 9/16</span>
+        </button>
+        <button type="button" class="mode-card">
+          <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="26" height="16" rx="2"/><path d="M9 11h8M9 15h12"/><path d="M12 21l-3 7M20 21l3 7"/></svg></span>
+          <span class="n">수업</span>
+          <span class="d">선생님이 주제 하나를 설명하고 문장을 만들어 보게 해요</span>
+          <span class="m">최근: 현재완료 vs 과거 · 9/12</span>
+        </button>
+        <button type="button" class="mode-card">
+          <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="16" cy="18" r="10"/><path d="M16 18V12M13 3h6M16 3v5M25 8l2-2"/></svg></span>
+          <span class="n">1분 말하기</span>
+          <span class="d">질문 하나에 1분 동안 말하고, 고친 뒤 다시 말해 비교해요</span>
+          <span class="m">최근: 주말에 뭐 했어요? · 9/17</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="hb-bottom">
+      <div class="panel">
+        <div class="panel-head"><p class="label">연습 잔디</p><span class="hint">16주 · 64일</span></div>
+        <div class="mock-chart" data-cal data-maxstep="16"></div>
+        <div class="heat-key"><span>적음</span><span class="heat-swatch lv1"></span><span class="heat-swatch lv2"></span><span class="heat-swatch lv3"></span><span class="heat-swatch lv4"></span><span>많음</span></div>
+        <button class="ghost link" type="button">성장 보기 →</button>
+      </div>
+
+      <div class="panel review-home-box">
+        <div class="panel-head"><p class="label">오늘 복습할 문장</p><span class="hint">16개</span></div>
+        <p class="review-home-first">I went to the airport yesterday, and my flight was delayed.</p>
+        <p class="review-home-ko">어제 공항에 갔는데 비행기가 늦어졌어요.</p>
+        <div class="review-home-actions">
+          <button type="button" class="ghost btn-stable">▶ 듣기</button>
+          <button type="button" class="ghost">복습하러 가기 →</button>
+        </div>
+      </div>
+
+      <div class="coach">
+        <div class="coach-head"><p class="label">코치 한마디</p><span class="hint">이번 주</span></div>
+        <p class="coach-habit">과거 일을 현재형으로 말하는 버릇</p>
+        <p class="coach-tip">'어제', '지난주'가 나오면 동사부터 과거형으로 떠올려 보세요</p>
+        <p class="coach-ex"><span class="mine">내 말: I go there last week.</span><span class="fixed">고친 말: I <em>went</em> there last week.</span></p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><p class="label">최근 세션</p><span class="hint">정확도</span></div>
+        <ul class="sess-list">
+          <li><span class="t">호텔 체크인</span><span class="m">스크립트 · 어제 · 7줄</span><span class="s">81%</span></li>
+          <li><span class="t">주말에 뭐 했어요?</span><span class="m">1분 말하기 · 9/17 · 87단어/분</span><span class="s">68%</span></li>
+          <li><span class="t">식당 주문</span><span class="m">쉐도잉 · 9/16 · 10줄</span><span class="s">74%</span></li>
+        </ul>
+        <button class="ghost link" type="button">기록 더 보기 →</button>
+      </div>
+    </div>
+
+  </section>
+</main>
+</body>
+</html>
