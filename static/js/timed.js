@@ -498,7 +498,9 @@ function gradeFailed(k, tok, stats) {
 function clearNative() {
   native = null;
   $('timed-native-text').replaceChildren();
-  $('timed-native-status').textContent = '';
+  // Hidden, not emptied: the line keeps its row (min-height in CSS), so the
+  // card does not jump when a status comes and goes.
+  setShown($('timed-native-status'), false);
   setShown($('timed-native-play'), false);
   setShown($('timed-native-retry'), false);
 }
@@ -510,6 +512,7 @@ async function loadNative(tok) {
     return;
   }
   $('timed-native-status').textContent = TEXT.nativeWait;
+  setShown($('timed-native-status'), true);
   setShown($('timed-native-retry'), false);
   let data = null;
   try {
@@ -520,12 +523,13 @@ async function loadNative(tok) {
   if (!live(tok)) return;
   if (!data || !data.native) {
     $('timed-native-status').textContent = TEXT.nativeFailed;
+    setShown($('timed-native-status'), true);
     $('timed-native-retry').disabled = false;
     setShown($('timed-native-retry'), true);
     return;
   }
   native = { native: data.native, audio_key: data.audio_key || null };
-  $('timed-native-status').textContent = '';
+  setShown($('timed-native-status'), false);
   // A fresh span, for the same reason as a fixed line's.
   const text = document.createElement('span');
   text.textContent = data.native;
@@ -544,6 +548,9 @@ export async function retryNative() {
 /* ▶ 듣기: the server's clip, or the browser's voice when it made none. */
 export function playNative() {
   if (!native) return;
+  // ▶ 내 녹음 is this module's own Audio, which stopPlayback (inside play and
+  // speakInBrowser) does not know about -- pause it so the two never overlap.
+  if (mineClip) mineClip.pause();
   if (native.audio_key) play(native.audio_key, native.native);
   else speakInBrowser(native.native);
 }

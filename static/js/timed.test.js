@@ -460,7 +460,35 @@ test('a native answer that fails still reaches the result, with its own 다시 �
   fail = false;
   await timed.retryNative();
   assert.equal(text($('timed-native-text')), 'Now it works.');
-  assert.equal($('timed-native-status').textContent, '');
+  assert.equal($('timed-native-status').classList.contains('is-invisible'), true);
+});
+
+/* The status line keeps its row whether it says something or not (R5): it is
+   hidden, never emptied to nothing, so the card does not jump. */
+test('the native status line is shown while waiting and hidden -- not collapsed -- once the answer is in', async () => {
+  const held = deferred();
+  await open({ native: () => held.promise });
+  await speak();
+  const status = $('timed-native-status');
+  assert.equal(status.textContent, '원어민 답을 만드는 중이에요');
+  assert.equal(status.classList.contains('is-invisible'), false);
+  held.resolve(jsonResponse({ native: 'I relax.', level: null, audio_key: 'k1' }));
+  await flush();
+  assert.equal(stage(), 'result');
+  assert.equal(status.classList.contains('is-invisible'), true, 'hidden with setShown, holding its line');
+  assert.match(ruleBody('.timed-native-status'), /min-height: 1\.55em/);
+});
+
+test('▶ 듣기 pauses ▶ 내 녹음 first, so the two never talk over each other', async () => {
+  await open();
+  await speak();
+  timed.playMine();
+  const mine = clips[clips.length - 1];
+  assert.match(mine.src, /^blob:/);
+  assert.equal(mine.paused, false);
+  timed.playNative();
+  assert.equal(mine.paused, true, 'my recording is paused before the native clip plays');
+  assert.equal(clips[clips.length - 1].src, '/api/audio/k1.wav');
 });
 
 test('Japanese: a fixed line and the native answer are annotated on spans of their own', async () => {
