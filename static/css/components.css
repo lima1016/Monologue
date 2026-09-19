@@ -589,6 +589,51 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
   .timed-slot.timed-enter, .timed-dot { animation: none; }
 }
 
+/* --- 레벨 테스트 (#leveltest) ---
+   One card, one .lt-slot at a time (intro, a sentence, an answer, trouble,
+   finishing, the result), every slot on the same floor (min-height), so a step
+   change -- or one sentence to the next -- changes what is inside the card,
+   never its height. A slot coming in fades by opacity only (.lt-enter); no
+   transform anywhere here. Within a slot every line that comes and goes
+   (the recording row, the buttons, a note) holds its room with .is-invisible,
+   and the two buttons of a sentence share one grid cell.
+   - The remaining-time bar shrinks by width, not by a transform.
+   - The answer clock is tabular: 0:45 -> 0:44 does not change width. */
+#leveltest { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+.lt-top { display: flex; align-items: center; gap: var(--space-3); }
+.lt-top h2 { margin: 0; }
+.lt-card { display: grid; align-content: start; padding: var(--space-5);
+           border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.lt-card p { margin: 0; }
+.lt-slot { min-height: 20rem; display: grid; align-content: center; justify-items: center;
+           gap: var(--space-4); text-align: center; }
+.lt-slot.lt-enter { animation: lt-fade var(--dur-fast) ease-out; }
+@keyframes lt-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.lt-lead { font-size: var(--text-lg); font-weight: 600; }
+.lt-note { min-height: calc(2 * 1.55em); color: var(--warn-ink); }
+.lt-status { min-height: 1.55em; color: var(--text-dim); }
+.lt-question { font-size: var(--text-xl); font-weight: 600; line-height: 1.45; min-height: calc(2 * 1.45em); }
+.lt-rec { display: flex; align-items: center; gap: var(--space-2); width: min(100%, 320px); }
+.lt-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--correct);
+          animation: lt-blink 1.2s ease-in-out infinite; }
+@keyframes lt-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .35; }
+}
+.lt-bar { flex: 1; height: 6px; border-radius: var(--radius-pill); background: var(--line); overflow: hidden; }
+.lt-bar-fill { height: 100%; width: 100%; background: var(--correct); }
+.lt-clock-row { display: flex; align-items: center; gap: var(--space-2); }
+.lt-big { font-size: var(--text-3xl); font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.lt-actions { display: grid; justify-items: center; }
+.lt-actions > * { grid-area: 1 / 1; }
+.lt-result { align-content: start; justify-items: stretch; text-align: left; }
+@media (prefers-reduced-motion: reduce) {
+  .lt-slot.lt-enter, .lt-dot { animation: none; }
+}
+
 /* --- home ---
 
    왼쪽은 할 일(오늘의 추천 → 모드 → 최근 테마), 오른쪽은 맥락(이어서 하기·이번 주).

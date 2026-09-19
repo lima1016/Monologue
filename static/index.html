@@ -346,6 +346,62 @@
     </section>
   </section>
 
+  <!-- 레벨 테스트: one card, one slot at a time, every slot on the same floor
+       (components.css), so a step change fades in place. The sentence to
+       repeat is only ever heard: no slot has a place for its text.
+       leveltest.js reaches every part it writes by id. -->
+  <section id="leveltest" hidden>
+    <div class="lt-top">
+      <button id="btn-leveltest-home" class="ghost" type="button">← 홈</button>
+      <h2>레벨 테스트</h2>
+    </div>
+    <section id="lt-card" class="lt-card">
+      <div id="lt-intro" class="lt-slot">
+        <p class="lt-lead">약 7분 · 조용한 곳에서 · 문장은 한 번만 들려요</p>
+        <p class="hint">문장 12개를 한 번씩 듣고 바로 따라 말한 다음, 질문 2개에 45초씩 답해요</p>
+        <button id="lt-start" type="button" class="primary btn-stable">시작</button>
+        <p id="lt-intro-status" class="lt-note fade is-invisible" aria-live="polite" aria-hidden="true"></p>
+      </div>
+      <div id="lt-item" class="lt-slot" hidden>
+        <p id="lt-item-count" class="label" aria-live="polite">따라 말하기 1/12</p>
+        <p id="lt-item-status" class="lt-status" aria-live="polite">잘 들어 보세요</p>
+        <div id="lt-item-rec" class="lt-rec fade is-invisible" aria-hidden="true">
+          <span class="lt-dot" aria-hidden="true"></span>
+          <div class="lt-bar"><div id="lt-item-bar" class="lt-bar-fill"></div></div>
+        </div>
+        <!-- One cell for both buttons: only one shows at a time, and neither
+             moves the other. -->
+        <div class="lt-actions">
+          <button id="lt-item-stop" type="button" class="primary btn-stable fade is-invisible" aria-hidden="true">다 말했어요</button>
+          <button id="lt-relisten" type="button" class="btn-stable fade is-invisible" aria-hidden="true">다시 듣기</button>
+        </div>
+      </div>
+      <div id="lt-answer" class="lt-slot" hidden>
+        <p id="lt-answer-count" class="label">답하기 1/2</p>
+        <p id="lt-question" class="lt-question"></p>
+        <p id="lt-question-meaning" class="hint"></p>
+        <p class="lt-clock-row"><span id="lt-answer-dot" class="lt-dot fade is-invisible" aria-hidden="true"></span><span id="lt-answer-clock" class="lt-big" aria-live="polite">5</span></p>
+        <p id="lt-answer-status" class="lt-status">생각해 보세요. 0이 되면 녹음이 시작돼요</p>
+        <div class="lt-actions">
+          <button id="lt-answer-stop" type="button" class="primary btn-stable fade is-invisible" aria-hidden="true">다 말했어요</button>
+        </div>
+      </div>
+      <div id="lt-trouble" class="lt-slot" hidden>
+        <p id="lt-trouble-text" class="lt-note"></p>
+        <button id="lt-redo" type="button" class="btn-stable">다시 하기</button>
+      </div>
+      <div id="lt-finish" class="lt-slot" hidden>
+        <div id="lt-finish-dots" class="thinking fade"><i></i><i></i><i></i></div>
+        <p id="lt-finish-text" class="lt-status" aria-live="polite">받아쓰는 중이에요</p>
+        <button id="lt-finish-retry" type="button" class="btn-stable fade is-invisible" aria-hidden="true">다시 시도</button>
+      </div>
+      <!-- Task 4 draws the result here (renderLevelResult). -->
+      <div id="lt-result" class="lt-slot lt-result" hidden>
+        <div id="lt-result-body"></div>
+      </div>
+    </section>
+  </section>
+
   <section id="report" hidden>
     <div class="report-main">
       <h2 id="report-headline"></h2>
