@@ -86,3 +86,88 @@ export async function saveReadingPrefs() {
     notify(`읽기 보조 설정을 저장하지 못했습니다: ${err.message}`);
   }
 }
+
+/* ---------- 화면: theme and brightness ----------
+   The attributes on <html> are what tokens.css keys on. The inline script at
+   the top of index.html applies the saved pair before first paint; this is
+   the same logic for the dialog, which applies a choice at once and saves
+   it. Keep THEMES, MODES and the two keys in step with that script. */
+export const THEMES = ['default', 'forest', 'sea', 'lavender', 'ink', 'white'];
+export const MODES = ['auto', 'light', 'dark'];
+const THEME_KEY = 'screen-theme';
+const MODE_KEY = 'screen-mode';
+
+function storedOr(key, allowed) {
+  try {
+    const v = globalThis.localStorage?.getItem(key);
+    return allowed.includes(v) ? v : allowed[0];
+  } catch {
+    return allowed[0]; // private window, blocked storage: the defaults
+  }
+}
+
+/* The saved pair, or 기본/자동 for anything missing, unknown or unreadable. */
+export function readScreenPrefs() {
+  return { theme: storedOr(THEME_KEY, THEMES), mode: storedOr(MODE_KEY, MODES) };
+}
+
+/* Mark the pressed swatch and brightness button. getAttribute/setAttribute
+   by id, so it runs the same under the node dom-shim as in a browser. */
+function syncScreenControls(theme, mode) {
+  for (const t of THEMES) {
+    const b = document.getElementById(`theme-${t}`);
+    if (b) b.setAttribute('aria-pressed', String(t === theme));
+  }
+  for (const m of MODES) {
+    const b = document.getElementById(`mode-${m}`);
+    if (!b) continue;
+    b.setAttribute('aria-pressed', String(m === mode));
+    b.classList.toggle('on', m === mode);
+  }
+}
+
+/* Apply a theme/brightness to <html> at once, reflect it in the dialog, and
+   save it. Unknown values fall back to the defaults; a storage failure only
+   means the choice lasts for this page. Returns what was applied. */
+export function applyTheme(theme, mode) {
+  const t = THEMES.includes(theme) ? theme : THEMES[0];
+  const m = MODES.includes(mode) ? mode : MODES[0];
+  const root = document.documentElement;
+  root.setAttribute('data-theme', t);
+  root.setAttribute('data-mode', m);
+  syncScreenControls(t, m);
+  try {
+    globalThis.localStorage?.setItem(THEME_KEY, t);
+    globalThis.localStorage?.setItem(MODE_KEY, m);
+  } catch { /* not saved; still applied */ }
+  return { theme: t, mode: m };
+}
+
+/* Wires the swatches and the brightness segment, and marks the current
+   choice. Each button carries its own value, read with getAttribute. */
+export function initScreenPrefs() {
+  const current = { theme: readCurrentTheme(), mode: readCurrentMode() };
+  syncScreenControls(current.theme, current.mode);
+  for (const t of THEMES) {
+    document.getElementById(`theme-${t}`)?.addEventListener('click', () => {
+      applyTheme(t, readCurrentMode());
+    });
+  }
+  for (const m of MODES) {
+    document.getElementById(`mode-${m}`)?.addEventListener('click', () => {
+      applyTheme(readCurrentTheme(), m);
+    });
+  }
+  return current;
+}
+
+/* What is on <html> right now -- the source of truth once the page is up,
+   so a storage that can't be read doesn't reset the other half of a choice. */
+function readCurrentTheme() {
+  const v = document.documentElement.getAttribute('data-theme');
+  return THEMES.includes(v) ? v : THEMES[0];
+}
+function readCurrentMode() {
+  const v = document.documentElement.getAttribute('data-mode');
+  return MODES.includes(v) ? v : MODES[0];
+}

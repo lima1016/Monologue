@@ -6,7 +6,7 @@ import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome } from '
 import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
          startFromPick, startTheme, syncLanguageButtons,
          selectQuestion, retryQuestions, onOwnInput } from './pick.js';
-import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
+import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections, initScreenPrefs } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
@@ -334,6 +334,8 @@ loadHome();
 loadReadingPrefs();
 
 /* ---------- settings ---------- */
+
+initScreenPrefs();
 
 $('btn-settings').addEventListener('click', async () => {
   $('settings-language').value = state.language;
