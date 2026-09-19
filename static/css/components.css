@@ -358,6 +358,29 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .lang-sections > .lang-section { grid-area: 1 / 1; }
 .lang-section.is-inactive { visibility: hidden; }
 
+/* 설정 > 기록 지우기 (#reset-prefs) and its confirm (#reset-confirm). The
+   destructive buttons take the correction palette -- rose, not red -- which
+   every theme and brightness already defines and contrast-checks. The
+   confirm never changes size: a fixed width, the count line holds three
+   lines' room from the start (개수를 세는 중이에요 sits in it while the
+   count is out), the error line holds one even when empty, and the confirm
+   button's two labels (기록 지우기 / 지우는 중이에요) share one min-width. */
+#reset-prefs { border: 0; padding: 0; margin: var(--space-4) 0; min-width: 0; }
+#reset-prefs legend { padding: 0; margin: 0 0 var(--space-2); font-size: var(--text-sm); }
+#reset-prefs .hint { margin: 0 0 var(--space-3); font-size: var(--text-sm); }
+.reset-scope { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin-bottom: var(--space-3); }
+.reset-scope label { margin: 0; }
+button.danger { background: var(--correct-bg); color: var(--correct-ink); border-color: var(--correct); }
+button.danger:hover:not(:disabled) { border-color: var(--correct-ink); }
+#reset-confirm { width: min(420px, calc(100vw - 32px)); min-width: 0; }
+#reset-confirm h2 { color: var(--text); font-size: var(--text-lg); }
+.reset-counts { min-height: calc(3 * 1.5em); line-height: 1.5; margin: 0 0 var(--space-3); }
+#reset-warn { margin: 0; font-size: var(--text-sm); }
+.reset-error { min-height: 1.5em; line-height: 1.5; margin: var(--space-2) 0 var(--space-3);
+               font-size: var(--text-sm); color: var(--correct-ink); }
+.reset-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+#btn-reset-confirm { min-width: 9.5em; }
+
 /* 설정 > 화면. Each swatch paints its own theme (light --bg and --accent,
    set inline in index.html) whatever theme is showing, so the six can be
    compared side by side. The pressed one gets an inset ring rather than a

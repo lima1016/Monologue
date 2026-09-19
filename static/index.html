@@ -516,7 +516,30 @@
       </fieldset>
     </div>
   </div>
+  <!-- 기록 지우기: self-contained (this block + #reset-confirm below) so the
+       dialog's layout can move around it. settings.js has the logic. -->
+  <fieldset id="reset-prefs">
+    <legend>기록 지우기</legend>
+    <p class="hint">연습 기록·리포트·복습·레벨을 지우고 처음부터 시작해요. 대본과 설정은 그대로예요.</p>
+    <div class="reset-scope" role="radiogroup" aria-label="지울 언어">
+      <label><input type="radio" name="reset-scope" id="reset-scope-en" value="en" checked> English</label>
+      <label><input type="radio" name="reset-scope" id="reset-scope-ja" value="ja"> 日本語</label>
+      <label><input type="radio" name="reset-scope" id="reset-scope-all" value="all"> 둘 다</label>
+    </div>
+    <button type="button" id="btn-reset-open" class="danger">기록 지우기…</button>
+  </fieldset>
   <button id="btn-close-settings">닫기</button>
+</dialog>
+
+<dialog id="reset-confirm" aria-labelledby="reset-title" aria-describedby="reset-counts reset-warn">
+  <h2 id="reset-title">기록을 지울까요?</h2>
+  <p id="reset-counts" class="reset-counts" aria-live="polite">개수를 세는 중이에요</p>
+  <p id="reset-warn" class="hint">지우면 되돌릴 수 없어요. 대본과 설정은 그대로예요.</p>
+  <p id="reset-error" class="reset-error" role="alert"></p>
+  <div class="reset-actions">
+    <button type="button" id="btn-reset-cancel">취소</button>
+    <button type="button" id="btn-reset-confirm" class="danger" disabled>기록 지우기</button>
+  </div>
 </dialog>
 
 <script type="module" src="/js/main.js"></script>
