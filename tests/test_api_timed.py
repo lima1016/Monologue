@@ -412,13 +412,17 @@ def test_grade_when_the_model_fails_stays_ungraded_and_makes_no_row(client, monk
     assert len(db.get_messages(sid)) == 1
 
 
-def test_grade_passes_the_question_as_the_topic(client, monkeypatch):
+def test_grade_passes_the_question_as_what_the_learner_is_answering(client, monkeypatch):
+    """The question is what the learner is answering -- the line said right
+    before, not a lesson topic (the prompt labels topic "오늘 수업 주제")."""
     Stt(monkeypatch)
     sid = _timed(topic="What did you do last weekend?")
     _upload(client, sid)
     model = Model(monkeypatch, RIGHT)
     client.post(f"/api/sessions/{sid}/timed/rounds/1/grade/0")
-    assert "What did you do last weekend?" in json.dumps(model.calls[0]["messages"], ensure_ascii=False)
+    sent = json.dumps(model.calls[0]["messages"], ensure_ascii=False)
+    assert '직전에 한 말: \\"What did you do last weekend?\\"' in sent
+    assert "오늘 수업 주제" not in sent
 
 
 def test_grade_missing_round_or_sentence_is_404(client, monkeypatch):
@@ -732,3 +736,4 @@ def test_a_timed_session_with_a_recent_round_is_not_stale(client, monkeypatch):
     assert db.stale_open_sessions(hours=24) == []
     assert db.abandon_stale_sessions(hours=24) == 0
     assert db.get_session(sid)["ended_at"] is None
+

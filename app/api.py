@@ -1387,7 +1387,9 @@ def grade_timed_sentence(session_id: int, n: int, i: int):
                               "message_id": None, "filler": True}
                 db.set_round_sentences(session_id, n, current)
         return _graded_response(i, current[i])
-    feedback = _feedback(language, text, topic=session["topic"])
+    # The question is literally what the learner is answering -- the line
+    # said right before, not a lesson topic ("오늘 수업 주제" in the prompt).
+    feedback = _feedback(language, text, bot_last=session["topic"])
     if feedback["ok"] is None:
         # The model failed: leave it ungraded so the client can offer a retry.
         return {"i": i, "text": text, **feedback}
