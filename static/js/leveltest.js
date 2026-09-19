@@ -380,9 +380,10 @@ function playItem() {
   ticker = clock.every(() => {
     if (mySeq !== seq || phase !== 'listen') return;
     if (clock.now() - t0 >= LISTEN_WATCHDOG_MS) {
-      heard(mySeq, null, 'watchdog');
-      // Whatever might still start playing must not talk into the recording.
+      // Silenced first: a second failed listen goes straight to recording,
+      // and a stalled clip still able to start must not talk into it.
       stopPlayback();
+      heard(mySeq, null, 'watchdog');
     }
   }, TICK_MS);
   // No fallback text: the sentence is never read out by the browser's voice

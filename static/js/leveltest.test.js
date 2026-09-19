@@ -510,6 +510,25 @@ test('a clip that never says anything: after 15 s it is taken as not played, and
   assert.equal(st().phase, 'failed');
 });
 
+test('a second clip that stalls is silenced before the recording starts, not after', async () => {
+  clipFails = 1;
+  await start();
+  lt.relisten();
+  await flush();
+  const clip = lastClip();
+  const pausedAtStart = [];
+  const realStart = FakeRecorder.prototype.start;
+  FakeRecorder.prototype.start = function () { pausedAtStart.push(clip.paused); return realStart.call(this); };
+  try {
+    advance(lt.LISTEN_WATCHDOG_MS);
+    await flush();
+  } finally {
+    FakeRecorder.prototype.start = realStart;
+  }
+  assert.equal(st().phase, 'rec');
+  assert.deepEqual(pausedAtStart, [true], 'the stalled clip could still talk into the recording');
+});
+
 test('a sentence with no clip goes straight to recording, with the ten-second window and no 다시 듣기', async () => {
   const noKey = { ...CREATED, items: CREATED.items.map((x, i) => (i === 0 ? { i, audio_key: null } : x)) };
   const clipsBefore = clips.length;
