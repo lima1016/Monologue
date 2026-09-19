@@ -209,6 +209,7 @@ function recordAudio() {
     constructor(src) { this.src = src; made.push(this); }
     addEventListener() {}
     play() { return Promise.resolve(); }
+    pause() { this.paused = true; }
   };
   return { made, restore: () => { globalThis.Audio = Real; } };
 }
@@ -231,7 +232,7 @@ test('the browser voice fallback speaks at the same rate', () => {
     constructor(text) { this.text = text; }
     addEventListener() {}
   };
-  globalThis.speechSynthesis = { speak: (u) => spoken.push(u) };
+  globalThis.speechSynthesis = { speak: (u) => spoken.push(u), cancel() {} };
   window.speechSynthesis = globalThis.speechSynthesis;
   try {
     audio.play(null, 'slow please', null, { rate: 0.75 });
@@ -243,4 +244,69 @@ test('the browser voice fallback speaks at the same rate', () => {
   }
   assert.equal(spoken[0].rate, 0.75);
   assert.equal(spoken[1].rate ?? 1, 1);
+});
+
+/* 한 번에 한 소리. 새 play()는 앞의 것을 멈추고, 멈춘 소리의 onDone은 한 번
+   불린다 -- 봇 답의 AUDIO_DONE이 거기 걸려 있어서, 안 불리면 턴이
+   speaking에 남는다. */
+test('a new play stops the clip before it, and a stopped clip still reports done, once', () => {
+  const { made, restore } = recordAudio();
+  let done = 0;
+  try {
+    audio.play('k1', 't', () => { done += 1; });
+    audio.play('k2', 't');
+    audio.stopPlayback();
+  } finally {
+    restore();
+  }
+  assert.equal(made[0].paused, true);
+  assert.equal(made[1].paused, true);
+  assert.equal(done, 1);
+});
+
+test('a clip stopped before it started does not fall back to the browser voice', async () => {
+  const spoken = [];
+  globalThis.SpeechSynthesisUtterance = class {
+    constructor(text) { this.text = text; }
+    addEventListener() {}
+  };
+  globalThis.speechSynthesis = { speak: (u) => spoken.push(u), cancel() {} };
+  window.speechSynthesis = globalThis.speechSynthesis;
+  const Real = globalThis.Audio;
+  // A real clip's play() rejects when pause() lands before playback began.
+  globalThis.Audio = class {
+    play() { return new Promise((_, reject) => { this.reject = reject; }); }
+    pause() { this.reject(new Error('AbortError')); }
+    addEventListener() {}
+  };
+  try {
+    audio.play('k', 'fallback text');
+    audio.stopPlayback();
+    await new Promise((r) => setTimeout(r, 0));
+  } finally {
+    globalThis.Audio = Real;
+    delete window.speechSynthesis;
+    delete globalThis.speechSynthesis;
+    delete globalThis.SpeechSynthesisUtterance;
+  }
+  assert.deepEqual(spoken, []);
+});
+
+test('the browser voice is cancelled by the next play', () => {
+  let cancelled = 0;
+  globalThis.SpeechSynthesisUtterance = class {
+    constructor(text) { this.text = text; }
+    addEventListener() {}
+  };
+  globalThis.speechSynthesis = { speak() {}, cancel() { cancelled += 1; } };
+  window.speechSynthesis = globalThis.speechSynthesis;
+  try {
+    audio.play(null, 'one');
+    audio.play(null, 'two');
+  } finally {
+    delete window.speechSynthesis;
+    delete globalThis.speechSynthesis;
+    delete globalThis.SpeechSynthesisUtterance;
+  }
+  assert.equal(cancelled, 1);
 });

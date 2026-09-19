@@ -175,6 +175,7 @@ globalThis.Audio = class Audio {
   constructor(src) { this.src = src; }
   addEventListener() {}
   play() { return Promise.resolve(); }
+  pause() { this.paused = true; }
 };
 
 /* Every test installs its own; this default keeps a bare import of the graph

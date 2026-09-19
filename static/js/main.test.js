@@ -66,3 +66,21 @@ test('every id the JS looks up is declared in index.html', () => {
   }
   assert.deepEqual(missing, [], 'JS looks up ids index.html does not declare');
 });
+
+/* No SpeechRecognition here (dom-shim installs none), so the mic's only answer
+   is a notice. Shadowing hides the text input, so that notice must not send
+   the learner to it. */
+test('without speech recognition, the mic in shadowing does not point at the hidden input', async () => {
+  const { $, state } = await import('./api.js');
+  const click = $('btn-mic').listeners.click[0];
+  state.shadowing = true;
+  try {
+    click();
+    assert.doesNotMatch($('notice-text').textContent, /입력창/);
+    assert.match($('notice-text').textContent, /쉐도잉/);
+  } finally {
+    state.shadowing = false;
+  }
+  click();
+  assert.match($('notice-text').textContent, /입력창/, 'other modes still offer typing');
+});

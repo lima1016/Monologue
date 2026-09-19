@@ -40,6 +40,7 @@ globalThis.Audio = class Audio {
   constructor(src) { this.src = src; clips.push(this); }
   addEventListener() {}
   play() { return Promise.resolve(); }
+  pause() { this.paused = true; }
 };
 const lastClip = () => clips[clips.length - 1];
 
@@ -353,8 +354,7 @@ test('an old report that was never graded does not count its turns as ungraded',
 /* Task 4: a shadowing session's report (kind: 'shadow') never called the
  * local model -- no 총평/부족한 부분/외워둘 표현/다음엔 이것을, just the counts
  * and the lines to try again. Keyed on data.kind, not state.mode/state.shadowing
- * -- state.shadowing stays true after the session ends until the next start
- * (Task 3's known gap), so it cannot tell this report apart from the next one. */
+ * -- a report reopened from my page belongs to no current session. */
 test('쉐도잉 리포트: 줄 수, 어려웠던 줄, ▶ 원어민, 누적 약점 없음', () => {
   resetDom();
   let fetched = false;
@@ -387,6 +387,15 @@ test('쉐도잉 리포트: 줄 수, 어려웠던 줄, ▶ 원어민, 누적 약�
   assert.equal($('rep-minutes').textContent, 2);
   assert.equal($('report-weak').hidden, true);
   assert.equal(fetched, false, '쉐도잉 리포트는 누적 약점(/stats/home)을 부르지 않는다');
+
+  // 내 말은 틀린 문장이 아니다: 교정의 .said(취소선)가 아니라 제 클래스와
+  // 라벨을 단다 -- 마이페이지 복습 카드와 같은 내 말 / 대본.
+  const row = findByClass(body, 'fix-row');
+  const [mine, target] = row.children;
+  assert.equal(mine.className, 'mine');
+  assert.equal(findByClass(body, 'said'), null, '취소선 클래스는 쓰지 않는다');
+  assert.equal(text(mine), '내 말 banana');
+  assert.equal(text(target), '대본 Yes, I am ready.');
 
   const playBtn = findByClass(body, 'btn-stable');
   assert.ok(playBtn, '▶ 원어민 버튼이 있어야 한다');
@@ -600,7 +609,7 @@ async function openFree(extraRoutes = {}) {
     }
     if (url === '/api/chat') {
       chats.push(JSON.parse(options.body).text);
-      return jsonResponse({ bot_reply: 'Nice.', audio_key: null, ok: true, fixed: '', tag: '없음', correction: '', suggestion: '' });
+      return jsonResponse({ bot_reply: 'Nice.', audio_key: extraRoutes.replyAudio ? `r${chats.length}` : null, ok: true, fixed: '', tag: '없음', correction: '', suggestion: '' });
     }
     return jsonResponse({});
   });
@@ -645,6 +654,24 @@ test('with no recording Whisper is not asked', async () => {
   await session.handleHeard('I go there', Promise.resolve(null));
   assert.equal(transcribes.length, 0);
   assert.deepEqual(chats, ['I go there']);
+});
+
+/* A reply typed over the bot's still-playing clip: the old clip is cut off,
+   and its stop must not end the NEW reply's `speaking` (undo stays shut
+   until the new clip is done). */
+test('a reply sent over a playing reply keeps speaking until its own clip ends', async () => {
+  await openFree({ replyAudio: true });
+  session.setTurnState('MIC');
+  await session.handleHeard('I go there', Promise.resolve(null));
+  await new Promise((resolve) => setTimeout(resolve, 0));   // sendText's reply
+  const first = lastClip();
+  assert.match(first.src, /r1/);
+  assert.equal(session.canDo('undo'), false, 'speaking');
+  session.setTurnState('SEND');
+  await session.sendText('And then?');
+  assert.equal(first.paused, true, 'the first reply stops');
+  assert.match(lastClip().src, /r2/);
+  assert.equal(session.canDo('undo'), false, 'still speaking the second reply');
 });
 
 test('cancelling while Whisper works drops the late result', async () => {

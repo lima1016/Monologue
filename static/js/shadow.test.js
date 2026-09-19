@@ -31,14 +31,32 @@ window.webkitSpeechRecognition = FakeRecognition;
  * can see which line was played and at what speed. */
 const clips = [];
 globalThis.Audio = class Audio {
-  constructor(src) { this.src = src; clips.push(this); }
+  constructor(src) { this.src = src; this.paused = false; clips.push(this); }
   addEventListener() {}
   play() { return Promise.resolve(); }
+  pause() { this.paused = true; }
 };
 const lastClip = () => clips[clips.length - 1];
 
 const session = await import('./session.js');
 const shadow = await import('./shadow.js');
+
+/* main.js, for the mic button's own click handler. Its startup reads a few
+ * routes; answered here so nothing rejects. The handler is taken now: every
+ * test's resetDom() hands out fresh elements with no listeners on them, and
+ * the handler itself looks its elements up afresh on each call. */
+stubFetch(async (url) => {
+  if (url.startsWith('/api/health')) return jsonResponse({ ollama: true, voicevox: true });
+  if (url.startsWith('/api/scenarios')) return jsonResponse({ scenarios: [] });
+  if (url.startsWith('/api/sessions/resumable')) return jsonResponse({ session: null });
+  if (url.startsWith('/api/stats/home')) {
+    return jsonResponse({ streak: 0, week_turns: 0, fixed_total: 0, top_tags: [] });
+  }
+  return jsonResponse({});
+});
+await import('./main.js');
+const micClick = $('btn-mic').listeners.click[0];
+await new Promise((resolve) => setTimeout(resolve, 20));
 
 const LINES = [
   { speaker: 'bot', text: 'Morning! Ready for standup?', audio_key: 'a0' },
@@ -46,14 +64,15 @@ const LINES = [
 ];
 
 /* One session's worth of routes. `line` answers /shadow-line (default: a
- * match, row 7); every request body is kept for the test to read. */
-function routes({ line } = {}) {
-  const seen = { lines: [], audio: [], ends: 0 };
+ * match, row 7), `audio` the recording upload, `reading` Japanese reading
+ * aids, `lines` the script; every request body is kept for the test to read. */
+function routes({ line, audio, reading, lines = LINES } = {}) {
+  const seen = { lines: [], audio: [], ends: 0, reading: [] };
   stubFetch(async (url, options = {}) => {
     if (url === '/api/sessions') {
       const body = JSON.parse(options.body);
       return jsonResponse(body.shadowing
-        ? { session_id: 1, mode: 'script', shadowing: true, lines: LINES }
+        ? { session_id: 1, mode: 'script', shadowing: true, lines }
         : { session_id: 2, mode: 'script', lines: LINES });
     }
     if (url === '/api/sessions/1/shadow-line') {
@@ -62,7 +81,11 @@ function routes({ line } = {}) {
     }
     if (url === '/api/sessions/1/audio') {
       seen.audio.push(options.body.get('message_id'));
-      return jsonResponse({});
+      return audio ? audio() : jsonResponse({});
+    }
+    if (url === '/api/reading') {
+      seen.reading.push(JSON.parse(options.body).texts);
+      return reading ? reading() : jsonResponse({ readings: [] });
     }
     if (url === '/api/sessions/1/end') {
       seen.ends += 1;
@@ -73,16 +96,27 @@ function routes({ line } = {}) {
   return seen;
 }
 
-async function begin(opts) {
+async function begin(opts = {}) {
   resetDom();
   router.register('session', 'session');
   router.register('report', 'report');
-  state.language = 'en';
+  const language = opts.language || 'en';
+  state.language = language;
   state.chunks = [];
   const seen = routes(opts);
-  await session.startSession({ language: 'en', mode: 'script', scenarioId: 'x', shadowing: true });
+  await session.startSession({ language, mode: 'script', scenarioId: 'x', shadowing: true });
   return seen;
 }
+
+/* A response the test releases when it chooses. */
+function later() {
+  let release;
+  const promise = new Promise((resolve) => { release = resolve; });
+  return { respond: () => promise, release };
+}
+
+// The card's line text lives in a span of its own, fresh per line.
+const cardText = () => $('shadow-text').children[0];
 
 // Lets heard()'s save, and the upload after it, finish.
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -127,7 +161,7 @@ test('글자 보기 shows the line and the attempt is sent as peeked', async () 
   const seen = await begin();
   shadow.peek();
   assert.equal($('shadow-text').classList.contains('is-invisible'), false);
-  assert.equal($('shadow-text').textContent, 'Morning! Ready for standup?');
+  assert.equal(cardText().textContent, 'Morning! Ready for standup?');
   assert.equal(shadow.shadowState().peeked, true);
   await say('morning ready for standup');
   assert.deepEqual(seen.lines, [{ index: 0, text: 'morning ready for standup', peeked: true }]);
@@ -266,4 +300,150 @@ test('the recording goes to the row the save returned', async () => {
   shadow.mine();
   assert.equal(clips.length, before + 1);
   assert.equal(lastClip().src, '/api/messages/7/audio');
+});
+
+/* ---------- the native clip is never left playing ---------- */
+
+test('다시 듣기 twice plays one clip, not two on top of each other', async () => {
+  await begin();
+  shadow.replay();
+  const first = lastClip();
+  shadow.replaySlow();
+  assert.equal(first.paused, true, 'the earlier clip is stopped');
+  assert.equal(lastClip().paused, false);
+});
+
+test('다음 줄 stops the line still playing before the next one starts', async () => {
+  await begin();
+  await say('morning');
+  shadow.replay();
+  const playing = lastClip();
+  await shadow.nextLine();
+  assert.equal(playing.paused, true);
+  assert.match(lastClip().src, /a1/);
+});
+
+test('ending the session stops the clip: it does not play on into the report', async () => {
+  await begin();
+  await say('morning');
+  await shadow.nextLine();
+  await say('yes i am ready');
+  shadow.replay();
+  const playing = lastClip();
+  await shadow.nextLine();   // 끝! 리포트 보기
+  assert.equal(playing.paused, true);
+});
+
+test('pressing the mic stops the native clip, so the mic hears only the learner', async () => {
+  await begin();
+  const playing = lastClip();
+  assert.equal(playing.paused, false);
+  micClick();
+  assert.equal(playing.paused, true);
+  assert.equal($('btn-mic').disabled, false, 'the mic is live: pressing again stops the listen');
+});
+
+test('다시 듣기 does nothing while the mic is open', async () => {
+  await begin();
+  micClick();
+  const before = clips.length;
+  shadow.replay();
+  shadow.replaySlow();
+  assert.equal(clips.length, before, 'no clip plays into the recording');
+});
+
+/* ---------- Japanese reading aids ---------- */
+
+const JA = [
+  { speaker: 'bot', text: 'おはよう', audio_key: 'j0' },
+  { speaker: 'user', text: 'はい', audio_key: 'j1' },
+];
+const RUBY = [[{ surface: 'おはよう', romaji: 'ohayou', hangul: '오하요', parts: [{ text: 'おはよう' }] }]];
+
+const beginJa = (opts) => begin({ language: 'ja', lines: JA, ...opts });
+
+test('Japanese: reading aids are asked for at the line change, while the text is still hidden', async () => {
+  const seen = await beginJa({ reading: () => jsonResponse({ readings: RUBY }) });
+  await settle();
+  assert.deepEqual(seen.reading, [['おはよう']]);
+  assert.equal($('shadow-text').classList.contains('is-invisible'), true);
+  assert.match(cardText().innerHTML, /class="ja"/, 'the aids are drawn before the reveal');
+  assert.equal($('shadow-text').dataset.lang, 'ja');
+});
+
+test('Japanese: aids answering late for a line already left do not land on the next line', async () => {
+  const slow = later();
+  let calls = 0;
+  await beginJa({
+    reading: () => (calls++ === 0 ? slow.respond() : jsonResponse({ readings: [] })),
+  });
+  const lineOneSpan = cardText();
+  await say('おはよう');
+  await shadow.nextLine();
+  slow.release(jsonResponse({ readings: RUBY }));
+  await settle();
+  assert.equal($('shadow-text').children.length, 1);
+  assert.equal(cardText().textContent, 'はい');
+  assert.equal(cardText().innerHTML, '', 'line 2 is not overwritten with line 1');
+  assert.notEqual(cardText(), lineOneSpan);
+});
+
+/* ---------- saves that answer late ---------- */
+
+test('a save failing after the session ended says nothing and gives the mic back', async () => {
+  const slow = later();
+  await begin({ line: slow.respond });
+  await say('morning');
+  assert.equal(shadow.shadowState().saving, true);
+  await session.endSession();
+  assert.equal(state.shadowing, false);
+  slow.release(jsonResponse({ detail: 'gone' }, { ok: false, status: 404 }));
+  await settle();
+  assert.notEqual($('notice-text').textContent, '저장하지 못했어요');
+  assert.equal(shadow.shadowState().saving, false);
+  assert.equal($('btn-mic').disabled, false);
+});
+
+test('a save failing after another session began says nothing', async () => {
+  const slow = later();
+  await begin({ line: slow.respond });
+  await say('morning');
+  state.sessionId = 99;   // another session is the app's now
+  slow.release(jsonResponse({ detail: 'gone' }, { ok: false, status: 404 }));
+  await settle();
+  assert.notEqual($('notice-text').textContent, '저장하지 못했어요');
+});
+
+test('an ended shadowing session leaves state.shadowing off', async () => {
+  await begin();
+  await say('morning');
+  await shadow.nextLine();
+  await say('yes');
+  await shadow.nextLine();
+  assert.equal(state.shadowing, false);
+});
+
+test('a second attempt made during the first one\'s upload keeps the card: only the latest attempt finishes it', async () => {
+  const upload = later();
+  let uploads = 0;
+  const slowSave = later();
+  let saves = 0;
+  await begin({
+    audio: () => (uploads++ === 0 ? upload.respond() : jsonResponse({})),
+    line: () => (saves++ === 0
+      ? jsonResponse({ message_id: 7, matched: false })
+      : slowSave.respond()),
+  });
+  state.chunks = ['x'];
+  await say('morning');                 // saved; its upload hangs
+  assert.equal($('btn-mic').disabled, false, 'the mic is back during the upload');
+  await say('morning ready for standup');   // the second attempt's save hangs
+  upload.release(jsonResponse({}));     // the first attempt's upload finishes
+  await settle();
+  assert.equal(shadow.shadowState().saving, true, 'the second attempt is still saving');
+  assert.equal(shadow.shadowState().stage, 'listen', 'the first attempt\'s verdict is not shown');
+  slowSave.release(jsonResponse({ message_id: 8, matched: true }));
+  await settle();
+  assert.equal(shadow.shadowState().saving, false);
+  assert.equal($('shadow-verdict').textContent, '✓ 대본과 같아요');
 });

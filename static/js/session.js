@@ -1,5 +1,5 @@
 import { $, api, getJSON, postJSON, state, notify, setShown } from './api.js';
-import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening, beginListening, discardRecording, startRecording } from './audio.js';
+import { play, stopPlayback, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening, beginListening, discardRecording, startRecording } from './audio.js';
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
@@ -665,6 +665,11 @@ export async function sendText(text) {
   bubble.title = '잘못 인식됐다면 눌러서 고치세요';
   bubble.dataset.turnText = text;
 
+  // A clip still playing from before (the learner typed over the last reply)
+  // is cut off now, while the turn is still `sending`: the AUDIO_DONE its
+  // stop raises lands where it changes nothing. Left to the play() below, it
+  // would land after REPLY and end this reply's `speaking` at once.
+  stopPlayback();
   setTurnState('REPLY');
   addMessage('bot', data.bot_reply, data.audio_key);
   addChip(bubble, data);
@@ -853,7 +858,7 @@ function addPlayButton(bubble, messageId) {
 
 /* The learner's recording for one known message -- shadowing knows its row id,
    and a retried line keeps it, so "the last user message" would be wrong. */
-export async function uploadRecordingFor(messageId) {
+export async function uploadRecordingFor(messageId, sessionId = state.sessionId) {
   if (!state.chunks.length) return false;
   const blob = new Blob(state.chunks, { type: 'audio/webm' });
   state.chunks = [];
@@ -861,7 +866,7 @@ export async function uploadRecordingFor(messageId) {
     const form = new FormData();
     form.append('message_id', messageId);
     form.append('file', blob, 'clip.webm');
-    await api(`/sessions/${state.sessionId}/audio`, { method: 'POST', body: form });
+    await api(`/sessions/${sessionId}/audio`, { method: 'POST', body: form });
     return true;
   } catch {
     return false;   // a recording never interrupts practice
@@ -897,9 +902,15 @@ export async function uploadPendingRecording(bubble) {
 // one is already in flight just does nothing.
 let ending = false;
 
+/* A report is being made: shadow.js stops reporting a save that lands now. */
+export function sessionEnding() { return ending; }
+
 export async function endSession() {
   if (!state.sessionId || ending) return;
   ending = true;
+  // Nothing from the session plays on into the report (shadowing's native
+  // clip, a bot reply still talking).
+  stopPlayback();
   // Visible from the first frame: the report takes the local model 10-20s,
   // and a screen that does not change reads as a button that did nothing.
   $('report-wait').hidden = false;
@@ -916,6 +927,9 @@ export async function endSession() {
   // just disabled.
   try {
     const data = await postJSON(`/sessions/${state.sessionId}/end`);
+    // The session is over, and with it the card: turn states stop going to
+    // shadow.js, and a save still answering knows it has no one to tell.
+    state.shadowing = false;
     router.show('report');
     // Only a report opened from my page has a way back there.
     $('btn-report-back').hidden = true;
@@ -943,9 +957,9 @@ export async function endSession() {
    -- a later phase needs the history to compute a level over several
    sessions -- this function just does not render it. */
 export function renderReport(data) {
-  // Keyed on the payload's own kind, not state.mode/state.shadowing: Task 3
-  // leaves state.shadowing true after a shadowing session ends, until the
-  // next start, so those flags cannot tell this report from the next one.
+  // Keyed on the payload's own kind, not state.mode/state.shadowing: a report
+  // reopened from my page belongs to no current session, so those flags say
+  // nothing about it (and endSession clears state.shadowing before this runs).
   if (data.kind === 'shadow') { renderShadowReport(data); return; }
   const s = data.stats || {};
   // 헤드라인. LLM 에 새 필드를 요구하지 않는다 -- 리포트 프롬프트는 여러 라운드에
@@ -1069,12 +1083,15 @@ function shadowHardCard(hard) {
   for (const h of hard) {
     const row = document.createElement('div');
     row.className = 'fix-row';
+    // Labelled like my page's shadowing review card. Not .said: that class is
+    // a correction's struck-through wrong half, and nothing here was wrong --
+    // it is only what the learner said back.
     const said = document.createElement('p');
-    said.className = 'said';
-    said.textContent = h.said;
+    said.className = 'mine';
+    said.append(labelled('내 말'), document.createTextNode(' '), plain(h.said));
     const target = document.createElement('p');
     target.className = 'fixed';
-    target.textContent = h.target;
+    target.append(labelled('대본'), document.createTextNode(' '), plain(h.target));
     // No ▶ 내 발음: the recording is gone by the time this renders (the
     // session's own end route sweeps it, see _forget_recordings).
     const btn = document.createElement('button');
@@ -1090,6 +1107,19 @@ function shadowHardCard(hard) {
   note.textContent = '이 줄들은 내일 복습에 나와요';
   card.append(note);
   return card;
+}
+
+function labelled(text) {
+  const span = document.createElement('span');
+  span.className = 'label';
+  span.textContent = text;
+  return span;
+}
+
+function plain(text) {
+  const span = document.createElement('span');
+  span.textContent = text;
+  return span;
 }
 
 function reportCard(title, items) {

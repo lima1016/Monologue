@@ -8,9 +8,9 @@
    session.js hands this module the lines, each final transcript and each turn
    state through setShadowHooks (bottom of the file); it never imports this. */
 import { $, postJSON, state, notify, setShown } from './api.js';
-import { play } from './audio.js';
+import { play, stopPlayback } from './audio.js';
 import { annotate, attachMeaning } from './reading.js';
-import { setShadowHooks, endSession, uploadRecordingFor, setTurnState, canDo } from './session.js';
+import { setShadowHooks, endSession, uploadRecordingFor, setTurnState, canDo, sessionEnding } from './session.js';
 
 const SLOW = 0.75;
 const HIDDEN_TEXT = '●●●●●';
@@ -20,7 +20,7 @@ let index = 0;
 let stage = 'listen';     // 'listen': heard, not yet shown | 'reveal': judged and shown
 let peeked = false;
 let saving = false;
-let annotated = false;    // this line's card text already has its reading aids
+let attempt = 0;          // bumped per said attempt; only the latest may touch the card
 let lastMessageId = null;
 let recorded = false;     // this line's last attempt has a recording on the server
 
@@ -64,39 +64,51 @@ function setStage(next) {
 
 function showLine() {
   const line = lines[index];
+  stopPlayback();
   setStage('listen');
   peeked = false;
-  annotated = false;
   lastMessageId = null;
   recorded = false;
   $('shadow-count').textContent = `${index + 1} / ${lines.length}`;
   $('shadow-status').textContent = '';
-  $('shadow-text').textContent = line.text;
-  setShown($('shadow-text'), false);
+  // A fresh span per line: annotate() writes whenever /reading answers, and an
+  // answer for the line before lands on that line's span, detached by now --
+  // never on this one. Annotated here, while the text is still invisible, so
+  // the ruby and the pronunciation line take their room at the line change
+  // and the reveal only fades in what is already laid out.
+  const text = document.createElement('span');
+  text.textContent = line.text;
+  const slot = $('shadow-text');
+  slot.dataset.lang = state.language;
+  slot.replaceChildren(text);
+  setShown(slot, false);
+  if (state.language === 'ja') annotate([{ el: text, text: line.text }]);
   setShown($('shadow-said'), false);
   setShown($('shadow-peeked'), false);
   items.forEach((el, i) => el.parentNode.classList.toggle('current', i === index));
   play(line.audio_key, line.text);
 }
 
-/* The card's own copy of the line, with Japanese reading aids fetched once per
-   line however many times it is shown (글자 보기, then the reveal). */
+/* The card's own copy of the line. Its reading aids were asked for in
+   showLine; this only fades it in. */
 function showText() {
   setShown($('shadow-text'), true);
-  if (state.language === 'ja' && !annotated) {
-    annotated = true;
-    annotate([{ el: $('shadow-text'), text: lines[index].text }]);
-  }
+}
+
+/* Not while the mic is open: the clip would be recorded as the attempt, and
+   judged as the learner saying the line. */
+function playLine(options) {
+  const line = lines[index];
+  if (!line || canDo('stop')) return;
+  play(line.audio_key, line.text, null, options);
 }
 
 export function replay() {
-  const line = lines[index];
-  if (line) play(line.audio_key, line.text);
+  playLine();
 }
 
 export function replaySlow() {
-  const line = lines[index];
-  if (line) play(line.audio_key, line.text, null, { rate: SLOW });
+  playLine({ rate: SLOW });
 }
 
 export function peek() {
@@ -112,15 +124,27 @@ export async function heard(transcript) {
     $('shadow-status').textContent = '못 알아들었어요. 다시 해보세요';
     return;
   }
+  // The attempt, and the session it belongs to. A save or upload answering
+  // after the session ended (or another began) has nothing left to report to:
+  // it returns the turn to idle -- the only thing still waiting on it -- and
+  // says nothing. `attempt` does the same for an earlier attempt on this
+  // line: once the mic is back (after the save, during the upload) a second
+  // attempt can start, and the first must not clear its `saving` or show its
+  // own verdict over it.
+  const mine = ++attempt;
+  const sessionId = state.sessionId;
+  const stale = () => sessionId !== state.sessionId || !state.shadowing || sessionEnding();
   saving = true;
   $('shadow-mine').textContent = `내 말: "${transcript}"`;
   try {
     let data;
     try {
-      data = await postJSON(`/sessions/${state.sessionId}/shadow-line`, { index, text: transcript, peeked });
+      data = await postJSON(`/sessions/${sessionId}/shadow-line`, { index, text: transcript, peeked });
     } catch {
+      if (mine !== attempt) return;
       state.chunks = [];   // no row to attach this recording to
       setTurnState('SEND_FAILED');
+      if (stale()) return;
       notify('저장하지 못했어요');
       // What was said stays on the card; a verdict it never got does not.
       const verdict = $('shadow-verdict');
@@ -133,13 +157,20 @@ export async function heard(transcript) {
     }
     // Nothing plays after a saved line, so the turn goes straight back to
     // idle: the mic is open again for 다시 하기.
+    if (mine !== attempt) return;
     setTurnState('REPLY');
     setTurnState('AUDIO_DONE');
+    if (stale()) {
+      state.chunks = [];
+      return;
+    }
+    const uploaded = await uploadRecordingFor(data.message_id, sessionId);
+    if (mine !== attempt || stale()) return;
     lastMessageId = data.message_id;
-    recorded = await uploadRecordingFor(data.message_id);
+    recorded = uploaded;
     reveal(data.matched);
   } finally {
-    saving = false;
+    if (mine === attempt) saving = false;
   }
 }
 

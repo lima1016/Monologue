@@ -1,5 +1,5 @@
 import { $, postJSON, notify, state } from './api.js';
-import { play, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
+import { play, stopPlayback, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
 import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
 import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome } from './home.js';
@@ -141,10 +141,17 @@ $('btn-mic').addEventListener('click', () => {
     return;
   }
   if (!recognition) {
-    notify('이 브라우저는 음성 인식을 지원하지 않습니다. 아래 입력창에 직접 입력하세요.');
+    // Shadowing hides the input: there is no typing a line instead of saying it.
+    notify(state.shadowing
+      ? '이 브라우저는 음성 인식을 지원하지 않아 쉐도잉을 할 수 없어요. Chrome에서 열어 주세요.'
+      : '이 브라우저는 음성 인식을 지원하지 않습니다. 아래 입력창에 직접 입력하세요.');
     return;
   }
   notify('');
+  // The microphone must hear the learner, not a clip still playing -- in
+  // shadowing that clip is the very line being judged. Before MIC: a bot reply
+  // cut off here raises its AUDIO_DONE while the turn is still `speaking`.
+  stopPlayback();
   setTurnState('MIC');
   const recording = startRecording();
   // An ordinary listen never belongs to a re-speak. Discard any handler left
