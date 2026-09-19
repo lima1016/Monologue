@@ -123,21 +123,25 @@ export async function saveReadingPrefs() {
    it. Keep THEMES, MODES and the two keys in step with that script. */
 export const THEMES = ['default', 'forest', 'sea', 'lavender', 'ink', 'white'];
 export const MODES = ['auto', 'light', 'dark'];
+/* What a learner with nothing saved sees: 보라 · 밝게 (the user's pick). The
+   head script in index.html starts from the same pair. */
+export const DEFAULT_THEME = 'lavender';
+export const DEFAULT_MODE = 'light';
 const THEME_KEY = 'screen-theme';
 const MODE_KEY = 'screen-mode';
 
-function storedOr(key, allowed) {
+function storedOr(key, allowed, fallback) {
   try {
     const v = globalThis.localStorage?.getItem(key);
-    return allowed.includes(v) ? v : allowed[0];
+    return allowed.includes(v) ? v : fallback;
   } catch {
-    return allowed[0]; // private window, blocked storage: the defaults
+    return fallback; // private window, blocked storage: the defaults
   }
 }
 
-/* The saved pair, or 기본/자동 for anything missing, unknown or unreadable. */
+/* The saved pair, or 보라/밝게 for anything missing, unknown or unreadable. */
 export function readScreenPrefs() {
-  return { theme: storedOr(THEME_KEY, THEMES), mode: storedOr(MODE_KEY, MODES) };
+  return { theme: storedOr(THEME_KEY, THEMES, DEFAULT_THEME), mode: storedOr(MODE_KEY, MODES, DEFAULT_MODE) };
 }
 
 /* Mark the pressed swatch and brightness button. getAttribute/setAttribute
@@ -159,8 +163,8 @@ function syncScreenControls(theme, mode) {
    save it. Unknown values fall back to the defaults; a storage failure only
    means the choice lasts for this page. Returns what was applied. */
 export function applyTheme(theme, mode) {
-  const t = THEMES.includes(theme) ? theme : THEMES[0];
-  const m = MODES.includes(mode) ? mode : MODES[0];
+  const t = THEMES.includes(theme) ? theme : DEFAULT_THEME;
+  const m = MODES.includes(mode) ? mode : DEFAULT_MODE;
   const root = document.documentElement;
   root.setAttribute('data-theme', t);
   root.setAttribute('data-mode', m);

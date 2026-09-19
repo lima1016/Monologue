@@ -123,23 +123,23 @@ test('aria-pressed marks the chosen swatch and brightness, and only those', () =
   }
 });
 
-test('unknown values fall back to 기본 / 자동', () => {
+test('unknown values fall back to 보라 / 밝게', () => {
   const applied = withStorage(memoryStorage(), () => applyTheme('neon', 'dim'));
-  assert.deepEqual(applied, { theme: 'default', mode: 'auto' });
-  assert.equal(html().getAttribute('data-theme'), 'default');
+  assert.deepEqual(applied, { theme: 'lavender', mode: 'light' });
+  assert.equal(html().getAttribute('data-theme'), 'lavender');
 });
 
 test('storage that throws: the choice still applies, nothing crashes', () => {
   withStorage(throwingStorage, () => {
     assert.doesNotThrow(() => applyTheme('ink', 'dark'));
-    assert.deepEqual(readScreenPrefs(), { theme: 'default', mode: 'auto' });
+    assert.deepEqual(readScreenPrefs(), { theme: 'lavender', mode: 'light' });
   });
   assert.equal(html().getAttribute('data-theme'), 'ink');
   assert.equal(html().getAttribute('data-mode'), 'dark');
 });
 
 test('no storage at all reads as the defaults', () => {
-  assert.deepEqual(readScreenPrefs(), { theme: 'default', mode: 'auto' });
+  assert.deepEqual(readScreenPrefs(), { theme: 'lavender', mode: 'light' });
 });
 
 test('the swatch and brightness buttons apply on click, keeping the other half', () => {
@@ -191,8 +191,8 @@ test('the head script accepts every theme and mode settings.js offers', () => {
   }
 });
 
-test('the head script falls back to 기본/자동 on junk, empty or throwing storage', () => {
-  const fallback = { 'data-theme': 'default', 'data-mode': 'auto' };
+test('the head script falls back to 보라/밝게 on junk, empty or throwing storage', () => {
+  const fallback = { 'data-theme': 'lavender', 'data-mode': 'light' };
   assert.deepEqual(runHeadScript(memoryStorage({ 'screen-theme': 'neon', 'screen-mode': 'x' })), fallback);
   assert.deepEqual(runHeadScript(memoryStorage()), fallback);
   assert.deepEqual(runHeadScript(throwingStorage), fallback);
