@@ -467,6 +467,18 @@ def clear_session_audio(session_id) -> list[str]:
     return [r["audio_path"] for r in rows] + [r["audio_path"] for r in round_rows]
 
 
+def _last_activity(alias):
+    """SQL for a session's last activity: its newest message or timed round,
+    or started_at when it has neither. A 1분 말하기 session writes rounds, not
+    messages, until round 1 is graded -- judging it by messages alone would
+    call a session in active use abandoned. Both subqueries are NULL when
+    empty; the UNION ALL keeps MAX over whichever rows exist."""
+    return ("COALESCE((SELECT MAX(t) FROM ("
+            f"  SELECT m.created_at AS t FROM messages m WHERE m.session_id = {alias}.id"
+            f"  UNION ALL SELECT tr.created_at FROM timed_rounds tr WHERE tr.session_id = {alias}.id"
+            f")), {alias}.started_at)")
+
+
 def stale_open_sessions(hours=24) -> list[int]:
     """Unfinished sessions with a recording still waiting to be collected.
 
@@ -477,6 +489,9 @@ def stale_open_sessions(hours=24) -> list[int]:
     nobody has touched since. COALESCE falls back to started_at only for a
     session that never got a single message, since that is the only timestamp
     such a session has.
+
+    A recording is a messages.audio_path or, for a 1분 말하기 session, a
+    timed_rounds.audio_path; activity is the newest of either table's rows.
 
     Restricted to sessions that still hold a recording so a session already
     swept by a previous call drops out on its own, rather than being
@@ -495,12 +510,11 @@ def stale_open_sessions(hours=24) -> list[int]:
         rows = conn.execute(
             "SELECT s.id FROM sessions s"
             " WHERE s.ended_at IS NULL"
-            "   AND COALESCE("
-            "         (SELECT MAX(m.created_at) FROM messages m WHERE m.session_id = s.id),"
-            "         s.started_at"
-            "       ) < ?"
-            "   AND EXISTS (SELECT 1 FROM messages m2"
-            "               WHERE m2.session_id = s.id AND m2.audio_path IS NOT NULL)"
+            f"   AND {_last_activity('s')} < ?"
+            "   AND (EXISTS (SELECT 1 FROM messages m2"
+            "                WHERE m2.session_id = s.id AND m2.audio_path IS NOT NULL)"
+            "        OR EXISTS (SELECT 1 FROM timed_rounds tr"
+            "                   WHERE tr.session_id = s.id AND tr.audio_path IS NOT NULL))"
             " ORDER BY s.id",
             (cutoff,),
         ).fetchall()
@@ -553,8 +567,7 @@ def abandon_stale_sessions(hours=24) -> int:
         cur = conn.execute(
             "UPDATE sessions SET ended_at = ?"
             " WHERE ended_at IS NULL"
-            "   AND COALESCE((SELECT MAX(m.created_at) FROM messages m"
-            "                 WHERE m.session_id = sessions.id), started_at) < ?",
+            f"   AND {_last_activity('sessions')} < ?",
             (_now(), cutoff),
         )
         return cur.rowcount

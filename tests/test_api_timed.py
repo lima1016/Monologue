@@ -689,3 +689,46 @@ def test_history_row_shows_round_count_for_timed_and_zero_for_other_modes(client
     by_id = {i["id"]: i for i in items}
     assert by_id[tsid]["mode"] == "timed" and by_id[tsid]["rounds"] == 2
     assert by_id[other]["rounds"] == 0
+
+
+# ---------------------------------------------------------------------------
+# abandoned timed sessions: the stale sweep must collect round recordings too
+# ---------------------------------------------------------------------------
+
+def _age(sid, when="2020-01-01T00:00:00+00:00"):
+    with db.connect() as conn:
+        conn.execute("UPDATE sessions SET started_at = ? WHERE id = ?", (when, sid))
+        conn.execute("UPDATE timed_rounds SET created_at = ? WHERE session_id = ?", (when, sid))
+        conn.execute("UPDATE messages SET created_at = ? WHERE session_id = ?", (when, sid))
+
+
+def test_resumable_sweep_deletes_an_abandoned_timed_sessions_round_recordings(client, monkeypatch):
+    """A timed session keeps its audio in timed_rounds, not messages. The sweep
+    must see it before abandon_stale_sessions closes the session, or the file
+    is stranded on disk forever."""
+    Stt(monkeypatch)
+    sid = _timed()
+    _upload(client, sid)
+    clip = config.AUDIO_DIR / f"s{sid}_r1.webm"
+    assert clip.exists()
+    _age(sid)
+
+    assert db.stale_open_sessions(hours=24) == [sid]
+    assert client.get("/api/sessions/resumable?language=en").status_code == 200
+
+    assert not clip.exists()
+    assert db.get_rounds(sid)[0]["audio_path"] is None
+    assert db.get_session(sid)["ended_at"] is not None
+
+
+def test_a_timed_session_with_a_recent_round_is_not_stale(client, monkeypatch):
+    """Activity in a timed session is its rounds: a session opened long ago
+    whose latest round is fresh is still in use."""
+    Stt(monkeypatch)
+    sid = _timed()
+    _upload(client, sid)
+    with db.connect() as conn:
+        conn.execute("UPDATE sessions SET started_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (sid,))
+    assert db.stale_open_sessions(hours=24) == []
+    assert db.abandon_stale_sessions(hours=24) == 0
+    assert db.get_session(sid)["ended_at"] is None
