@@ -166,6 +166,7 @@ export async function openMypage({ tab } = {}) {
       if (stale()) return;
       $('review-count').textContent = '오늘의 복습';
       $('tab-review-n').textContent = '';
+      $('tab-review').setAttribute('aria-label', '복습');
       $('review-mastered').textContent = '';
       fail('review-section', $('review-list'));
     },
@@ -297,6 +298,8 @@ function paintReviewHead() {
   $('review-count').textContent = `오늘의 복습 ${left}개`;
   // The tab says it too, so 복습 is worth a look from 약점 or 기록.
   $('tab-review-n').textContent = left > 0 ? String(left) : '';
+  // Its name, said whole: a screen reader would read the badge as "복습2".
+  $('tab-review').setAttribute('aria-label', left > 0 ? `복습, 남은 문장 ${left}개` : '복습');
   const mastered = reviewCounts ? reviewCounts.mastered : 0;
   $('review-mastered').textContent = mastered > 0 ? `익힌 문장 ${mastered}개` : '';
 }
@@ -612,6 +615,9 @@ export function toggleTagItem(item) {
   if (!box) return;
   const open = box.classList.toggle('is-collapsed') === false;
   if (head) head.setAttribute('aria-expanded', String(open));
+  // ▸ closed, ▾ open: the same width, so the count does not shift.
+  const n = head && find(head, 'n');
+  if (n) n.textContent = n.textContent.replace(open ? '▸' : '▾', open ? '▾' : '▸');
 }
 
 /* main.js's delegated click on #tag-bars: a bar folds its sentences open, a
@@ -649,7 +655,7 @@ export async function loadCoach({ force = false } = {}) {
     const c = await getJSON(`/mypage/coach?language=${lang}`);
     if (stale()) return;
     if (c.status === 'too_few') {
-      body.replaceChildren(el('p', 'hint', `틀린 문장이 ${c.need}개 넘게 모이면 코치가 짚어 줘요 (지금 ${c.count}개)`));
+      body.replaceChildren(el('p', 'hint', `최근 30일 틀린 문장이 ${c.need}개 모이면 코치가 짚어 줘요 (지금 ${c.count}개)`));
     } else {
       body.replaceChildren(...(c.items || []).map(coachItem));
       $('coach-day').textContent = '오늘 만듦';
@@ -661,7 +667,12 @@ export async function loadCoach({ force = false } = {}) {
     row.append(el('p', 'mypage-error', '코치 한마디를 만들지 못했어요'), button('coach-retry', '다시 시도'));
     body.replaceChildren(row);
   } finally {
-    if (!stale()) body.removeAttribute('aria-busy');
+    if (!stale()) {
+      body.removeAttribute('aria-busy');
+      // 다시 시도 was pressed and is gone with what it replaced: focus goes to
+      // the answer (tabindex="-1"), not back to the page's start.
+      if (force) body.focus();
+    }
   }
 }
 

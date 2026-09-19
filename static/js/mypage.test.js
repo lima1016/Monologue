@@ -696,6 +696,17 @@ test('a storage that throws still opens on review', async () => {
   assert.equal($('weak-section').hidden, false);
 });
 
+test('a storage that throws still reopens on the tab last shown', async () => {
+  routes();
+  globalThis.localStorage = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
+  await mypage.openMypage();
+  mypage.selectTab('history');
+  await mypage.openMypage();
+  assert.equal($('tab-history').getAttribute('aria-selected'), 'true');
+  assert.equal($('history-section').hidden, false);
+  assert.equal($('review-section').hidden, true);
+});
+
 test('an unknown remembered tab falls back to review', async () => {
   routes();
   stubStorage({ 'mypage-tab': 'nonsense' });
@@ -720,7 +731,10 @@ test('arrow keys move between tabs and wrap', async () => {
   assert.equal($('tab-history').getAttribute('aria-selected'), 'true');
   key('Home', 'tab-history');
   assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
-  assert.equal(key('a', 'tab-review'), false);
+  assert.equal(key('End', 'tab-review'), true);
+  assert.equal($('tab-history').getAttribute('aria-selected'), 'true');
+  assert.equal(document.activeElement, $('tab-history'));
+  assert.equal(key('a', 'tab-history'), false);
 });
 
 test('the review tab carries the count of reviews left', async () => {
@@ -728,6 +742,17 @@ test('the review tab carries the count of reviews left', async () => {
   stubStorage();
   await mypage.openMypage();
   assert.equal($('tab-review-n').textContent, '2');
+});
+
+test('the review tab is named in words, not "복습2"', async () => {
+  routes();
+  stubStorage();
+  await mypage.openMypage();
+  assert.equal($('tab-review').getAttribute('aria-label'), '복습, 남은 문장 2개');
+  routes({ stats: () => jsonResponse(STATS({ review: { due: 0, mastered: 1 } })), items: [] });
+  await mypage.openMypage();
+  assert.equal($('tab-review-n').textContent, '');
+  assert.equal($('tab-review').getAttribute('aria-label'), '복습');
 });
 
 test('the level is one line in the head', async () => {
@@ -831,7 +856,7 @@ test('too few wrong sentences says how many are needed', async () => {
   stubStorage({ 'mypage-tab': 'weak' });
   await mypage.openMypage();
   await settleAll();
-  assert.match(text($('coach-body')), /틀린 문장이 5개 넘게 모이면 코치가 짚어 줘요 \(지금 3개\)/);
+  assert.match(text($('coach-body')), /^최근 30일 틀린 문장이 5개 모이면 코치가 짚어 줘요 \(지금 3개\)/);
   assert.equal($('coach-day').textContent, '');
 });
 
@@ -847,6 +872,28 @@ test('a failed coach offers 다시 시도 and it asks again', async () => {
   await mypage.loadCoach({ force: true });
   assert.equal(seen.coach, 2);
   assert.match(text($('coach-body')), /여러 말을 끊지 않고/);
+});
+
+test('after 다시 시도, focus lands on the coach, whatever came back', async () => {
+  let answer = () => jsonResponse({ detail: 'x' }, { ok: false, status: 503 });
+  routes({ coach: () => answer() });
+  stubStorage({ 'mypage-tab': 'weak' });
+  await mypage.openMypage();
+  await settleAll();
+  assert.notEqual(document.activeElement, $('coach-body'), 'a plain load took focus');
+  for (const next of [() => jsonResponse(COACH), () => jsonResponse({ status: 'too_few', count: 3, need: 5 }),
+                      () => jsonResponse({ detail: 'x' }, { ok: false, status: 503 })]) {
+    answer = next;
+    $('coach-body').blur();
+    await mypage.loadCoach({ force: true });
+    assert.equal(document.activeElement, $('coach-body'));
+  }
+});
+
+test('the coach body can take focus (tabindex="-1" in index.html)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /<div id="coach-body"[^>]*\stabindex="-1"/);
 });
 
 test('a coach answer from an older load or language is not painted', async () => {
@@ -874,9 +921,12 @@ test('a tag opens to its newest sentences, without a strike-through class', asyn
   const head = item.children.find((c) => c.classList.contains('tag-bar'));
   assert.equal(head.tagName, 'BUTTON');
   assert.equal(head.getAttribute('aria-expanded'), 'false');
+  const n = head.children.find((c) => c.classList.contains('n'));
+  assert.equal(n.textContent, '6회 ▸');
   mypage.toggleTagItem(item);
   assert.ok(!fold.classList.contains('is-collapsed'));
   assert.equal(head.getAttribute('aria-expanded'), 'true');
+  assert.equal(n.textContent, '6회 ▾');
   assert.match(text(fold), /내 말\s+I go there yesterday/);
   assert.match(text(fold), /고친 문장\s+I went there yesterday\./);
   assert.match(text(fold), /지난 일은 과거형으로/);
@@ -885,6 +935,7 @@ test('a tag opens to its newest sentences, without a strike-through class', asyn
   mypage.toggleTagItem(item);
   assert.ok(fold.classList.contains('is-collapsed'));
   assert.equal(head.getAttribute('aria-expanded'), 'false');
+  assert.equal(n.textContent, '6회 ▸');
 });
 
 test('a tag with no sentences stays a plain bar', async () => {
