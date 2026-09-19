@@ -42,6 +42,9 @@ def test_answer_judging_on_the_real_model(language):
         j = judged.get(0)
         print(f"  {name:5} -> {j['cefr'] if j else None} | {j['comment'] if j else None}")
         assert j is not None, "the model returned no usable judgment"
-        assert j["comment"] and api._is_korean_meaning(j["comment"])
+        # The same rule the server applies: a word from the learner's own answer
+        # (週末) may stand in the Korean comment.
+        own = api._drop_answers_own_words(j["comment"], answer["text"])
+        assert j["comment"] and api._is_korean_meaning(own)
         if name == "short":
             assert j["cefr"] == "A1"
