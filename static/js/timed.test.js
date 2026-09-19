@@ -731,7 +731,9 @@ test('an empty recording is never uploaded -- the card asks to try again, and ë‹
 
 /* ---------- CSS ---------- */
 
-const css = readFileSync(new URL('../css/components.css', import.meta.url), 'utf8');
+// Line endings normalised: a Windows checkout with core.autocrlf turns the
+// file CRLF, and the block searches below look for '\n}'.
+const css = readFileSync(new URL('../css/components.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 function ruleBody(selector) {
   const start = css.indexOf(`${selector} {`);
   assert.ok(start >= 0, `${selector} has a rule`);
