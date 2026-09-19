@@ -87,7 +87,7 @@ $('today-alt').addEventListener('click', (e) => {
 });
 $('goal-minus').addEventListener('click', () => changeGoal(-1));
 $('goal-plus').addEventListener('click', () => changeGoal(+1));
-$('week-more').addEventListener('click', () => openMypage());
+$('week-more').addEventListener('click', () => openMypage({ tab: 'history' }));
 
 /* 오늘 복습: 듣기 does not navigate -- playReviewHome handles the swap to
    음성 준비 중... itself. 복습하러 가기 and 기록 더 보기 both just open my page;

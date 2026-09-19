@@ -84,3 +84,23 @@ test('without speech recognition, the mic in shadowing does not point at the hid
   click();
   assert.match($('notice-text').textContent, /입력창/, 'other modes still offer typing');
 });
+
+/* The wiring itself: home's two ways into my page each name their tab, over
+   whatever tab was looked at last. */
+test("home's 복습 card opens my page on 복습, and 기록 더 보기 on 기록", async () => {
+  const { $ } = await import('./api.js');
+  stubFetch(async () => jsonResponse({}));
+  const data = { 'mypage-tab': 'weak' };
+  globalThis.localStorage = { getItem: (k) => data[k] ?? null, setItem: (k, v) => { data[k] = String(v); } };
+  try {
+    $('review-home-go').listeners.click[0]();
+    assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
+    data['mypage-tab'] = 'weak';
+    $('week-more').listeners.click[0]();
+    assert.equal($('tab-history').getAttribute('aria-selected'), 'true');
+    assert.equal($('history-section').hidden, false);
+    await new Promise((r) => setTimeout(r, 20));
+  } finally {
+    delete globalThis.localStorage;
+  }
+});
