@@ -308,6 +308,16 @@ test('live words show while recording, and recognition restarts when Chrome ends
   assert.equal(r.calls.filter((c) => c === 'start').length, 2, 'not after the minute ended');
 });
 
+test('a recognition network error stops the restarts, like a refused one', async () => {
+  await open();
+  timed.startNow();
+  const r = lastRecognition();
+  r.onerror({ error: 'network' });
+  r.onend();
+  assert.deepEqual(r.calls, ['start'], 'a network failure would only fail again, forever');
+  assert.equal(stage(), 'rec', 'the minute itself goes on -- it is being recorded');
+});
+
 test('a clip still playing is stopped before the minute starts, and recognition hears the session language', async () => {
   await open();
   const audio = await import('./audio.js');
@@ -336,6 +346,21 @@ test('a 503 upload goes to 받아쓰기 다시 시도, which asks /transcribe fo
   assert.equal(seen.uploads.length, 1, 'the recording is not sent twice');
   assert.notEqual(stage(), 'retry-transcribe');
   assert.ok(['grading', 'result'].includes(stage()));
+});
+
+test('an upload that answers OK with a body that is not JSON goes to 받아쓰기 다시 시도', async () => {
+  await open({
+    upload: () => ({ ok: true, status: 200, statusText: '200',
+                     json: async () => { throw new SyntaxError('Unexpected token <'); } }),
+  });
+  timed.startNow();
+  advance(5000);
+  // Swallowed here so a throw cannot stand in for the assertion below.
+  try { await timed.stopNow(); } catch { /* the bug under test */ }
+  await flush();
+  assert.equal(stage(), 'retry-transcribe', 'the card must not sit on 받아쓰는 중이에요 forever');
+  assert.equal($('timed-retry-text').textContent, '받아쓰기를 하지 못했어요');
+  assert.equal($('timed-retry-btn').disabled, false);
 });
 
 test('while uploading the card says 받아쓰는 중이에요', async () => {
@@ -627,6 +652,22 @@ test('no MediaRecorder at all reads the same as a refused microphone', async () 
   assert.equal($('timed-mic-note').textContent,
     '마이크를 쓸 수 없어요 — 브라우저 설정에서 마이크를 허용해 주세요');
   assert.equal($('timed-start').disabled, true);
+});
+
+test('a MediaRecorder that throws on construction releases the mic, says so, and stays in prep', async () => {
+  globalThis.MediaRecorder = class { constructor() { throw new Error('NotSupportedError'); } };
+  const seen = await open();
+  timed.startNow();
+  assert.equal(stage(), 'prep', 'no dead minute ticking with nothing recording');
+  assert.equal($('timed-mic-note').textContent,
+    '마이크를 쓸 수 없어요 — 브라우저 설정에서 마이크를 허용해 주세요');
+  assert.equal($('timed-mic-note').classList.contains('is-invisible'), false);
+  assert.equal($('timed-start').disabled, true);
+  assert.ok(lastStream().tracks.every((t) => t.stopped), 'the microphone is released');
+  assert.equal(tickers.size, 0, 'no clock left running');
+  advance(60000);
+  await flush();
+  assert.equal(seen.uploads.length, 0);
 });
 
 /* ---------- CSS ---------- */

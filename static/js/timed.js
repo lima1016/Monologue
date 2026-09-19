@@ -231,10 +231,21 @@ function begin(event) {
   clearTicker();
   // The microphone hears the learner, not a clip still talking.
   stopPlayback();
+  const m = mic;
+  let recorder;
+  try {
+    recorder = new MediaRecorder(m.stream);
+  } catch {
+    // A recorder that cannot be made would leave a minute ticking with nothing
+    // recorded. Release the mic, say so, and stay in prep (nothing has moved
+    // the stage yet) with 바로 시작 off.
+    stopTracks(m);
+    blockMic(m);
+    return;
+  }
   go(event);
   const tok = token();
-  const m = mic;
-  m.recorder = new MediaRecorder(m.stream);
+  m.recorder = recorder;
   m.chunks = [];
   m.recorder.ondataavailable = (e) => { if (e.data) m.chunks.push(e.data); };
   m.recorder.start();
@@ -274,8 +285,9 @@ function startRecognition(m) {
     $('timed-live').textContent = text.length > LIVE_TAIL ? `…${text.slice(-LIVE_TAIL)}` : text;
   };
   r.onerror = (e) => {
-    // No permission, no device: starting again would only fail again.
-    if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(e && e.error)) dead = true;
+    // No permission, no device, no network (Chrome's recogniser is a web
+    // service): starting again would only fail again, forever.
+    if (['not-allowed', 'service-not-allowed', 'audio-capture', 'network'].includes(e && e.error)) dead = true;
   };
   r.onend = () => {
     if (m.recognition !== r || m.stopped || dead || stage !== 'rec') return;
@@ -333,8 +345,16 @@ async function upload(tok) {
   }
   if (!live(tok)) return;
   if (res && res.ok) {
-    const data = await res.json();
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
     if (!live(tok)) return;
+    // An OK whose body will not parse: the card must not sit on
+    // 받아쓰는 중이에요 forever.
+    if (!data) { transcribeFailed(); return; }
     transcribed(tok, data);
     return;
   }
