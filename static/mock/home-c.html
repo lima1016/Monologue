@@ -63,9 +63,11 @@
   .target .row .hint { font-size: var(--text-xs); }
   .target button { background: var(--surface); font-size: var(--text-sm); padding: var(--space-1) var(--space-3); }
 
-  /* 아래: 모드 타일 | 오른쪽 칸 */
+  /* 아래: 모드 타일(+최근 테마) | 오른쪽 칸. 최근 테마를 왼쪽 칸 안에 두어
+     두 칸의 바닥이 비슷한 높이에서 끝나게 한다(중간이 비어 보이지 않도록). */
   .hc-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--space-6); align-items: start; }
   .hc-body > * { min-width: 0; }
+  .hc-main { display: flex; flex-direction: column; gap: var(--space-6); }
   .tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-3); }
   .tile { grid-column: span 2; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2);
     text-align: left; padding: var(--space-5); border-radius: var(--radius); min-height: 190px;
@@ -107,7 +109,9 @@
   .lt .d { font-size: var(--text-sm); color: var(--text-dim); }
   .lt .row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: var(--space-1); }
 
-  .hc .recent-themes { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  /* 왼쪽 칸 안에서는 한 줄에 2장씩 3줄로 쌓는다 -- 오른쪽 칸(이어서 하기·
+     내 상태·오늘 복습·레벨 테스트)만큼 키를 채워 중간이 비어 보이지 않게. */
+  .hc .recent-themes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hc .recent-theme .p { font-size: var(--text-xs); color: var(--accent-ink); font-weight: 650; }
 
   @media (max-width: 1100px) {
@@ -115,7 +119,6 @@
     .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .tile, .tile.wide { grid-column: span 1; }
     .tile:last-child { grid-column: 1 / -1; }
-    .hc .recent-themes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
   @media (max-width: 900px) {
     .hero { grid-template-columns: 1fr; padding: var(--space-5); }
@@ -230,7 +233,8 @@
     </div>
 
     <div class="hc-body">
-      <div>
+      <div class="hc-main">
+        <div>
         <p class="label section-label">연습 방법</p>
         <div class="tiles">
           <button type="button" class="tile wide">
@@ -263,6 +267,19 @@
             <span class="d">질문 하나에 1분 말하고, 다시 말해 비교해요</span>
             <span class="m">최근 <b>주말에 뭐 했어요?</b> · 87단어/분</span>
           </button>
+        </div>
+        </div>
+
+        <div>
+          <p class="label section-label">최근 테마</p>
+          <div class="recent-themes">
+            <button type="button" class="recent-theme"><span class="t">호텔 체크인</span><span class="m">스크립트 · 어제</span><span class="p">7/12줄 · 이어서</span></button>
+            <button type="button" class="recent-theme"><span class="t">주말에 뭐 했어요?</span><span class="m">1분 말하기 · 9/17</span><span class="p">87단어/분</span></button>
+            <button type="button" class="recent-theme"><span class="t">식당 주문</span><span class="m">쉐도잉 · 9/16</span><span class="p">10줄 완료</span></button>
+            <button type="button" class="recent-theme"><span class="t">면접 자기소개</span><span class="m">자유 상황극 · 9/14</span><span class="p">정확도 70%</span></button>
+            <button type="button" class="recent-theme"><span class="t">현재완료 vs 과거</span><span class="m">수업 · 9/12</span><span class="p">문장 9개</span></button>
+            <button type="button" class="recent-theme"><span class="t">여행 계획 세우기</span><span class="m">자유 상황극 · 9/9</span><span class="p">정확도 68%</span></button>
+          </div>
         </div>
       </div>
 
@@ -324,17 +341,6 @@
           <div class="row"><span class="hint">다음 추천 10월 3일</span><button type="button">결과 보기</button></div>
         </div>
       </aside>
-    </div>
-
-    <div>
-      <p class="label section-label">최근 테마</p>
-      <div class="recent-themes">
-        <button type="button" class="recent-theme"><span class="t">호텔 체크인</span><span class="m">스크립트 · 어제</span><span class="p">7/12줄 · 이어서</span></button>
-        <button type="button" class="recent-theme"><span class="t">주말에 뭐 했어요?</span><span class="m">1분 말하기 · 9/17</span><span class="p">87단어/분</span></button>
-        <button type="button" class="recent-theme"><span class="t">식당 주문</span><span class="m">쉐도잉 · 9/16</span><span class="p">10줄 완료</span></button>
-        <button type="button" class="recent-theme"><span class="t">면접 자기소개</span><span class="m">자유 상황극 · 9/14</span><span class="p">정확도 70%</span></button>
-        <button type="button" class="recent-theme"><span class="t">현재완료 vs 과거</span><span class="m">수업 · 9/12</span><span class="p">문장 9개</span></button>
-      </div>
     </div>
 
   </section>
