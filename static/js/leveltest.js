@@ -109,8 +109,108 @@ export const clock = {
   wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
-/* The result screen. Drawn by Task 4; here it is only called. */
-export function renderLevelResult(result) { // eslint-disable-line no-unused-vars
+/* ---------- the result ---------- */
+
+const LEVEL_NAMES = { beginner: '초급', intermediate: '중급', advanced: '고급' };
+const CEFR_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+export const RESULT_TEXT = {
+  home: '홈으로',
+  mypage: '← 마이페이지',
+  ielts: (band) => `IELTS 말하기 ${band} 예상`,
+  toefl: (t) => `TOEFL 말하기 ${t.band} 예상 (옛 점수 ${t.old})`,
+  ei: '따라 말하기',
+  answers: '답하기',
+  appLevel: (name) => `앱 난이도가 ${name}으로 맞춰졌어요`,
+};
+
+let resultFrom = 'home';
+
+/* Where the result's back button goes: 'mypage' when it was opened from my
+   page's 결과 보기, 'home' otherwise. main.js reads it on the click. */
+export function levelResultFrom() {
+  return resultFrom;
+}
+
+/* The CEFR as the learner reads it: `B1 상위`. */
+export function levelName(r) {
+  return [r && r.cefr, r && r.step].filter(Boolean).join(' ');
+}
+
+/* The result: the level large, what it comes to on the scales people know,
+   the sentence score with how it went level by level, a line on each answer,
+   the note that it is only an estimate, and what the app changed. Shows the
+   result slot of the level test screen itself, so my page's 결과 보기 lands on
+   the same screen the test ends on (`from: 'mypage'` gives it ← 마이페이지).
+   Everything the model wrote goes in by textContent. */
+export function renderLevelResult(result, { from = 'home' } = {}) {
+  const r = result || {};
+  resultFrom = from === 'mypage' ? 'mypage' : 'home';
+  if (router.current() !== 'leveltest') router.show('leveltest');
+  showSlot('lt-result');
+
+  const parts = [rel('p', 'lt-cefr', levelName(r))];
+
+  const scales = rel('div', 'lt-scales');
+  if (r.jf) {
+    scales.append(rel('p', '', r.jf));
+  } else {
+    if (r.ielts) scales.append(rel('p', '', RESULT_TEXT.ielts(r.ielts)));
+    if (r.toefl && r.toefl.band) scales.append(rel('p', '', RESULT_TEXT.toefl(r.toefl)));
+  }
+  parts.push(scales);
+
+  const ei = r.ei || {};
+  const eiBox = rel('div', 'lt-ei');
+  const head = rel('p', 'lt-ei-head');
+  head.append(rel('span', 'label', RESULT_TEXT.ei),
+    rel('b', 'lt-ei-score', `${ei.score ?? 0}/${ei.max ?? 48}`));
+  const bars = rel('div', 'lt-level-bars');
+  const byLevel = ei.by_level || {};
+  for (const level of CEFR_ORDER) {
+    const pair = byLevel[level];
+    if (!Array.isArray(pair)) continue;
+    const [got, max] = pair;
+    const track = rel('div', 'lt-level-track');
+    const fill = rel('div', 'lt-level-fill');
+    // Width, not a transform: nothing on this card moves by transform.
+    fill.style.width = `${max > 0 ? Math.round((got / max) * 100) : 0}%`;
+    track.append(fill);
+    const row = rel('div', 'lt-level-bar');
+    row.append(rel('span', 'lt-level-name', level), track, rel('span', 'lt-level-n', `${got}/${max}`));
+    bars.append(row);
+  }
+  eiBox.append(head, bars);
+  parts.push(eiBox);
+
+  // A line for each answer the model said something about; an empty (or
+  // missing) comment is no line at all. The result carries no question text,
+  // so the line is headed by the question's number.
+  const said = (Array.isArray(r.answers) ? r.answers : [])
+    .filter((a) => a && typeof a.comment === 'string' && a.comment.trim());
+  if (said.length) {
+    const box = rel('div', 'lt-answers');
+    box.append(rel('p', 'label', RESULT_TEXT.answers));
+    for (const a of said) {
+      const line = rel('p', 'lt-answer-line');
+      line.append(rel('b', '', `질문 ${Number(a.q) + 1}`), document.createTextNode(` · ${a.comment.trim()}`));
+      box.append(line);
+    }
+    parts.push(box);
+  }
+
+  if (r.note) parts.push(rel('p', 'lt-result-note', r.note));
+  const appName = LEVEL_NAMES[r.app_level];
+  if (appName) parts.push(rel('p', 'lt-app-level', RESULT_TEXT.appLevel(appName)));
+
+  $('lt-result-body').replaceChildren(...parts);
+  $('lt-result-back').textContent = resultFrom === 'mypage' ? RESULT_TEXT.mypage : RESULT_TEXT.home;
+}
+
+function rel(tag, className = '', text = '') {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
 }
 
 /* What finishing calls -- an object, like clock, so a test can see the call. */

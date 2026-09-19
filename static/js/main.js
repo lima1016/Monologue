@@ -14,7 +14,8 @@ import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
 import { leaveTimed, startNow, stopNow, retryTranscribe, backToPrep, again, endTimed, playMine,
          playNative, retryNative } from './timed.js';
-import { leaveLevelTest, startTest, stopNow as stopLevelTest, relisten, redo, retryFinish } from './leveltest.js';
+import { leaveLevelTest, startTest, stopNow as stopLevelTest, relisten, redo, retryFinish,
+         openLevelTest, levelResultFrom } from './leveltest.js';
 import * as router from './router.js';
 
 /* ---------- screens ---------- */
@@ -151,6 +152,20 @@ $('lt-answer-stop').addEventListener('click', () => stopLevelTest());
 $('lt-relisten').addEventListener('click', () => relisten());
 $('lt-redo').addEventListener('click', () => redo());
 $('lt-finish-retry').addEventListener('click', () => retryFinish());
+/* The result's button: 홈으로 at the end of a test, ← 마이페이지 when my
+   page's 결과 보기 opened it. Read before leaving(), which resets the test. */
+$('lt-result-back').addEventListener('click', () => {
+  const from = levelResultFrom();
+  leaving();
+  if (from === 'mypage') {
+    openMypage();
+  } else {
+    router.show('home');
+    loadHome();
+  }
+});
+/* Home's 레벨 테스트 card. */
+$('leveltest-home-start').addEventListener('click', () => openLevelTest());
 
 $('category-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-category]');

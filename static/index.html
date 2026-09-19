@@ -77,6 +77,18 @@
         </div>
       </div>
 
+      <!-- 레벨 테스트: only while this language has no finished test (home.js
+           renderLevelTestHome). Collapses by class like #review-home above,
+           for the same reason: a language switch opens and shuts it. -->
+      <div id="leveltest-home" class="is-collapsed" aria-hidden="true" inert>
+        <div class="leveltest-home-clip">
+          <div class="leveltest-home-box panel">
+            <p id="leveltest-home-text" class="leveltest-home-text"><b>레벨 테스트</b> · 7분이면 내 수준과 IELTS·TOEFL 예상 점수를 알 수 있어요</p>
+            <button id="leveltest-home-start" class="primary" type="button">시작</button>
+          </div>
+        </div>
+      </div>
+
       <p id="recommend" class="recommend" hidden></p>
 
       <!-- Each card goes to #pick for that mode; none of them is "selected" here. -->
@@ -395,9 +407,11 @@
         <p id="lt-finish-text" class="lt-status" aria-live="polite">받아쓰는 중이에요</p>
         <button id="lt-finish-retry" type="button" class="btn-stable fade is-invisible" aria-hidden="true">다시 시도</button>
       </div>
-      <!-- Task 4 draws the result here (renderLevelResult). -->
+      <!-- leveltest.js renderLevelResult draws the body and names the button:
+           홈으로 at the end of a test, ← 마이페이지 when opened from there. -->
       <div id="lt-result" class="lt-slot lt-result" hidden>
-        <div id="lt-result-body"></div>
+        <div id="lt-result-body" class="lt-result-body"></div>
+        <button id="lt-result-back" type="button" class="primary">홈으로</button>
       </div>
     </section>
   </section>

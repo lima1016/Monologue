@@ -340,6 +340,7 @@ function homeRoutes(payload, extra = {}) {
   stubFetch(async (url, options = {}) => {
     if (url.startsWith('/api/sessions/resumable')) return jsonResponse({ session: null });
     if (url.startsWith('/api/stats/home')) return extra.stats ? extra.stats(url) : jsonResponse(payload);
+    if (url.startsWith('/api/level-test/latest')) return extra.latest ? extra.latest(url) : jsonResponse({});
     if (url === '/api/settings/weekly-goal') {
       seen.goals.push(JSON.parse(options.body).goal);
       return extra.goal ? extra.goal() : jsonResponse({ goal: JSON.parse(options.body).goal });
@@ -844,4 +845,62 @@ test('a 1분 말하기 recent theme reads 1분 말하기', async () => {
   const card = $('recent-themes').children[0];
   assert.equal(text(card), '카페·음식점 주문1분 말하기');
   assert.equal(card.dataset.mode, 'timed');
+});
+
+/* ---------- 레벨 테스트 card ---------- */
+
+const LATEST = (byLanguage) => (url) => {
+  const lang = new URL(url, 'http://x').searchParams.get('language');
+  const v = byLanguage[lang];
+  return v instanceof Error ? jsonResponse({ detail: 'x' }, { ok: false, status: 500 }) : jsonResponse({ result: v });
+};
+const deepText = (n) => (n.textContent || '') + (n.childNodes || []).map(deepText).join('');
+const cardOpen = () => !$('leveltest-home').classList.contains('is-collapsed');
+
+test('no level test yet in this language: the card offers one, with IELTS and TOEFL for English', async () => {
+  state.language = 'en';
+  const asked = [];
+  homeRoutes(PAYLOAD(), { latest: (url) => { asked.push(url); return LATEST({ en: null })(url); } });
+  await home.loadHome();
+  assert.deepEqual(asked, ['/api/level-test/latest?language=en']);
+  const card = $('leveltest-home');
+  assert.equal(card.hidden, false);
+  assert.ok(cardOpen());
+  assert.equal(card.getAttribute('aria-hidden'), 'false');
+  assert.equal(card.inert, false);
+  assert.equal(deepText($('leveltest-home-text')), '레벨 테스트 · 7분이면 내 수준과 IELTS·TOEFL 예상 점수를 알 수 있어요');
+});
+
+test('a finished level test in this language: no card', async () => {
+  state.language = 'en';
+  homeRoutes(PAYLOAD(), { latest: LATEST({ en: { cefr: 'B1', step: '상위' } }) });
+  await home.loadHome();
+  assert.equal(cardOpen(), false);
+  assert.equal($('leveltest-home').getAttribute('aria-hidden'), 'true');
+  assert.equal($('leveltest-home').inert, true);
+});
+
+test('the card is decided again on a language switch, and Japanese names JF Standard', async () => {
+  const latest = LATEST({ en: null, ja: { cefr: 'A2', step: '하위' } });
+  state.language = 'en';
+  homeRoutes(PAYLOAD(), { latest });
+  await home.loadHome();
+  assert.ok(cardOpen());
+  state.language = 'ja';
+  await home.loadHome();
+  assert.equal(cardOpen(), false, 'Japanese has a test: the card shuts');
+  homeRoutes(PAYLOAD(), { latest: LATEST({ en: null, ja: null }) });
+  await home.loadHome();
+  assert.ok(cardOpen());
+  assert.equal(deepText($('leveltest-home-text')), '레벨 테스트 · 7분이면 내 수준과 JF 스탠다드 레벨을 알 수 있어요');
+  state.language = 'en';
+});
+
+test('the latest-result request failing keeps the card shut and the rest of home loads', async () => {
+  state.language = 'en';
+  homeRoutes(PAYLOAD({ review: { due: 2, first: { id: 5, fixed: 'Hi.' } } }), { latest: LATEST({ en: new Error() }) });
+  await home.loadHome();
+  assert.equal(cardOpen(), false);
+  assert.equal($('review-home').classList.contains('is-collapsed'), false);
+  assert.equal($('week-card').hidden, false);
 });

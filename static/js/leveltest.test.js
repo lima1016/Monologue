@@ -101,6 +101,8 @@ await import('./main.js');
 const homeClick = $('btn-leveltest-home').listeners.click[0];
 const mypageClick = $('btn-mypage').listeners.click[0];
 const startClick = $('lt-start').listeners.click[0];
+const resultBackClick = $('lt-result-back').listeners.click[0];
+const homeCardStart = $('leveltest-home-start').listeners.click[0];
 await new Promise((resolve) => setTimeout(resolve, 20));
 
 /* ---------- a clock that moves when told ---------- */
@@ -818,6 +820,150 @@ test('every slot is an .lt-slot in one card, and only a slot coming in gets the 
   assert.equal($('lt-item').classList.contains('lt-enter'), false);
 });
 
+/* ---------- the result ---------- */
+
+const NOTE = '말하기만 본 추정이에요 · 공식 점수가 아니에요';
+const EN_RESULT = {
+  test_id: 7, language: 'en', finished_at: '2026-09-19T10:00:00+00:00', cefr: 'B1', step: '상위',
+  app_level: 'intermediate',
+  ei: { score: 27, max: 48, by_level: { A1: [8, 8], A2: [7, 8], B1: [9, 12], B2: [3, 12], C1: [0, 8] } },
+  answers: [
+    { q: 0, text: 'I like weekends.', cefr: 'B1', comment: '문장을 이어 말하는 힘이 좋아요.', wpm: 90, long_pauses: 1 },
+    { q: 1, text: 'My city is big.', cefr: 'A2', comment: '이유를 하나 더 붙여 보세요.', wpm: 70, long_pauses: 3 },
+  ],
+  ielts: '4.5–5.0', toefl: { band: '3.5', old: '18–19' }, jf: null, note: NOTE,
+};
+const JA_RESULT = {
+  ...EN_RESULT, language: 'ja', cefr: 'B1', step: '하위', ielts: null, toefl: null,
+  jf: 'JF 스탠다드 B1', note: `${NOTE} · JLPT에는 말하기 시험이 없어 환산하지 않아요`,
+};
+
+const deep = (n) => (n.textContent || '') + (n.childNodes || []).map(deep).join('');
+function byClass(node, cls, out = []) {
+  if (node.classList && node.classList.contains(cls)) out.push(node);
+  for (const c of node.children || []) byClass(c, cls, out);
+  return out;
+}
+const resultText = () => $('lt-result-body').children.map(deep).join('\n');
+
+function onResultScreen() {
+  resetDom();
+  router.register('leveltest', 'leveltest');
+  router.register('home', 'home');
+  router.register('mypage', 'mypage');
+  router.show('home');
+}
+
+test('the result in English: the level large, IELTS and TOEFL with the old score, the note, the app level, 홈으로', () => {
+  onResultScreen();
+  lt.renderLevelResult(EN_RESULT);
+  assert.equal(router.current(), 'leveltest');
+  assert.deepEqual(shown(), ['lt-result']);
+  const body = $('lt-result-body');
+  assert.equal(byClass(body, 'lt-cefr')[0].textContent, 'B1 상위');
+  const scales = byClass(body, 'lt-scales')[0].children.map(deep);
+  assert.deepEqual(scales, ['IELTS 말하기 4.5–5.0 예상', 'TOEFL 말하기 3.5 예상 (옛 점수 18–19)']);
+  assert.equal(byClass(body, 'lt-result-note')[0].textContent, NOTE);
+  assert.equal(byClass(body, 'lt-app-level')[0].textContent, '앱 난이도가 중급으로 맞춰졌어요');
+  assert.equal($('lt-result-back').textContent, '홈으로');
+  assert.equal(lt.levelResultFrom(), 'home');
+});
+
+test('the sentence score and a bar for each level, A1 to C1, filled by width', () => {
+  onResultScreen();
+  lt.renderLevelResult(EN_RESULT);
+  const body = $('lt-result-body');
+  assert.equal(byClass(body, 'lt-ei-score')[0].textContent, '27/48');
+  const bars = byClass(body, 'lt-level-bar');
+  assert.deepEqual(bars.map((b) => byClass(b, 'lt-level-name')[0].textContent), ['A1', 'A2', 'B1', 'B2', 'C1']);
+  assert.deepEqual(bars.map((b) => byClass(b, 'lt-level-n')[0].textContent), ['8/8', '7/8', '9/12', '3/12', '0/8']);
+  assert.deepEqual(bars.map((b) => byClass(b, 'lt-level-fill')[0].style.width), ['100%', '88%', '75%', '25%', '0%']);
+});
+
+test('a line on each answer, headed by its question; an empty or missing comment is no line', () => {
+  onResultScreen();
+  lt.renderLevelResult(EN_RESULT);
+  assert.deepEqual(byClass($('lt-result-body'), 'lt-answer-line').map(deep),
+    ['질문 1 · 문장을 이어 말하는 힘이 좋아요.', '질문 2 · 이유를 하나 더 붙여 보세요.']);
+  lt.renderLevelResult({ ...EN_RESULT, answers: [{ ...EN_RESULT.answers[0], comment: '' }, EN_RESULT.answers[1]] });
+  assert.deepEqual(byClass($('lt-result-body'), 'lt-answer-line').map(deep), ['질문 2 · 이유를 하나 더 붙여 보세요.']);
+  lt.renderLevelResult({ ...EN_RESULT, answers: [{ ...EN_RESULT.answers[0], comment: null, cefr: null }] });
+  assert.equal(byClass($('lt-result-body'), 'lt-answers').length, 0);
+  // The rest of the result is still there.
+  assert.equal(byClass($('lt-result-body'), 'lt-cefr')[0].textContent, 'B1 상위');
+});
+
+test('model text goes in as text, never as markup', () => {
+  onResultScreen();
+  const comment = '<img src=x onerror=alert(1)> 좋아요';
+  lt.renderLevelResult({ ...EN_RESULT, answers: [{ ...EN_RESULT.answers[0], comment }] });
+  const line = byClass($('lt-result-body'), 'lt-answer-line')[0];
+  assert.equal(deep(line), `질문 1 · ${comment}`);
+  assert.equal(line.innerHTML, '');
+});
+
+test('the result in Japanese: JF Standard and the JLPT note, no IELTS or TOEFL', () => {
+  onResultScreen();
+  lt.renderLevelResult(JA_RESULT);
+  const body = $('lt-result-body');
+  assert.equal(byClass(body, 'lt-cefr')[0].textContent, 'B1 하위');
+  assert.deepEqual(byClass(body, 'lt-scales')[0].children.map(deep), ['JF 스탠다드 B1']);
+  assert.doesNotMatch(resultText(), /IELTS|TOEFL/);
+  assert.equal(byClass(body, 'lt-result-note')[0].textContent,
+    '말하기만 본 추정이에요 · 공식 점수가 아니에요 · JLPT에는 말하기 시험이 없어 환산하지 않아요');
+});
+
+test('each app level is named: 초급, 중급, 고급', () => {
+  onResultScreen();
+  for (const [level, name] of [['beginner', '초급'], ['intermediate', '중급'], ['advanced', '고급']]) {
+    lt.renderLevelResult({ ...EN_RESULT, app_level: level });
+    assert.equal(byClass($('lt-result-body'), 'lt-app-level')[0].textContent, `앱 난이도가 ${name}으로 맞춰졌어요`);
+  }
+});
+
+test('the end of a test draws the result through the real renderer, and 홈으로 goes home', async () => {
+  lt.view.renderLevelResult = (r) => lt.renderLevelResult(r);
+  await start({ finish: () => jsonResponse(EN_RESULT) });
+  await throughItems();
+  await answerFor();
+  await answerFor();
+  await flush();
+  assert.deepEqual(shown(), ['lt-result']);
+  assert.equal(byClass($('lt-result-body'), 'lt-cefr')[0].textContent, 'B1 상위');
+  assert.equal($('lt-result-back').textContent, '홈으로');
+  resultBackClick();
+  await flush();
+  assert.equal(router.current(), 'home');
+  assert.equal(st().step, 'idle');
+});
+
+test('opened from my page: the same screen, ← 마이페이지, and it goes back there', async () => {
+  onResultScreen();
+  routes();
+  router.show('mypage');
+  lt.renderLevelResult(EN_RESULT, { from: 'mypage' });
+  assert.equal(router.current(), 'leveltest');
+  assert.deepEqual(shown(), ['lt-result']);
+  assert.equal($('lt-result-back').textContent, '← 마이페이지');
+  assert.equal(lt.levelResultFrom(), 'mypage');
+  resultBackClick();
+  await flush();
+  assert.equal(router.current(), 'mypage');
+  // A result drawn afterwards at the end of a test goes home again.
+  lt.renderLevelResult(EN_RESULT);
+  assert.equal($('lt-result-back').textContent, '홈으로');
+});
+
+test("home's 레벨 테스트 card: 시작 opens the test at its intro", async () => {
+  onResultScreen();
+  micMode = 'ok';
+  routes();
+  homeCardStart();
+  assert.equal(router.current(), 'leveltest');
+  assert.equal(st().step, 'intro');
+  assert.deepEqual(shown(), ['lt-intro']);
+});
+
 /* ---------- CSS ---------- */
 
 // Line endings normalised: a Windows checkout with core.autocrlf turns the
@@ -850,4 +996,20 @@ test('the slot fade is opacity only, and reduced motion switches it and the dot 
     .map((m) => m[1]).join('\n');
   assert.match(reduced, /\.lt-slot\.lt-enter[^{]*\{[^}]*animation: none/);
   assert.match(reduced, /\.lt-dot[^{]*\{[^}]*animation: none/);
+});
+
+test('the result, the home card and my page\'s level line move by nothing but opacity, rows and width', () => {
+  for (const sel of ['.lt-result-body', '.lt-cefr', '.lt-level-bar', '.lt-level-track', '.lt-level-fill',
+    '#leveltest-home', '#leveltest-home.is-collapsed', '.leveltest-home-box', '.level-line', '.level-actions']) {
+    assert.doesNotMatch(ruleBody(sel), /transform/, sel);
+  }
+  const home = css.slice(css.indexOf('/* 레벨 테스트 card'), css.indexOf('.leveltest-home-text b'));
+  assert.ok(home.length > 0);
+  assert.doesNotMatch(home.replace(/\/\*[\s\S]*?\*\//g, ''), /transform/);
+  assert.match(ruleBody(':where(#leveltest-home)'), /transition: grid-template-rows[^;]*opacity/);
+  // The head line holds a button row's room whether or not its buttons are there.
+  assert.match(ruleBody('.level-line'), /min-height: calc\(/);
+  const reduced = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/g)]
+    .map((m) => m[1]).join('\n');
+  assert.match(reduced, /#leveltest-home \{ transition: none; \}/);
 });
