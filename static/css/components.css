@@ -606,8 +606,10 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 #home .modes .mode:hover { background: var(--accent-soft); }
 /* Four modes at phone width left each 78px -- 자유 상황극 broke mid-word.
    Two by two there instead. */
+/* The fifth, 1분 말하기, has the last row to itself rather than half of it. */
 @media (max-width: 480px) {
   .modes { display: grid; grid-template-columns: 1fr 1fr; }
+  .modes .mode:nth-child(5) { grid-column: 1 / -1; }
 }
 #home .modes .mode:hover .d { color: var(--text-dim); }
 
@@ -655,6 +657,41 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 /* A placeholder card: the real card's padding and its two lines (.t, .s) as
    blank text, so it is the loaded card's height. */
 .theme-card.skeleton { pointer-events: none; }   /* no hover tint, no pointer */
+
+/* 1분 말하기's questions (#pick-questions). The words line and 다시 시도 share
+   one row that is always there (held by .is-invisible, R5); the list keeps a
+   floor of three one-line cards, so #pick-own and 시작 under it stay put while
+   the questions are made, land, or fail. Every line has a fixed line-height so
+   that floor is the loaded cards' own height. */
+#pick-questions { display: flex; flex-direction: column; gap: var(--space-2); }
+.question-head { display: flex; align-items: center; gap: var(--space-3);
+                 min-height: calc(var(--text-sm) * 1.55 + var(--space-1) * 2); }
+.question-head .hint { flex: 1; color: var(--text-dim); }
+#pick-question-retry { font-size: var(--text-sm); padding: var(--space-1) var(--space-3); }
+.question-list {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  min-height: calc(3 * (var(--space-3) * 2 + var(--space-1) * 2
+                        + var(--text-base) * 1.5 + var(--text-sm) * 1.45 + var(--text-xs) * 1.45)
+                   + 2 * var(--space-2));
+}
+/* A theme card's tile: sunken, raised when chosen (.on), tinted on hover. */
+.question-card { display: flex; flex-direction: column; gap: var(--space-1); text-align: left;
+                 border: 0; background: var(--surface-sunken); border-radius: var(--radius-sm);
+                 padding: var(--space-3); }
+.question-card .q { font-size: var(--text-base); font-weight: 650; line-height: 1.5; }
+.question-card .m { font-size: var(--text-sm); color: var(--text-dim); line-height: 1.45; }
+.question-card .h { font-size: var(--text-xs); color: var(--text-faint); line-height: 1.45; }
+.question-card:hover:not(:disabled):not(.on) { background: var(--accent-soft); }
+.question-card.on { background: var(--surface); box-shadow: var(--shadow); }
+.question-card.skeleton { pointer-events: none; }
+/* The learner's own question: #wish's field, since it stands where #wish does. */
+#pick-own {
+  font-size: var(--text-lg); padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius); margin-top: var(--space-2); box-shadow: var(--shadow);
+}
+#pick-own::placeholder { color: var(--text-faint); }
+#pick-own:hover { border-color: var(--text-faint); }
+#pick-own:focus { border-color: var(--accent); }
 
 /* One line tall even while empty: the row is held by .is-invisible (R5). */
 .start-status { display: flex; align-items: center; gap: var(--space-2);

@@ -32,7 +32,7 @@ let reviewFirst = null;
 const GOAL_MIN = 1;
 const GOAL_MAX = 14;
 const START_LABELS = { script: '스크립트로 시작', free: '자유 대화로 시작' };
-const MODE_NAMES = { script: '스크립트', free: '자유 상황극' };
+const MODE_NAMES = { script: '스크립트', free: '자유 상황극', timed: '1분 말하기' };
 
 // Reads an item off /stats/home's `recent_themes` (renderRecentThemes below).
 // A shadowing session there is stored as a flagged script session -- its

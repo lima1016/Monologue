@@ -4,7 +4,8 @@ import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
 import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome } from './home.js';
 import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
-         startFromPick, startTheme, syncLanguageButtons } from './pick.js';
+         startFromPick, startTheme, syncLanguageButtons,
+         selectQuestion, retryQuestions, onOwnInput } from './pick.js';
 import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
@@ -20,6 +21,7 @@ router.register('pick', 'pick');
 router.register('session', 'session');
 router.register('report', 'report');
 router.register('mypage', 'mypage');
+router.register('timed', 'timed');
 router.show('home');
 
 /* ---------- wiring ---------- */
@@ -114,6 +116,16 @@ $('theme-grid').addEventListener('click', (e) => {
   const own = e.target.closest('button[data-scenario]');
   if (own) selectScenario(own.dataset.scenario);
 });
+
+/* 1분 말하기's questions: a card chooses, 다시 시도 asks again, and the field
+   under them is the learner's own question (Enter starts, as #wish does). */
+$('pick-question-list').addEventListener('click', (e) => {
+  const card = e.target.closest('button[data-question]');
+  if (card && !card.disabled) selectQuestion(Number(card.dataset.question));
+});
+$('pick-question-retry').addEventListener('click', retryQuestions);
+$('pick-own').addEventListener('input', onOwnInput);
+$('pick-own').addEventListener('keydown', (e) => { if (e.key === 'Enter') startFromPick(); });
 
 $('btn-start').addEventListener('click', startFromPick);
 $('btn-resume').addEventListener('click', resumeSession);

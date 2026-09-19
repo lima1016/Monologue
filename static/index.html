@@ -93,6 +93,9 @@
         <button type="button" data-mode="lesson" class="mode">
           <span class="n">수업</span><span class="d">선생님과 주제를 잡고</span>
         </button>
+        <button type="button" data-mode="timed" class="mode">
+          <span class="n">1분 말하기</span><span class="d">질문 하나에 1분 동안 말하고 다시 말해 비교</span>
+        </button>
       </div>
 
       <div id="recent-themes-wrap" hidden>
@@ -149,7 +152,16 @@
       <div id="category-tabs" class="tabs" role="tablist"></div>
       <div id="theme-grid" class="theme-grid"></div>
     </div>
-    <div class="home-ask">
+    <!-- 1분 말하기 only: a theme's three questions, or the learner's own. -->
+    <div id="pick-questions" hidden>
+      <div class="question-head">
+        <p id="pick-questions-status" class="hint fade"></p>
+        <button id="pick-question-retry" type="button" class="ghost fade is-invisible" aria-hidden="true"></button>
+      </div>
+      <div id="pick-question-list" class="question-list"></div>
+      <input id="pick-own" type="text" aria-label="직접 입력" placeholder="직접 입력: 말하고 싶은 질문을 써 보세요">
+    </div>
+    <div class="home-ask" id="wish-box">
       <input id="wish" type="text" aria-label="직접 만들기">
       <p id="wish-hint" class="hint"></p>
     </div>
@@ -265,6 +277,9 @@
       </div>
     </div>
   </section>
+
+  <!-- 1분 말하기: timed.js builds it. -->
+  <section id="timed" hidden></section>
 
   <section id="report" hidden>
     <div class="report-main">

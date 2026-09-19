@@ -21,7 +21,7 @@ import * as router from './router.js';
 import { startRespeak, renderReport, canDo, cancelTurn } from './session.js';
 
 const LEVEL_NAMES = { beginner: '초급', intermediate: '중급', advanced: '고급' };
-const MODE_NAMES = { script: '스크립트', free: '자유 상황극', lesson: '수업' };
+const MODE_NAMES = { script: '스크립트', free: '자유 상황극', lesson: '수업', timed: '1분 말하기' };
 
 // A shadowing session is stored as a flagged script session (server design:
 // docs/superpowers/specs/2026-09-19-monologue-shadowing-design.md), so
@@ -802,6 +802,11 @@ function historyRow(item) {
 function historySub(item) {
   if (item.shadowing) return `따라 한 줄 ${item.turns} · 쉐도잉`;
   if (item.mode === 'script') return `말한 문장 ${item.turns} · 대본`;
+  // 1분 말하기 counts rounds, not turns: one round is a minute of speaking.
+  if (item.mode === 'timed') {
+    const rounds = item.rounds ?? 0;
+    return item.graded === 0 ? `${rounds}회` : `${rounds}회 · 고친 곳 ${item.wrong}`;
+  }
   if (item.graded === 0) return `말한 문장 ${item.turns}`;
   return `말한 문장 ${item.turns} · 고친 곳 ${item.wrong}`;
 }
