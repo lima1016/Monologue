@@ -2109,24 +2109,11 @@ async def level_test_answer(test_id: int, q: int, seconds: float = Form(...),
     return {"q": q, "done": True}
 
 
-def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
-    """{q: {"cefr", "comment"}} from one model call, or {} when there is nothing
-    to judge or the model fails -- the test then stands on the sentences alone.
-    A comment that is not Korean becomes "" but its cefr stays: the label is
-    the part the score uses."""
-    if not answers:
-        return {}
-    by_q = {q["q"]: q for q in questions}
-    qa = [{"q": q, "question": by_q[q]["text"], "text": a["text"], "wpm": a["wpm"],
-           "long_pauses": a["long_pauses"]} for q, a in sorted(answers.items())]
-    try:
-        raw = llm.chat_json(prompts.build_level_answers_messages(language, qa),
-                            prompts.level_answers_schema())
-        items = raw.get("answers") if isinstance(raw, dict) else None
-    except Exception:
-        log.warning("level test answer judging failed; the result stands on the sentences",
-                    exc_info=True)
-        return {}
+def _level_judgments(raw, answers: dict) -> dict:
+    """{q: {"cefr", "comment"}} from one model answer. The comment is "" unless
+    it is Korean; a word quoted from that learner's own answer (「週末」) is
+    not a leak."""
+    items = raw.get("answers") if isinstance(raw, dict) else None
     out: dict = {}
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
@@ -2136,7 +2123,46 @@ def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
             continue
         comment = item.get("comment")
         comment = _first_line(comment) if isinstance(comment, str) else None
-        out[q] = {"cefr": cefr, "comment": comment if comment and _is_korean_meaning(comment) else ""}
+        korean = comment and _is_korean_meaning(comment, source=answers[q]["text"] or "")
+        out[q] = {"cefr": cefr, "comment": comment if korean else ""}
+    return out
+
+
+def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
+    """{q: {"cefr", "comment"}} from the model, or {} when there is nothing
+    to judge or the model fails -- the test then stands on the sentences alone.
+
+    A comment that is not Korean earns one re-ask (a Japanese answer pulls the
+    comment into Japanese even with a Korean example); the comments come from
+    the retry, and a comment that leaks twice becomes "". The cefr stays either
+    way -- the label is the part the score uses -- and the first call's label
+    holds wherever the retry fails or leaves it out."""
+    if not answers:
+        return {}
+    by_q = {q["q"]: q for q in questions}
+    qa = [{"q": q, "question": by_q[q]["text"], "text": a["text"], "wpm": a["wpm"],
+           "long_pauses": a["long_pauses"]} for q, a in sorted(answers.items())]
+    messages = prompts.build_level_answers_messages(language, qa)
+    schema = prompts.level_answers_schema()
+    try:
+        raw = llm.chat_json(messages, schema)
+    except Exception:
+        log.warning("level test answer judging failed; the result stands on the sentences",
+                    exc_info=True)
+        return {}
+    out = _level_judgments(raw, answers)
+    if all(j["comment"] for j in out.values()):
+        return out
+    try:
+        retry = _level_judgments(llm.chat_json(
+            prompts.build_level_answers_retry_messages(messages, json.dumps(raw, ensure_ascii=False)),
+            schema), answers)
+    except Exception:
+        log.warning("level test comment re-ask failed; the first labels stand", exc_info=True)
+        retry = {}
+    for q, j in retry.items():
+        first = out.get(q, {})
+        out[q] = {"cefr": j["cefr"], "comment": j["comment"] or first.get("comment", "")}
     return out
 
 

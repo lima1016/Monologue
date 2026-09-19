@@ -986,6 +986,8 @@ LEVEL_ANSWERS_SYSTEM = """당신은 한국인 학생의 {lang} 말하기 수준�
   - 문장의 길이와 짜임, 어휘의 폭, 말의 흐름(분당 낱말 수, 3초 넘게 멈춘 횟수)을 봅니다
   - 답이 비어 있거나 한두 단어뿐이면 A1입니다
 - comment: 한국어 평 한 줄. 60자 이내. 잘한 점 하나와 부족한 점 하나를 씁니다
+  - 답이 일본어여도 comment는 반드시 한국어로 씁니다. 답이 영어여도 마찬가지입니다
+  - 답의 낱말을 인용할 때만 「」 안에 그대로 씁니다
 
 마크다운과 이모지는 쓰지 않습니다."""
 
@@ -1039,6 +1041,18 @@ def _level_answers_request(qa) -> str:
                       f"답: {a['text'] or '(말이 없음)'}\n"
                       f"분당 낱말 수: {a['wpm']} · 3초 넘게 멈춤: {a['long_pauses']}번")
     return "\n\n".join(blocks) + f"\n\n답 {len(qa)}개를 각각 판정해 주세요."
+
+
+LEVEL_ANSWERS_RETRY = ("방금 답의 comment에 한국어가 아닌 글자가 섞였습니다. 판정은 그대로 두고 "
+                       "comment만 한국어로 다시 쓰세요. 답의 낱말을 인용할 때만 「」 안에 씁니다.")
+
+
+def build_level_answers_retry_messages(messages, bad_answer) -> list[dict]:
+    """The answer whose comments leaked, shown back once with a Korean-only ask --
+    the same shape as build_translate_retry_messages."""
+    return [*messages,
+            {"role": "assistant", "content": bad_answer},
+            {"role": "user", "content": LEVEL_ANSWERS_RETRY}]
 
 
 def build_level_answers_messages(language, qa) -> list[dict]:

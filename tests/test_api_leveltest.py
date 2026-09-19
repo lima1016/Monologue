@@ -387,6 +387,59 @@ def test_a_comment_that_is_not_korean_is_blanked_but_its_cefr_stays(client, monk
     assert res["cefr"] == "B2", "the labels still count toward the boundary rule"
 
 
+JA_SEGMENTS = [{"start": 0.0, "end": 2.0, "text": "週末はよく寝ます。"},
+               {"start": 2.5, "end": 4.5, "text": "友達に会います。"}]
+
+
+def _ja_finish(client, monkeypatch, *model_answers):
+    Heard(monkeypatch)
+    Segments(monkeypatch, JA_SEGMENTS)
+    model = Model(monkeypatch, *model_answers)
+    tid = _start(client, "ja")["test_id"]
+    _repeat(client, tid, perfect=7, language="ja")
+    _answer(client, tid, 0)
+    return model, client.post(f"/api/level-test/{tid}/finish").json()
+
+
+JA_COMMENT = {"answers": [{"q": 0, "cefr": "B1", "comment": "週末の話はよくできましたが、文が短いです。"}]}
+
+
+def test_a_japanese_comment_is_asked_again_and_the_korean_retry_is_kept(client, monkeypatch):
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, {"answers": [
+        {"q": 0, "cefr": "B1", "comment": "주말 이야기는 잘 전했지만 문장이 짧았어요."}]})
+    assert len(model.calls) == 2
+    assert model.calls[1]["messages"][-1]["content"] == prompts.LEVEL_ANSWERS_RETRY
+    assert model.calls[1]["messages"][-2] == {"role": "assistant",
+                                              "content": json.dumps(JA_COMMENT, ensure_ascii=False)}
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [("B1", "주말 이야기는 잘 전했지만 문장이 짧았어요.")]
+
+
+def test_a_comment_leaking_twice_is_blank_and_the_model_is_asked_only_twice(client, monkeypatch):
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, JA_COMMENT)
+    assert len(model.calls) == 2
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [("B1", "")]
+
+
+@pytest.mark.parametrize("retry", [RuntimeError("ollama down"), {"answers": []}])
+def test_the_first_label_stands_when_the_retry_fails_or_leaves_it_out(client, monkeypatch, retry):
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, retry)
+    assert len(model.calls) == 2
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [("B1", "")]
+
+
+def test_a_korean_comment_quoting_the_answer_is_kept_without_a_retry(client, monkeypatch):
+    model, res = _ja_finish(client, monkeypatch, {"answers": [
+        {"q": 0, "cefr": "B1", "comment": "「週末」 이야기를 잘 전했지만 문장이 짧았어요."}]})
+    assert len(model.calls) == 1
+    assert res["answers"][0]["comment"] == "「週末」 이야기를 잘 전했지만 문장이 짧았어요."
+
+
+def test_the_answers_prompt_says_comments_are_korean_even_for_japanese():
+    msgs = prompts.build_level_answers_messages("ja", [
+        {"q": 0, "question": "週末は何をしますか。", "text": "寝ます。", "wpm": 20, "long_pauses": 2}])
+    assert "답이 일본어여도 comment는 반드시 한국어로 씁니다." in msgs[0]["content"]
+
+
 def test_a_label_outside_cefr_is_not_a_judgment(client, monkeypatch):
     Heard(monkeypatch)
     Segments(monkeypatch)
