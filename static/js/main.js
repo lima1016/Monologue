@@ -154,11 +154,11 @@ $('pick-question-list').addEventListener('click', (e) => {
 });
 $('pick-question-retry').addEventListener('click', retryQuestions);
 $('pick-own').addEventListener('input', onOwnInput);
-$('pick-own').addEventListener('keydown', (e) => { if (e.key === 'Enter') startFromPick(); });
+$('pick-own').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) startFromPick(); });
 
 $('btn-start').addEventListener('click', startFromPick);
 $('btn-resume').addEventListener('click', resumeSession);
-$('wish').addEventListener('keydown', (e) => { if (e.key === 'Enter') startFromPick(); });
+$('wish').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) startFromPick(); });
 $('btn-send').addEventListener('click', sendTurn);
 $('btn-next').addEventListener('click', nextScriptLine);
 $('btn-end').addEventListener('click', endSession);
