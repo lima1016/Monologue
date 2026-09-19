@@ -59,7 +59,7 @@ def test_the_loading_words_sit_over_the_skeleton_instead_of_adding_a_row():
 
 def test_the_sections_ease_back_from_a_dim():
     css = _all_css()
-    marker = ":where(#level-card, #review-section, #weak-section, #history-section) {"
+    marker = ":where(#level-card, #growth-card, #review-section, #weak-section, #history-section) {"
     assert "transition: opacity var(--dur-fast) ease" in _rule_body(css, marker)
 
 
@@ -132,7 +132,7 @@ def test_the_coach_body_keeps_its_height_while_loading():
 
 
 def _growth_rules():
-    """Every rule of the 성장 tab (growth.js) -- selector and body -- read
+    """Every rule of the 성장 card and its fold (growth.js) -- selector and body -- read
     with Windows line endings folded away and comments dropped."""
     css = re.sub(r"/\*.*?\*/", "", _all_css().replace("\r\n", "\n"), flags=re.S)
     return [(m.group(1).strip(), m.group(2)) for m in re.finditer(r"([^{}]*)\{([^{}]*)\}", css)
@@ -167,7 +167,7 @@ def test_the_calendar_is_one_hue_mixed_from_theme_tokens():
     --accent mixed into --surface, rising -- so it follows every theme and
     dark mode. The cells and the key read the same four steps."""
     rules = dict(_growth_rules())
-    heat = rules["#growth-section"]
+    heat = rules["#growth-card"]
     steps = re.findall(r"--heat-(\d): color-mix\(in oklab, var\(--accent\) (\d+)%, var\(--surface\)\);", heat)
     assert [s for s, _ in steps] == ["1", "2", "3", "4"]
     percents = [int(p) for _, p in steps]
@@ -194,3 +194,31 @@ def test_growth_marks_wear_the_accent_and_its_text_wears_text_tokens():
     for sel in (".growth-chart .axis", ".growth-chart .end-label"):
         assert re.search(r"fill: var\(--text(-faint|-dim)?\)", rules[sel]), sel
         assert "accent" not in rules[sel], sel
+
+
+def test_the_summary_card_keeps_a_modest_floor_with_nothing_to_show():
+    """No practice at all: one guidance line, and the card holds a floor built
+    from tokens rather than shrinking to that line."""
+    body = dict(_growth_rules())[".growth-guide"]
+    assert re.search(r"min-height: calc\([^;]*var\(--text-sm\)", body)
+
+
+def test_the_details_toggle_holds_one_width_for_both_labels():
+    """자세히 보기 ▾ and 접기 ▴ are different lengths; the button keeps one width."""
+    assert "min-width: calc(" in dict(_growth_rules())[".growth-more"]
+
+
+def test_the_summary_card_dims_and_eases_like_the_other_sections():
+    css = re.sub(r"/\*.*?\*/", "", _all_css().replace("\r\n", "\n"), flags=re.S)
+    lists = re.findall(r":where\(([^)]*)\)\s*\{\s*transition", css)
+    assert any("#growth-card" in l and "#level-card" in l for l in lists)
+    reduced = re.search(r"prefers-reduced-motion: reduce\)\s*\{[^@]*:where\(([^)]*#level-card[^)]*)\)\s*\{\s*transition: none", css)
+    assert reduced and "#growth-card" in reduced.group(1)
+
+
+def test_the_details_fold_keeps_its_room_as_a_margin_not_padding():
+    """Padding on a fold's inner box would survive the 0fr row and leave a
+    sliver showing while shut; the space above the first block is a margin."""
+    rules = dict(_growth_rules())
+    assert "padding" not in rules["#growth-details-body"]
+    assert "margin-top" in rules["#growth-details-body > :first-child"]

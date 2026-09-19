@@ -854,20 +854,16 @@ test('arrow keys move between tabs and wrap', async () => {
   assert.equal(document.activeElement, $('tab-weak'));
   key('ArrowLeft', 'tab-weak');
   key('ArrowLeft', 'tab-review');
-  // 성장 is last in the row, so it is where ← from the first tab wraps to.
-  assert.equal($('tab-growth').getAttribute('aria-selected'), 'true');
-  key('ArrowLeft', 'tab-growth');
+  // 기록 is last in the row, so it is where ← from the first tab wraps to.
   assert.equal($('tab-history').getAttribute('aria-selected'), 'true');
   key('ArrowRight', 'tab-history');
-  assert.equal($('tab-growth').getAttribute('aria-selected'), 'true');
-  key('ArrowRight', 'tab-growth');
   assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
   key('Home', 'tab-history');
   assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
   assert.equal(key('End', 'tab-review'), true);
-  assert.equal($('tab-growth').getAttribute('aria-selected'), 'true');
-  assert.equal(document.activeElement, $('tab-growth'));
-  assert.equal(key('a', 'tab-growth'), false);
+  assert.equal($('tab-history').getAttribute('aria-selected'), 'true');
+  assert.equal(document.activeElement, $('tab-history'));
+  assert.equal(key('a', 'tab-history'), false);
 });
 
 test('the review tab carries the count of reviews left', async () => {
@@ -1219,113 +1215,192 @@ test('다시 테스트 and 레벨 테스트 (7분) open the test at its intro', 
 });
 
 
-/* ---------- 성장 ---------- */
+/* ---------- 성장: the summary card above the tabs ---------- */
 
-test('성장 is the fourth tab: selected, remembered, and reopened on', async () => {
-  routes();
-  const store = stubStorage();
-  await mypage.openMypage();
-  assert.equal($('growth-section').hidden, true);
-  mypage.selectTab('growth');
-  assert.equal(store['mypage-tab'], 'growth');
-  assert.equal($('growth-section').hidden, false);
-  assert.equal($('tab-growth').getAttribute('aria-selected'), 'true');
-  assert.equal($('tab-growth').getAttribute('tabindex'), '0');
-  for (const t of ['review', 'weak', 'history']) assert.equal($(`tab-${t}`).getAttribute('aria-selected'), 'false');
-  await mypage.openMypage();
-  assert.equal($('tab-growth').getAttribute('aria-selected'), 'true');
-  assert.equal($('growth-section').hidden, false);
-});
+const card = () => $('growth-body');
+const more = () => $('btn-growth-more');
+const details = () => $('growth-details-body');
 
-test('the growth tab and panel name each other in index.html', async () => {
+test('성장 is no longer a tab: three tabs in index.html, and the card sits between the level line and the tabs', async () => {
   const { readFileSync } = await import('node:fs');
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.match(html, /<button type="button" role="tab" id="tab-growth" data-tab="growth" aria-controls="growth-section"[^>]*>성장<\/button>/);
-  assert.match(html, /<div id="growth-section" class="panel" role="tabpanel" aria-labelledby="tab-growth" hidden>/);
+  assert.doesNotMatch(html, /id="tab-growth"|id="growth-section"/);
+  assert.equal((html.match(/role="tab" /g) || []).length, 3);
+  const level = html.indexOf('id="level-card"');
+  const cardAt = html.indexOf('<section id="growth-card"');
+  const tabs = html.indexOf('id="mypage-tabs"');
+  assert.ok(level > 0 && level < cardAt && cardAt < tabs);
   assert.match(html, /<div id="growth-body"[^>]*\stabindex="-1"/);
+  assert.match(html, /id="btn-growth-more"[^>]*aria-expanded="false"[^>]*aria-controls="growth-details"/);
+  assert.match(html, /<div id="growth-details" class="fold is-collapsed"><div id="growth-details-body" class="fold-inner">/);
 });
 
-test('성장 is asked for only when it is shown, once per load and language', async () => {
-  const seen = routes();
-  stubStorage();
-  await mypage.openMypage();
-  assert.equal(seen.growth, undefined, 'loaded with the rest of the page');
-  mypage.selectTab('growth');
-  mypage.selectTab('review');
-  mypage.selectTab('growth');
-  await settleAll();
-  assert.deepEqual(seen.growth, ['/api/stats/growth?language=en']);
-  assert.match(text($('growth-body')), /연속 1일 · 최장 4일 · 총 30분/);
-  await mypage.openMypage();          // a reload on 성장 asks again, once
-  await settleAll();
-  assert.equal(seen.growth.length, 2);
-  state.language = 'ja';
-  await mypage.openMypage();
-  await settleAll();
-  assert.deepEqual(seen.growth.slice(2), ['/api/stats/growth?language=ja']);
-});
-
-test("while 성장 loads it holds each block's place and says so", async () => {
-  let release;
-  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH())); }) });
+test("a remembered 'growth' tab opens on 복습", async () => {
+  routes();
   stubStorage({ 'mypage-tab': 'growth' });
   await mypage.openMypage();
-  const body = $('growth-body');
-  assert.match(text(body), /기록을 모으는 중이에요/);
-  assert.equal(body.getAttribute('aria-busy'), 'true');
-  const skeletons = byCls(body, 'growth-chart').filter((c) => c.classList.contains('skeleton'));
-  assert.equal(skeletons.length, 4, 'calendar, accuracy and the two 1분 말하기 charts');
-  assert.ok(skeletons.every((c) => /^\d+px$/.test(c.style.height)), 'a placeholder without a height');
-  assert.equal(byCls(body, 'growth-block').length, 4);
+  assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
+  assert.equal($('review-section').hidden, false);
+  // Even when another tab was on screen last: the stored value is no tab.
+  mypage.selectTab('history');
+  globalThis.localStorage.setItem('mypage-tab', 'growth');
+  await mypage.openMypage();
+  assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
+  assert.equal($('history-section').hidden, true);
+});
+
+test('the card loads with the rest of the page, whatever tab is on: calendar, streak, accuracy and 1분 말하기', async () => {
+  const seen = routes();
+  stubStorage({ 'mypage-tab': 'history' });
+  await mypage.openMypage();
+  await settleAll();
+  assert.deepEqual(seen.growth, ['/api/stats/growth?language=en']);
+  assert.equal(byCls(card(), 'cal-cell').length, 112);
+  assert.equal(byCls(card(), 'heat-key').length, 1);
+  assert.equal(byCls(card(), 'growth-streak')[0].textContent, '연속 1일 · 총 30분');
+  assert.match(text(byCls(card(), 'growth-acc')[0]), /^이번 주 정확도 75%/);
+  assert.match(text(byCls(card(), 'growth-timed')[0]), /^1분 말하기 분당 100단어[\s\S]*· 긴 멈춤 2번/);
+  assert.equal(more().classList.contains('is-invisible'), false);
+  assert.equal(more().hidden, false);
+  assert.equal($('growth-card').getAttribute('aria-busy'), null);
+});
+
+test('the card shows ▲ and ▼ from the data, and falls back to the latest week with grading', async () => {
+  const accuracy = GROWTH().accuracy.map((w, i) => (i === 9 ? { ...w, correct: 9, graded: 10 }
+    : i === 10 ? { ...w, correct: 4, graded: 5 } : { ...w, correct: 0, graded: 0 }));
+  const timed = [{ session_id: 8, day: '2026-09-05', wpm: 90, long_pauses: 3, words: 90 },
+                 { session_id: 9, day: '2026-09-12', wpm: 104, long_pauses: 1, words: 104 }];
+  routes({ growth: () => jsonResponse(GROWTH({ accuracy, timed })) });
+  await mypage.openMypage();
+  await settleAll();
+  const acc = byCls(card(), 'growth-acc')[0];
+  assert.match(text(acc), /^지난 주 정확도 80%/);
+  assert.equal(byCls(acc, 'growth-delta')[0].textContent, '▼');
+  const t = byCls(card(), 'growth-timed')[0];
+  assert.match(text(t), /분당 104단어/);
+  assert.equal(byCls(t, 'growth-delta')[0].textContent, '▲');
+  assert.match(text(t), /긴 멈춤 1번/);
+});
+
+test('with no practice at all the card is one guidance line and no 자세히 보기', async () => {
+  routes({ growth: () => jsonResponse(GROWTH({
+    calendar: GROWTH().calendar.map((c) => ({ ...c, turns: 0 })), streak: 0, longest: 0, minutes: 0,
+    accuracy: GROWTH().accuracy.map((w) => ({ ...w, correct: 0, graded: 0 })), timed: [], level_tests: [] })) });
+  await mypage.openMypage();
+  await settleAll();
+  assert.equal(card().children.length, 1);
+  assert.equal(card().children[0].textContent, '연습하면 여기에 쌓여요');
+  assert.equal(byCls(card(), 'growth-chart').length, 0);
+  assert.equal(more().hidden, true);
+  assert.equal(more().getAttribute('aria-expanded'), 'false');
+});
+
+test('자세히 보기 folds the charts open, drawn the first time, and 접기 folds them away', async () => {
+  routes();
+  await mypage.openMypage();
+  await settleAll();
+  assert.equal(more().textContent, '자세히 보기 ▾');
+  assert.equal(more().getAttribute('aria-expanded'), 'false');
+  assert.ok($('growth-details').classList.contains('is-collapsed'));
+  assert.equal(details().children.length, 0, 'charts drawn before the fold was opened');
+  mypage.toggleGrowthDetails();
+  assert.equal(more().getAttribute('aria-expanded'), 'true');
+  assert.equal(more().textContent, '접기 ▴');
+  assert.equal($('growth-details').classList.contains('is-collapsed'), false);
+  assert.deepEqual(byCls(details(), 'growth-block').map((b) => byCls(b, 'label')[0].textContent),
+    ['연습한 날', '정확도 변화', '1분 말하기', '레벨 테스트 기록']);
+  assert.equal(byCls(details(), 'growth-table').length, 4, '표로 보기 under the days, accuracy and both 1분 말하기 charts');
+  assert.match(text(details()), /최장 연속 4일/);
+  const drawn = details().children[0];
+  mypage.toggleGrowthDetails();
+  assert.equal(more().getAttribute('aria-expanded'), 'false');
+  assert.equal(more().textContent, '자세히 보기 ▾');
+  assert.ok($('growth-details').classList.contains('is-collapsed'));
+  mypage.toggleGrowthDetails();
+  assert.equal(details().children[0], drawn, 'opened again, the same answer is not drawn twice');
+});
+
+test('a reload with the fold open draws the new answer under it at once', async () => {
+  routes();
+  await mypage.openMypage();
+  await settleAll();
+  mypage.toggleGrowthDetails();
+  routes({ growth: () => jsonResponse(GROWTH({ longest: 11 })) });
+  await mypage.openMypage();
+  await settleAll();
+  assert.equal(more().getAttribute('aria-expanded'), 'true');
+  assert.match(text(details()), /최장 연속 11일/);
+});
+
+test("while the card loads it holds the calendar's box and its lines, and says so", async () => {
+  let release;
+  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH())); }) });
+  const opening = mypage.openMypage();
+  await settleAll();
+  assert.match(text(card()), /기록을 모으는 중이에요/);
+  assert.equal($('growth-card').getAttribute('aria-busy'), 'true');
+  const box = byCls(card(), 'growth-chart');
+  assert.equal(box.length, 1);
+  assert.ok(box[0].classList.contains('skeleton'));
+  assert.match(box[0].style.height, /^\d+px$/);
+  assert.equal(byCls(card(), 'growth-line').filter((l) => l.classList.contains('skeleton')).length, 3);
+  assert.equal(more().classList.contains('is-invisible'), true, 'the toggle holds its row, unseen');
+  release();
+  await opening;
+  assert.doesNotMatch(text(card()), /모으는 중/);
+  assert.equal($('growth-card').getAttribute('aria-busy'), null);
+  assert.equal(byCls(card(), 'cal-cell').length, 112);
+});
+
+test('a reload dims the painted card in place instead of a skeleton, and wakes it on the answer', async () => {
+  routes();
+  await mypage.openMypage();
+  await settleAll();
+  let release;
+  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH({ streak: 5 }))); }) });
+  const reloading = mypage.openMypage();
+  await settleAll();
+  assert.ok($('growth-card').classList.contains('is-refreshing'));
+  assert.equal($('growth-card').inert, true);
+  assert.equal(byCls(card(), 'skeleton').length, 0, 'a reload drew a skeleton over the painted card');
+  assert.equal(byCls(card(), 'growth-streak')[0].textContent, '연속 1일 · 총 30분');
+  release();
+  await reloading;
+  assert.equal($('growth-card').classList.contains('is-refreshing'), false);
+  assert.equal($('growth-card').inert, false);
+  assert.equal(byCls(card(), 'growth-streak')[0].textContent, '연속 5일 · 총 30분');
+});
+
+test('a card answer from an older load or language is not painted', async () => {
+  let release;
+  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH({ streak: 9 }))); }) });
+  mypage.openMypage();
+  await settleAll();
+  state.language = 'ja';
+  const seen = routes({ growth: () => jsonResponse(GROWTH({ streak: 2 })) });
+  await mypage.openMypage();
   await settleAll();
   release();
   await settleAll();
-  assert.doesNotMatch(text(body), /모으는 중/);
-  assert.equal(body.getAttribute('aria-busy'), null);
-  assert.equal(byCls(body, 'cal-cell').length, 112);
+  assert.deepEqual(seen.growth, ['/api/stats/growth?language=ja']);
+  assert.equal(byCls(card(), 'growth-streak')[0].textContent, '연속 2일 · 총 30분');
 });
 
-test('성장 that fails says so with 다시 시도, and trying again draws it and takes focus', async () => {
+test('a card that fails says so with 다시 시도, and trying again draws it and takes focus', async () => {
   let fail = true;
   const seen = routes({ growth: () => (fail ? jsonResponse({ detail: 'x' }, { ok: false, status: 500 }) : jsonResponse(GROWTH())) });
-  stubStorage({ 'mypage-tab': 'growth' });
   await mypage.openMypage();
   await settleAll();
-  assert.match(text($('growth-body')), /불러오지 못했어요/);
-  assert.equal(byCls($('growth-body'), 'growth-retry')[0].textContent, '다시 시도');
-  assert.equal($('growth-body').getAttribute('aria-busy'), null);
+  assert.match(text(card()), /불러오지 못했어요/);
+  assert.equal(byCls(card(), 'growth-retry')[0].textContent, '다시 시도');
+  assert.equal(more().hidden, true);
+  assert.equal($('growth-card').getAttribute('aria-busy'), null);
+  // The rest of the page is not held up by it.
+  assert.equal($('review-count').textContent, '오늘의 복습 2개');
   fail = false;
   await mypage.loadGrowth({ force: true });
   assert.equal(seen.growth.length, 2);
-  assert.equal(byCls($('growth-body'), 'cal-cell').length, 112);
-  assert.equal(document.activeElement, $('growth-body'));
+  assert.equal(byCls(card(), 'cal-cell').length, 112);
+  assert.equal(more().hidden, false);
+  assert.equal(document.activeElement, card());
 });
-
-test('a failed 성장 is asked for again the next time the tab is shown', async () => {
-  const seen = routes({ growth: () => jsonResponse({ detail: 'x' }, { ok: false, status: 500 }) });
-  stubStorage();
-  await mypage.openMypage();
-  mypage.selectTab('growth');
-  await settleAll();
-  mypage.selectTab('review');
-  mypage.selectTab('growth');
-  await settleAll();
-  assert.equal(seen.growth.length, 2);
-});
-
-test('a 성장 answer from an older load or language is not painted', async () => {
-  let release;
-  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH({ streak: 9 }))); }) });
-  stubStorage({ 'mypage-tab': 'growth' });
-  await mypage.openMypage();
-  state.language = 'ja';
-  routes({ growth: () => jsonResponse(GROWTH({ streak: 2, level_tests: [] })) });
-  await mypage.openMypage();
-  await settleAll();
-  release();
-  await settleAll();
-  assert.match(text($('growth-body')), /연속 2일/);
-  assert.doesNotMatch(text($('growth-body')), /연속 9일/);
-  assert.match(text($('growth-body')), /레벨 테스트를 보면 기록이 쌓여요/);
-});
-

@@ -1,7 +1,8 @@
-/* 마이페이지 성장 tab: "am I getting better?" drawn from GET /stats/growth --
-   no model call behind any of it. mypage.js owns when it loads (the first
-   time the tab is shown per load and language); this module only turns one
-   answer into nodes.
+/* 마이페이지's summary card: "how is practice going?" drawn from GET
+   /stats/growth -- no model call behind any of it. mypage.js owns when it
+   loads (with the rest of the page, per load and language) and when the
+   자세히 보기 fold opens; this module only turns one answer into nodes: the
+   card (renderSummary) and the charts under its fold (renderDetails).
 
    Charts are inline SVG built here, one axis each, no library. The viewBox
    is the container's own width in pixels (`width`), so a label set at 11
@@ -23,6 +24,9 @@ const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
 export const GROWTH_TEXT = {
   wait: '기록을 모으는 중이에요',
+  guide: '연습하면 여기에 쌓여요',
+  more: '자세히 보기 ▾',
+  less: '접기 ▴',
   table: '표로 보기',
   calendarEmpty: '연습하면 여기에 날마다 한 칸씩 채워져요',
   accuracyEmpty: '채점된 문장이 쌓이면 주별 정확도가 보여요',
@@ -56,43 +60,107 @@ export function layout(width) {
   };
 }
 
-/* The loading state: each block's label and a placeholder the height of the
-   chart that replaces it -- including the heat key row and the 표로 보기
-   line every loaded block below also carries, or the tab would grow the
-   moment the real answer lands and those rows appear for the first time. */
-export function growthSkeleton(width) {
+/* The card's loading state: the calendar's own box, its key row, and the
+   three lines a practised learner's card carries -- so the answer lands
+   without the card growing under the tabs. */
+export function summarySkeleton(width) {
   const L = layout(width);
-  const chart = (w, h, cls = '') => {
-    const box = el('div', `growth-chart skeleton ${cls}`.trim());
-    box.style.height = `${h}px`;
-    box.style.maxWidth = `${w}px`;
-    return box;
-  };
-  const small = () => {
-    const box = el('div', 'growth-small');
-    box.append(skelLine('growth-sub'), chart(L.small.width, L.small.height), tablePlaceholder());
-    return box;
-  };
-  const pair = el('div', `growth-pair${L.small.split ? ' is-split' : ''}`);
-  pair.append(small(), small());
-  return [
-    block('연습 잔디', chart(L.cal.width, L.cal.height), heatKeyRow(), skelLine('growth-summary'), tablePlaceholder()),
-    block('정확도 변화', chart(L.acc.width, L.acc.height), tablePlaceholder()),
-    block('1분 말하기', pair),
-    block('레벨 테스트 기록', skelLine('growth-test'), skelLine('growth-test')),
-  ].map((b) => { b.classList.add('is-skeleton'); return b; });
+  const cal = el('div', 'growth-chart skeleton');
+  cal.style.height = `${L.cal.height}px`;
+  cal.style.maxWidth = `${L.cal.width}px`;
+  const lines = el('div', 'growth-lines');
+  lines.append(skelLine('growth-line'), skelLine('growth-line'), skelLine('growth-line'));
+  const box = el('div', 'growth-summary-box is-skeleton');
+  box.append(cal, heatKeyRow(), lines);
+  return [box];
 }
 
-/* ---------- the whole tab ---------- */
+/* ---------- the summary card (my page, above the tabs) ---------- */
 
-export function renderGrowth(g, width) {
+/* Anything to look back on at all: a day spoken on, a graded sentence, a
+   1분 말하기, a level test, or time on the clock. */
+export function hasPractice(g) {
+  return Boolean((g.calendar || []).some((c) => c.turns > 0) || (g.minutes || 0) > 0
+    || (g.accuracy || []).some((w) => w.graded > 0) || (g.timed || []).length || (g.level_tests || []).length);
+}
+
+/* The calendar and the few lines under it. With nothing at all to show,
+   one line saying what will fill it -- no empty grid, no zeros. */
+export function renderSummary(g, width) {
+  if (!hasPractice(g)) return [el('p', 'hint growth-empty growth-guide', GROWTH_TEXT.guide)];
+  const L = layout(width);
+  const box = el('div', 'growth-summary-box');
+  const cal = g.calendar || [];
+  if (cal.some((c) => c.turns > 0)) box.append(calendarChart(g, L), heatKeyRow());
+  else box.append(el('p', 'hint growth-empty', GROWTH_TEXT.calendarEmpty));
+  const lines = el('div', 'growth-lines');
+  lines.append(el('p', 'growth-line growth-streak', streakText(g)));
+  const acc = accuracyLine(g.accuracy || []);
+  if (acc) lines.append(acc);
+  const timed = timedLine(g.timed || []);
+  if (timed) lines.append(timed);
+  box.append(lines);
+  return [box];
+}
+
+/* 자세히 보기: every chart and table, drawn at the width it is shown at. */
+export function renderDetails(g, width) {
   const L = layout(width);
   return [
-    block('연습 잔디', ...calendarSection(g, L)),
+    block('연습한 날', ...daysSection(g)),
     block('정확도 변화', ...accuracySection(g.accuracy || [], L)),
     block('1분 말하기', ...timedSection(g.timed || [], L)),
     block('레벨 테스트 기록', testsSection(g.level_tests || [])),
   ];
+}
+
+function streakText(g) {
+  return `연속 ${g.streak || 0}일 · 총 ${totalTime(g.minutes || 0)}`;
+}
+
+function totalTime(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (!h) return `${m}분`;
+  return m ? `${h}시간 ${m}분` : `${h}시간`;
+}
+
+function pct(w) {
+  return Math.round((w.correct / w.graded) * 100);
+}
+
+/* This week's accuracy against the week before it that had any; a week with
+   nothing graded yet gives way to the latest week that has. */
+export function accuracyLine(weeks) {
+  const withData = weeks.map((w, i) => (w.graded > 0 ? i : -1)).filter((i) => i >= 0);
+  if (!withData.length) return null;
+  const at = withData[withData.length - 1];
+  const last = weeks.length - 1;
+  const name = at === last ? '이번 주' : at === last - 1 ? '지난 주' : `${weekShort(weeks[at].week)} 주`;
+  const line = el('p', 'growth-line growth-acc', `${name} 정확도 ${pct(weeks[at])}%`);
+  const before = withData[withData.length - 2];
+  if (before !== undefined) line.append(delta(pct(weeks[at]) - pct(weeks[before]), '그 전 주', '그 전 주와 같아요'));
+  return line;
+}
+
+/* The newest 1분 말하기 against the one before it, with its long pauses. */
+export function timedLine(rounds) {
+  if (!rounds.length) return null;
+  const now = rounds[rounds.length - 1];
+  const line = el('p', 'growth-line growth-timed', `1분 말하기 분당 ${now.wpm}단어`);
+  const before = rounds[rounds.length - 2];
+  if (before) line.append(delta(now.wpm - before.wpm, '지난번', '지난번과 같아요'));
+  line.append(document.createTextNode(` · 긴 멈춤 ${now.long_pauses}번`));
+  return line;
+}
+
+function delta(diff, than, same) {
+  const mark = el('span', `growth-delta${diff > 0 ? ' up' : diff < 0 ? ' down' : ''}`,
+    diff > 0 ? '▲' : diff < 0 ? '▼' : '–');
+  mark.setAttribute('aria-label', diff > 0 ? `${than}보다 올랐어요` : diff < 0 ? `${than}보다 내려갔어요` : same);
+  const wrap = el('span', 'growth-delta-wrap');
+  wrap.append(document.createTextNode(' '), mark);
+  return wrap;
 }
 
 /* ---------- 연습 잔디 ---------- */
@@ -115,12 +183,8 @@ export function heatLevels(counts) {
   };
 }
 
-function calendarSection(g, L) {
+function calendarChart(g, L) {
   const cal = g.calendar || [];
-  const summary = el('p', 'growth-summary', summaryText(g));
-  if (!cal.some((c) => c.turns > 0)) {
-    return [el('p', 'hint growth-empty', GROWTH_TEXT.calendarEmpty), summary];
-  }
   const { step, width, height } = L.cal;
   const size = step - CAL.gap;
   const level = heatLevels(cal.map((c) => c.turns));
@@ -163,18 +227,18 @@ function calendarSection(g, L) {
     ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1,
   });
   wrap.classList.add('growth-cal');
-
-  const rows = cal.filter((d) => d.turns > 0).slice().reverse()
-    .map((d) => [dayName(d.day), `${d.turns}문장`]);
-  return [wrap, heatKeyRow(), summary, table(['날짜', '말한 문장'], rows)];
+  return wrap;
 }
 
-function summaryText(g) {
-  const minutes = g.minutes || 0;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  const total = h ? `${h}시간 ${m}분` : `${m}분`;
-  return `연속 ${g.streak || 0}일 · 최장 ${g.longest || 0}일 · 총 ${total}`;
+/* The details' first block: the longest run, and the calendar's days as a
+   table (the grid itself is on the card above). */
+function daysSection(g) {
+  const cal = g.calendar || [];
+  const longest = el('p', 'growth-summary', `최장 연속 ${g.longest || 0}일`);
+  const rows = cal.filter((d) => d.turns > 0).slice().reverse()
+    .map((d) => [dayName(d.day), `${d.turns}문장`]);
+  if (!rows.length) return [longest];
+  return [longest, table(['날짜', '말한 문장'], rows)];
 }
 
 function dayTip(d) {
@@ -367,7 +431,7 @@ function chartSvg(width, height, label) {
   return root;
 }
 
-/* Shared with growthSkeleton (above), so the loading state reserves this
+/* Shared with summarySkeleton (above), so the loading state reserves this
    row's exact height instead of guessing at it -- the four steps are the
    theme's own colours (--heat-1..4 in components.css), not data, so there is
    nothing here to actually wait on. */
@@ -380,16 +444,6 @@ function heatKeyRow() {
 }
 
 /* ---------- 표로 보기 ---------- */
-
-/* A closed 표로 보기 line -- exactly what `table()` below renders before a
-   learner ever opens it. growthSkeleton (above) uses this to reserve that
-   one line's height, rather than the whole (still unknown) table under it,
-   which stays collapsed either way until clicked. */
-function tablePlaceholder() {
-  const box = el('details', 'growth-table');
-  box.append(el('summary', '', GROWTH_TEXT.table));
-  return box;
-}
 
 function table(head, rows) {
   const box = el('details', 'growth-table');

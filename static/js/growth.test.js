@@ -2,7 +2,7 @@ import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { resetDom } from './dom-shim.js';
-import { renderGrowth, heatLevels, GROWTH_TEXT, growthSkeleton } from './growth.js';
+import { renderSummary, renderDetails, heatLevels, summarySkeleton, layout } from './growth.js';
 
 beforeEach(() => resetDom());
 
@@ -44,45 +44,37 @@ function all(node, cls, out = []) {
 }
 const one = (node, cls) => all(node, cls)[0] || null;
 const text = (n) => (n.textContent || '') + (n.childNodes || []).map(text).join(' ');
-const blocks = (g) => renderGrowth(g, 560);
+const blocks = (g) => renderDetails(g, 560);
+// The card above the tabs: the calendar, its key and the lines under it.
+const card = (g) => renderSummary(g, 560)[0];
 const byLabel = (bs, label) => bs.find((b) => one(b, 'label').textContent === label);
 // details > [summary, table > [thead, tbody > tr > td]]
 const rowsOf = (details) => details.children[1].children[1].children.map((tr) => tr.children.map((td) => td.textContent));
 const hover = (node) => node.listeners.pointerenter[0]();
 const tipOf = (node) => { let n = node; while (n && !n.classList.contains('growth-chart')) n = n.parentNode; return one(n, 'growth-tip'); };
 
-test('the four blocks come in order, each named', () => {
+test('the details are four blocks in order, each named', () => {
   assert.deepEqual(blocks(growthBody()).map((b) => one(b, 'label').textContent),
-    ['연습 잔디', '정확도 변화', '1분 말하기', '레벨 테스트 기록']);
+    ['연습한 날', '정확도 변화', '1분 말하기', '레벨 테스트 기록']);
 });
 
-/* The loaded calendar carries a heat key row and a 표로 보기 line, and the
- * loaded accuracy chart and each of the two 1분 말하기 charts each carry
- * their own 표로 보기 line too -- none of which the skeleton used to
- * reserve, so the tab visibly grew the moment the real answer replaced it.
- * growthSkeleton must hold the same rows before the data ever lands. */
-test('the loading skeleton reserves the heat key row and every 표로 보기 line, so the tab does not grow once the answer lands', () => {
-  const skeleton = growthSkeleton(560);
-  assert.equal(skeleton.length, 4, 'still one skeleton block per section');
-
-  const heatKeys = skeleton.flatMap((b) => all(b, 'heat-key'));
-  assert.equal(heatKeys.length, 1, 'only the calendar block carries a heat key');
-
-  const tables = skeleton.flatMap((b) => all(b, 'growth-table'));
-  assert.equal(tables.length, 4, '표로 보기: calendar, accuracy, and each of the two 1분 말하기 charts');
-  // Each placeholder is the collapsed line itself (a <summary>표로 보기</summary>),
-  // not a whole rendered table -- reserving more height than the real,
-  // still-unopened <details> actually has would be its own kind of drift.
-  for (const t of tables) {
-    assert.equal(t.tagName, 'DETAILS');
-    assert.equal(t.children.length, 1, 'just the summary, no <table> yet');
-    assert.equal(t.children[0].tagName, 'SUMMARY');
-    assert.equal(t.children[0].textContent, GROWTH_TEXT.table);
-  }
+/* The card's skeleton holds what a practised learner's card carries: the
+ * calendar's own box at its real height, the heat key row, and the three
+ * lines -- so the card does not grow when the answer replaces it. */
+test("the card's loading skeleton holds the calendar's box, its key and three lines", () => {
+  const [box] = summarySkeleton(560);
+  const charts = all(box, 'growth-chart');
+  assert.equal(charts.length, 1);
+  assert.ok(charts[0].classList.contains('skeleton'));
+  assert.equal(charts[0].style.height, `${layout(560).cal.height}px`);
+  assert.equal(all(box, 'heat-key').length, 1);
+  const lines = all(box, 'growth-line');
+  assert.equal(lines.length, 3);
+  assert.ok(lines.every((l) => l.classList.contains('skeleton')));
 });
 
 test('the calendar has 112 cells, coloured by the quartiles of the days with turns', () => {
-  const cal = byLabel(blocks(growthBody()), '연습 잔디');
+  const cal = card(growthBody());
   const cells = all(cal, 'cal-cell');
   assert.equal(cells.length, 112);
   const lv = (i) => [0, 1, 2, 3, 4].find((n) => cells[i].classList.contains(`lv${n}`));
@@ -112,7 +104,7 @@ test('heat levels split the non-zero days at their quartiles; zero is its own st
 });
 
 test('a calendar cell says its day and its count on hover, and on the keys', () => {
-  const cal = byLabel(blocks(growthBody()), '연습 잔디');
+  const cal = card(growthBody());
   const hits = all(cal, 'hit');
   assert.equal(hits.length, 108, 'every day up to today has a hit area; the future has none');
   const tip = tipOf(hits[0]);
@@ -137,14 +129,76 @@ test('a calendar cell says its day and its count on hover, and on the keys', () 
   assert.equal(tip.textContent, '9월 10일 · 연습 안 함');
 });
 
-test('under the calendar: streak, longest and total time, and the days as a table', () => {
-  const cal = byLabel(blocks(growthBody()), '연습 잔디');
-  assert.equal(one(cal, 'growth-summary').textContent, '연속 3일 · 최장 7일 · 총 2시간 5분');
-  const table = one(cal, 'growth-table');
+test('under the calendar: streak and total time; the longest run and the days sit in the details', () => {
+  assert.equal(one(card(growthBody()), 'growth-streak').textContent, '연속 3일 · 총 2시간 5분');
+  assert.equal(one(card(growthBody({ minutes: 42 })), 'growth-streak').textContent, '연속 3일 · 총 42분');
+  assert.equal(one(card(growthBody({ minutes: 120 })), 'growth-streak').textContent, '연속 3일 · 총 2시간');
+  const days = byLabel(blocks(growthBody()), '연습한 날');
+  assert.equal(one(days, 'growth-summary').textContent, '최장 연속 7일');
+  const table = one(days, 'growth-table');
   assert.equal(table.children[0].textContent, '표로 보기');
   assert.deepEqual(rowsOf(table), [['9월 16일', '9문장'], ['9월 15일', '5문장'], ['9월 14일', '2문장'], ['9월 9일', '14문장']]);
-  assert.equal(one(byLabel(blocks(growthBody({ minutes: 42 })), '연습 잔디'), 'growth-summary').textContent,
-    '연속 3일 · 최장 7일 · 총 42분');
+});
+
+const mark = (line) => one(line, 'growth-delta');
+
+test("this week's accuracy on the card, ▲ ▼ or – against the week before that had any", () => {
+  const up = one(card(growthBody()), 'growth-acc');
+  assert.match(text(up), /^이번 주 정확도 80%/);        // 4/5 against 9/7's 18/25 (72%)
+  assert.equal(mark(up).textContent, '▲');
+  assert.ok(mark(up).classList.contains('up'));
+  assert.equal(mark(up).getAttribute('aria-label'), '그 전 주보다 올랐어요');
+  const acc = growthBody().accuracy;
+  acc[11] = { ...acc[11], correct: 3, graded: 5 };        // 60%
+  const down = one(card(growthBody({ accuracy: acc })), 'growth-acc');
+  assert.equal(mark(down).textContent, '▼');
+  assert.ok(mark(down).classList.contains('down'));
+  acc[11] = { ...acc[11], correct: 36, graded: 50 };      // 72%, as 9/7
+  const same = one(card(growthBody({ accuracy: acc })), 'growth-acc');
+  assert.equal(mark(same).textContent, '–');
+  assert.equal(mark(same).getAttribute('aria-label'), '그 전 주와 같아요');
+});
+
+test('a week with nothing graded yet gives way to the latest week that has; none at all, no line', () => {
+  const acc = growthBody().accuracy;
+  acc[11] = { ...acc[11], correct: 0, graded: 0 };
+  const last = one(card(growthBody({ accuracy: acc })), 'growth-acc');
+  assert.match(text(last), /^지난 주 정확도 72%/);        // 9/7, against 8/24's 50%
+  assert.equal(mark(last).textContent, '▲');
+  acc[10] = { ...acc[10], correct: 0, graded: 0 };
+  const older = one(card(growthBody({ accuracy: acc })), 'growth-acc');
+  assert.match(text(older), /^8\/24 주 정확도 50%/);
+  assert.equal(mark(older), null, 'nothing before it to compare with');
+  const none = acc.map((w) => ({ ...w, correct: 0, graded: 0 }));
+  assert.equal(one(card(growthBody({ accuracy: none })), 'growth-acc'), null);
+});
+
+test('the newest 1분 말하기 on the card: words a minute against the round before, and its long pauses', () => {
+  const up = one(card(growthBody()), 'growth-timed');
+  assert.match(text(up), /^1분 말하기 분당 112단어/);
+  assert.match(text(up), /· 긴 멈춤 1번$/);
+  assert.equal(mark(up).textContent, '▲');
+  assert.equal(mark(up).getAttribute('aria-label'), '지난번보다 올랐어요');
+  const rounds = growthBody().timed;
+  const down = one(card(growthBody({ timed: [rounds[2], rounds[0]] })), 'growth-timed');
+  assert.match(text(down), /^1분 말하기 분당 80단어/);
+  assert.equal(mark(down).textContent, '▼');
+  const same = one(card(growthBody({ timed: [rounds[0], { ...rounds[1], wpm: 80 }] })), 'growth-timed');
+  assert.equal(mark(same).textContent, '–');
+  assert.equal(mark(one(card(growthBody({ timed: [rounds[0]] })), 'growth-timed')), null);
+  assert.equal(one(card(growthBody({ timed: [] })), 'growth-timed'), null);
+});
+
+test('with no practice at all the card is one line saying what will fill it', () => {
+  const g = growthBody({
+    calendar: growthBody().calendar.map((c) => ({ ...c, turns: 0 })), streak: 0, longest: 0, minutes: 0,
+    accuracy: growthBody().accuracy.map((a) => ({ ...a, correct: 0, graded: 0 })), timed: [], level_tests: [],
+  });
+  const nodes = renderSummary(g, 560);
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].textContent, '연습하면 여기에 쌓여요');
+  assert.ok(nodes[0].classList.contains('growth-guide'));
+  assert.equal(all(nodes[0], 'growth-chart').length, 0);
 });
 
 test('a week with nothing graded is a gap in the accuracy line, not a zero', () => {
@@ -209,7 +263,7 @@ test('each block with nothing to show says what will fill it, instead of an empt
   });
   const bs = blocks(empty);
   const say = (label) => one(byLabel(bs, label), 'growth-empty').textContent;
-  assert.equal(say('연습 잔디'), GROWTH_TEXT.calendarEmpty);
+  assert.equal(one(byLabel(bs, '연습한 날'), 'growth-table'), null, 'no days to list');
   assert.equal(say('정확도 변화'), '채점된 문장이 쌓이면 주별 정확도가 보여요');
   assert.equal(say('1분 말하기'), '1분 말하기를 하면 여기에 변화가 보여요');
   assert.equal(say('레벨 테스트 기록'), '레벨 테스트를 보면 기록이 쌓여요');
@@ -217,7 +271,8 @@ test('each block with nothing to show says what will fill it, instead of an empt
 });
 
 test('charts are SVG in the SVG namespace, sized by viewBox to the width given', () => {
-  const [cal, acc] = renderGrowth(growthBody(), 600);
+  const [, acc] = renderDetails(growthBody(), 600);
+  const cal = renderSummary(growthBody(), 600)[0];
   const svg = one(acc, 'growth-chart').children[0];
   assert.equal(svg.namespaceURI, 'http://www.w3.org/2000/svg');
   assert.equal(svg.getAttribute('viewBox'), '0 0 600 170');

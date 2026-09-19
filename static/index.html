@@ -215,11 +215,18 @@
         <div id="level-body"></div>
       </div>
     </div>
+    <!-- How practice is going, loaded with the rest of the page: the
+         calendar and a few lines, with every chart one tap away under
+         자세히 보기 (mypage.js draws them when the fold first opens). -->
+    <section id="growth-card" class="panel growth-card" aria-label="연습 요약">
+      <div id="growth-body" tabindex="-1"></div>
+      <button id="btn-growth-more" class="ghost growth-more is-invisible" type="button" aria-hidden="true" aria-expanded="false" aria-controls="growth-details">자세히 보기 ▾</button>
+      <div id="growth-details" class="fold is-collapsed"><div id="growth-details-body" class="fold-inner"></div></div>
+    </section>
     <div id="mypage-tabs" class="mypage-tabs" role="tablist" aria-label="마이페이지">
       <button type="button" role="tab" id="tab-review" data-tab="review" aria-controls="review-section" aria-selected="true" tabindex="0">복습<span id="tab-review-n" class="tab-n"></span></button>
       <button type="button" role="tab" id="tab-weak" data-tab="weak" aria-controls="weak-section" aria-selected="false" tabindex="-1">약점</button>
       <button type="button" role="tab" id="tab-history" data-tab="history" aria-controls="history-section" aria-selected="false" tabindex="-1">기록</button>
-      <button type="button" role="tab" id="tab-growth" data-tab="growth" aria-controls="growth-section" aria-selected="false" tabindex="-1">성장</button>
     </div>
     <div class="mypage-panels">
       <div id="review-section" class="panel" role="tabpanel" aria-labelledby="tab-review">
@@ -240,10 +247,6 @@
         <p class="label">지난 기록</p>
         <ul id="history-list"></ul>
         <button id="btn-history-more" class="ghost btn-stable is-invisible" type="button" aria-hidden="true">더 보기</button>
-      </div>
-      <div id="growth-section" class="panel" role="tabpanel" aria-labelledby="tab-growth" hidden>
-        <!-- 성장: mypage.js draws it the first time the tab is shown per load. -->
-        <div id="growth-body" tabindex="-1"></div>
       </div>
     </div>
   </section>

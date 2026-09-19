@@ -20,7 +20,7 @@ import { play } from './audio.js';
 import * as router from './router.js';
 import { startRespeak, renderReport, canDo, cancelTurn } from './session.js';
 import { openLevelTest, renderLevelResult, levelName } from './leveltest.js';
-import { GROWTH_TEXT, growthSkeleton, renderGrowth } from './growth.js';
+import { GROWTH_TEXT, summarySkeleton, renderSummary, renderDetails, hasPractice } from './growth.js';
 
 const LEVEL_NAMES = { beginner: '초급', intermediate: '중급', advanced: '고급' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극', lesson: '수업', timed: '1분 말하기' };
@@ -43,7 +43,7 @@ const PASS_HOLD_MS = 1500;
 // A placeholder line needs a character to be a line at all.
 const NBSP = String.fromCharCode(0xa0);
 
-const SECTIONS = ['level-card', 'review-section', 'weak-section', 'history-section'];
+const SECTIONS = ['level-card', 'growth-card', 'review-section', 'weak-section', 'history-section'];
 const BUSY = '지금은 다른 연습이 진행 중이에요';
 
 // Bumped by every openMypage. A language check alone cannot tell en -> ja ->
@@ -60,13 +60,13 @@ let reportOut = false;           // a 리포트 보기 is waiting for its answer
 
 /* ---------- tabs ---------- */
 
-/* Four tabs, one visible at a time: the page no longer fit on one screen
+/* Three tabs, one visible at a time: the page no longer fit on one screen
    with all of it stacked. The last one looked at is remembered (a private
-   window or blocked storage just starts on 복습 every time). */
-const TABS = ['review', 'weak', 'history', 'growth'];
+   window or blocked storage just starts on 복습 every time). How practice
+   is going is not a tab: it is the card above them (see 성장 below). */
+const TABS = ['review', 'weak', 'history'];
 const TAB_KEY = 'mypage-tab';
-const PANEL = { review: 'review-section', weak: 'weak-section', history: 'history-section',
-                growth: 'growth-section' };
+const PANEL = { review: 'review-section', weak: 'weak-section', history: 'history-section' };
 
 // The tab on screen, for when storage cannot say: a language switch on 기록
 // reopens the page, and must not drop the learner back on 복습.
@@ -76,6 +76,9 @@ function rememberedTab() {
   try {
     const t = globalThis.localStorage?.getItem(TAB_KEY);
     if (TABS.includes(t)) return t;
+    // 'growth' (the tab that became the card above) or anything else stored:
+    // the page's first tab, not whichever one happened to be on screen.
+    if (t) return 'review';
   } catch { /* blocked storage: fall through */ }
   return shownTab || 'review';
 }
@@ -93,7 +96,6 @@ export function selectTab(name, { focus = false } = {}) {
   if (focus) $(`tab-${name}`).focus();
   try { globalThis.localStorage?.setItem(TAB_KEY, name); } catch { /* private window: fine */ }
   if (name === 'weak') onWeakShown();
-  if (name === 'growth') onGrowthShown();
 }
 
 /* The coach is asked for only when 약점 is looked at -- it is the one slow
@@ -101,10 +103,6 @@ export function selectTab(name, { focus = false } = {}) {
    runs after openMypage bumps loadToken, so this is keyed to the load on screen
    and a reopen or a language switch on 약점 asks again, once. */
 function onWeakShown() { loadCoach(); }
-
-/* 성장 the same way: drawn the first time it is looked at per load and
-   language, not with the rest of the page. */
-function onGrowthShown() { loadGrowth(); }
 
 /* main.js's keydown on #mypage-tabs: the arrows move along the row (and wrap),
    Home and End go to the ends; the tab moved to is selected and focused.
@@ -184,8 +182,9 @@ export async function openMypage({ tab } = {}) {
     },
   );
   const history = loadHistory({ append: false });
+  const growth = loadGrowth();
 
-  await Promise.all([level, weak, review, history]);
+  await Promise.all([level, weak, review, history, growth]);
   if (!stale()) screen.dataset.painted = '1';
 }
 
@@ -216,6 +215,9 @@ function paintSkeletons() {
   for (const id of SECTIONS) $(id).setAttribute('aria-busy', 'true');
 
   $('level-body').replaceChildren(loadingNote(), skeletonLine('p', 'level-line'));
+
+  $('growth-body').replaceChildren(loadingNote(GROWTH_TEXT.wait), ...summarySkeleton(growthWidth()));
+  setShown($('btn-growth-more'), false);
 
   $('review-count').textContent = NBSP;
   $('review-mastered').textContent = '';
@@ -805,50 +807,97 @@ function coachSkeleton() {
   return box;
 }
 
-/* ---------- 성장 ---------- */
+/* ---------- 성장: the summary card ---------- */
 
-/* Like the coach: its own wait, started only when 성장 is shown, once per
-   load and language. The skeleton is each block's own height (growth.js
-   builds both from one layout), so the answer lands without a jump; the
-   panel keeps the tabs' shared min-height throughout. */
-let growthFor = '';    // `${loadToken}:${language}` the numbers were asked for
-let growthCall = 0;    // the latest ask: a 다시 시도 outruns one still out
+/* Loaded with the rest of the page (openMypage), under the same load token
+   and language: a first load holds summarySkeleton, the calendar's own box
+   and the card's lines; a reload dims what is painted (SECTIONS) and
+   replaces it in place. The charts wait under 자세히 보기 and are drawn when
+   the fold is open -- the first time it is opened for this answer, or at
+   once when the answer lands with it already open -- at the width they are
+   shown at. */
+let growthData = null;      // the answer on the card, for the fold to draw
+let growthDrawn = false;    // renderDetails has run for growthData
+let growthCall = 0;         // the latest ask: a 다시 시도 outruns one still out
 
-/* The width the charts are drawn at: the panel's own, read when the tab is
-   on screen. dom-shim (and a hidden panel) has none, so a sensible default. */
+/* The width the charts are drawn at: the card body's own. dom-shim has none,
+   so a sensible default. */
 function growthWidth() {
   const w = Number($('growth-body').clientWidth) || 0;
   return w > 0 ? w : 560;
 }
 
+function growthOpen() {
+  return $('btn-growth-more').getAttribute('aria-expanded') === 'true';
+}
+
 export async function loadGrowth({ force = false } = {}) {
   const lang = state.language;
   const token = loadToken;
-  const key = `${token}:${lang}`;
-  if (!force && growthFor === key) return;
-  growthFor = key;
   const call = ++growthCall;
   const stale = () => token !== loadToken || state.language !== lang || call !== growthCall;
   const body = $('growth-body');
-  const width = growthWidth();
-  body.replaceChildren(loadingNote(GROWTH_TEXT.wait), ...growthSkeleton(width));
-  body.setAttribute('aria-busy', 'true');
+  const more = $('btn-growth-more');
+  if (force) {
+    // 다시 시도: the failure row goes, the card's own skeleton holds its room.
+    body.replaceChildren(loadingNote(GROWTH_TEXT.wait), ...summarySkeleton(growthWidth()));
+    body.setAttribute('aria-busy', 'true');
+    setShown(more, false);
+  }
   try {
     const g = await getJSON(`/stats/growth?language=${lang}`);
     if (stale()) return;
-    body.replaceChildren(...renderGrowth(g, width));
+    growthData = g;
+    growthDrawn = false;
+    body.replaceChildren(...renderSummary(g, growthWidth()));
+    if (hasPractice(g)) {
+      setShown(more, true);
+      setGrowthOpen(growthOpen());      // its label, from the fold's state
+      if (growthOpen()) drawDetails();
+      else $('growth-details-body').replaceChildren();
+    } else {
+      // Nothing under the fold but four empty states: no 자세히 보기.
+      setGrowthOpen(false);
+      more.hidden = true;
+    }
   } catch {
     if (stale()) return;
-    growthFor = '';    // the next look at 성장 asks again
+    growthData = null;
+    setGrowthOpen(false);
+    more.hidden = true;
     const row = el('div', 'growth-fail');
     row.append(el('p', 'mypage-error', FAILED), button('growth-retry', '다시 시도'));
     body.replaceChildren(row);
   } finally {
     if (!stale()) {
+      settle('growth-card');
       body.removeAttribute('aria-busy');
       if (force) body.focus();
     }
   }
+}
+
+function drawDetails() {
+  if (!growthData || growthDrawn) return;
+  growthDrawn = true;
+  const inner = $('growth-details-body');
+  const w = Number(inner.clientWidth) || growthWidth();
+  inner.replaceChildren(...renderDetails(growthData, w));
+}
+
+function setGrowthOpen(open) {
+  const more = $('btn-growth-more');
+  more.setAttribute('aria-expanded', String(open));
+  more.textContent = open ? GROWTH_TEXT.less : GROWTH_TEXT.more;
+  $('growth-details').classList.toggle('is-collapsed', !open);
+}
+
+/* main.js's #btn-growth-more: 자세히 보기 ▾ opens the fold (drawing the
+   charts the first time, once it is open and has its width), 접기 ▴ shuts it. */
+export function toggleGrowthDetails() {
+  const open = !growthOpen();
+  setGrowthOpen(open);
+  if (open) drawDetails();
 }
 
 /* ---------- history ---------- */
