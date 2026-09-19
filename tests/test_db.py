@@ -1041,7 +1041,7 @@ def test_v7_adds_shadowing_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "v7.db")
     from app import db as store
     store.init_db()
-    assert store.schema_version() == 8
+    assert store.schema_version() == 9
     sid = store.create_session("en", "script", scenario_id="x", shadowing=True)
     assert store.get_session(sid)["shadowing"] == 1
     assert store.get_session(store.create_session("en", "free"))["shadowing"] == 0
@@ -1072,7 +1072,7 @@ def test_v8_adds_coach_notes_and_round_trips(tmp_path, monkeypatch):
     from app import config
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
     db.init_db()
-    assert db.schema_version() == 8
+    assert db.schema_version() == 9
     assert db.get_coach("en") is None
     db.save_coach("en", "2026-09-19", [{"habit": "a", "tip": "b", "said": "x", "fixed": "y", "tag": "시제"}])
     db.save_coach("en", "2026-09-20", [{"habit": "c", "tip": "d", "said": "x", "fixed": "y", "tag": None}])
@@ -1091,6 +1091,80 @@ def test_v7_database_migrates_to_v8_keeping_rows(tmp_path, monkeypatch):
         conn.execute("DROP TABLE coach_notes")
         conn.execute("PRAGMA user_version = 7")
     db.init_db()
-    assert db.schema_version() == 8
+    assert db.schema_version() == 9
     assert db.get_coach("en") is None
     assert db.wrong_tag_counts("en")[0]["n"] == 1
+
+
+def test_v9_adds_timed_rounds_table(tmp_path, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "v9.db")
+    db.init_db()
+    assert db.schema_version() == 9
+    sid = db.create_session("en", "timed")
+    assert db.next_round(sid) == 1
+    assert db.get_rounds(sid) == []
+
+
+def test_v8_database_migrates_to_v9_keeping_rows(tmp_path, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
+    db.init_db()
+    sid = db.create_session("en", "free", scenario_id="airport-checkin-en")
+    db.add_message(sid, "user", "I go", correction="c", ok=0, fixed="I went.", tag="시제")
+    with db.connect() as conn:
+        conn.execute("DROP TABLE timed_rounds")
+        conn.execute("PRAGMA user_version = 8")
+    db.init_db()
+    assert db.schema_version() == 9
+    assert db.wrong_tag_counts("en")[0]["n"] == 1
+    assert db.next_round(sid) == 1
+
+
+def test_add_round_next_round_and_get_rounds_round_trip(store):
+    sid = store.create_session("en", "timed")
+    assert store.next_round(sid) == 1
+    r1 = store.add_round(sid, 1, 62.0, 15, 1, ["I went to the park.", "It was fun."], "audio/r1.webm")
+    assert r1 == 1
+    assert store.next_round(sid) == 2
+    r2 = store.add_round(sid, 2, 58.5, 20, 0, ["Then I went home."], None)
+    assert r2 == 2
+
+    rounds = store.get_rounds(sid)
+    assert [r["round"] for r in rounds] == [1, 2]
+    first = rounds[0]
+    assert first["seconds"] == 62.0
+    assert first["words"] == 15
+    assert first["long_pauses"] == 1
+    assert first["audio_path"] == "audio/r1.webm"
+    assert first["native"] is None and first["level"] is None
+    assert first["sentences"] == [
+        {"text": "I went to the park.", "graded": False, "ok": None, "fixed": None,
+         "correction": None, "suggestion": None, "tag": None, "message_id": None},
+        {"text": "It was fun.", "graded": False, "ok": None, "fixed": None,
+         "correction": None, "suggestion": None, "tag": None, "message_id": None},
+    ]
+    assert rounds[1]["audio_path"] is None
+
+
+def test_set_round_sentences_and_set_round_native_round_trip(store):
+    sid = store.create_session("en", "timed")
+    store.add_round(sid, 1, 60.0, 5, 0, ["I went to the park."], "audio/r1.webm")
+
+    graded = [{"text": "I went to the park.", "graded": True, "ok": True, "fixed": None,
+               "correction": None, "suggestion": None, "tag": None, "message_id": 42}]
+    store.set_round_sentences(sid, 1, graded)
+    assert store.get_rounds(sid)[0]["sentences"] == graded
+
+    store.set_round_native(sid, 1, "공원에 갔어요.", "intermediate")
+    row = store.get_rounds(sid)[0]
+    assert row["native"] == "공원에 갔어요." and row["level"] == "intermediate"
+
+
+def test_clear_session_audio_also_nulls_round_audio(store):
+    sid = store.create_session("en", "timed")
+    store.add_round(sid, 1, 60.0, 5, 0, ["hi"], "audio/r1.webm")
+    store.add_round(sid, 2, 60.0, 5, 0, ["bye"], "audio/r2.webm")
+    paths = store.clear_session_audio(sid)
+    assert sorted(paths) == ["audio/r1.webm", "audio/r2.webm"]
+    assert all(r["audio_path"] is None for r in store.get_rounds(sid))

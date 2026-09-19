@@ -176,6 +176,26 @@ MIGRATIONS = [
         created_at TEXT NOT NULL
     );
     """],
+    # v8 -> v9: 1분 말하기 회차 (docs/superpowers/specs/2026-09-19-monologue-
+    # timed-speaking-design.md, "데이터"). Every round lives here; only round
+    # 1's sentences also become messages rows, so level/accuracy/weak spots/
+    # reviews count a minute once, not once per retelling.
+    ["""
+    CREATE TABLE IF NOT EXISTS timed_rounds (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id     INTEGER NOT NULL REFERENCES sessions(id),
+        round          INTEGER NOT NULL,
+        seconds        REAL    NOT NULL,
+        words          INTEGER NOT NULL,
+        long_pauses    INTEGER NOT NULL,
+        sentences_json TEXT    NOT NULL,
+        native         TEXT,
+        level          TEXT,
+        audio_path     TEXT,
+        created_at     TEXT    NOT NULL,
+        UNIQUE(session_id, round)
+    );
+    """],
 ]
 
 
@@ -420,6 +440,10 @@ def clear_session_audio(session_id) -> list[str]:
     running. Keeping them only accumulates the learner's voice on disk for no
     purpose.
 
+    Covers timed_rounds too -- a 1분 말하기 session's recordings live there,
+    not in messages, and the same "nothing reads it again once the session is
+    over" reasoning applies to them.
+
     Returns the stored paths so the caller can unlink the files; this module
     does not touch the filesystem.
     """
@@ -432,7 +456,15 @@ def clear_session_audio(session_id) -> list[str]:
         conn.execute(
             "UPDATE messages SET audio_path = NULL WHERE session_id = ?", (session_id,)
         )
-    return [r["audio_path"] for r in rows]
+        round_rows = conn.execute(
+            "SELECT audio_path FROM timed_rounds"
+            " WHERE session_id = ? AND audio_path IS NOT NULL",
+            (session_id,),
+        ).fetchall()
+        conn.execute(
+            "UPDATE timed_rounds SET audio_path = NULL WHERE session_id = ?", (session_id,)
+        )
+    return [r["audio_path"] for r in rows] + [r["audio_path"] for r in round_rows]
 
 
 def stale_open_sessions(hours=24) -> list[int]:
@@ -1141,6 +1173,66 @@ def save_coach(language, day, items) -> None:
             " ON CONFLICT(language) DO UPDATE SET day = excluded.day, body = excluded.body,"
             " created_at = excluded.created_at",
             (language, day, json.dumps(items, ensure_ascii=False), _now()))
+
+
+# 1분 말하기 (docs/superpowers/specs/2026-09-19-monologue-timed-speaking-design.md,
+# "데이터"). Every round of a session lives in timed_rounds, keyed by
+# (session_id, round); only round 1's sentences also become messages rows
+# (a later task's job), so a minute counts once toward level/accuracy/weak
+# spots/reviews, not once per retelling.
+def next_round(session_id) -> int:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT MAX(round) FROM timed_rounds WHERE session_id = ?", (session_id,)
+        ).fetchone()
+    return (row[0] or 0) + 1
+
+
+def add_round(session_id, round, seconds, words, long_pauses, sentences, audio_path) -> int:
+    """sentences is a list of sentence strings, fresh off timed.round_stats --
+    nothing has graded them yet, so every row starts graded: False and every
+    other field None."""
+    sentences_json = json.dumps(
+        [{"text": s, "graded": False, "ok": None, "fixed": None, "correction": None,
+          "suggestion": None, "tag": None, "message_id": None} for s in sentences],
+        ensure_ascii=False,
+    )
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO timed_rounds (session_id, round, seconds, words, long_pauses,"
+            " sentences_json, audio_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, round, seconds, words, long_pauses, sentences_json, audio_path, _now()),
+        )
+    return round
+
+
+def get_rounds(session_id) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM timed_rounds WHERE session_id = ? ORDER BY round", (session_id,)
+        ).fetchall()
+    out = []
+    for r in rows:
+        item = dict(r)
+        item["sentences"] = json.loads(item.pop("sentences_json"))
+        out.append(item)
+    return out
+
+
+def set_round_sentences(session_id, round, sentences) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE timed_rounds SET sentences_json = ? WHERE session_id = ? AND round = ?",
+            (json.dumps(sentences, ensure_ascii=False), session_id, round),
+        )
+
+
+def set_round_native(session_id, round, native, level) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE timed_rounds SET native = ?, level = ? WHERE session_id = ? AND round = ?",
+            (native, level, session_id, round),
+        )
 
 
 def history(language, offset, limit) -> list[dict]:

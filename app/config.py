@@ -23,7 +23,7 @@ STT_DEVICE = "cuda"
 STT_COMPUTE_TYPE = "int8_float16"
 
 LANGUAGES = ("en", "ja")
-MODES = ("free", "script", "lesson")
+MODES = ("free", "script", "lesson", "timed")
 LEVELS = ("beginner", "intermediate", "advanced")
 
 # English: US accent only. British voices (bf_/bm_) are deliberately excluded so

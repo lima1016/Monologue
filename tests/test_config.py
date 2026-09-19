@@ -3,7 +3,7 @@ from app import config
 
 def test_languages_and_modes_are_exactly_as_specified():
     assert config.LANGUAGES == ("en", "ja")
-    assert config.MODES == ("free", "script", "lesson")
+    assert config.MODES == ("free", "script", "lesson", "timed")
     assert config.LEVELS == ("beginner", "intermediate", "advanced")
 
 

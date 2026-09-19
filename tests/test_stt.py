@@ -6,8 +6,10 @@ from app import stt
 
 
 class Segment:
-    def __init__(self, text):
+    def __init__(self, text, start=0.0, end=0.0):
         self.text = text
+        self.start = start
+        self.end = end
 
 
 class FakeModel:
@@ -17,7 +19,8 @@ class FakeModel:
 
     def transcribe(self, audio, **kw):
         self.calls.append((audio.read(), kw))
-        return iter([Segment(t) for t in self.segments]), object()
+        segs = [s if isinstance(s, Segment) else Segment(s) for s in self.segments]
+        return iter(segs), object()
 
 
 @pytest.fixture(autouse=True)
@@ -71,6 +74,20 @@ def test_start_loading_runs_in_the_background_and_only_once():
     thread.join(timeout=5)
     assert stt.status() == "ready"
     assert stt.start_loading(lambda: model) is None
+
+
+def test_transcribe_segments_keeps_timing_and_strips_each_piece():
+    model = FakeModel([Segment(" hi there ", start=0.0, end=1.5), Segment(" bye ", start=2.0, end=3.0)])
+    stt.load(lambda: model)
+    assert stt.transcribe_segments(b"x", "en") == [
+        {"start": 0.0, "end": 1.5, "text": "hi there"},
+        {"start": 2.0, "end": 3.0, "text": "bye"},
+    ]
+
+
+def test_transcribe_segments_not_ready_means_unavailable():
+    with pytest.raises(stt.SttUnavailable):
+        stt.transcribe_segments(b"x", "en")
 
 
 def test_a_load_failure_is_logged_with_the_exception(caplog):

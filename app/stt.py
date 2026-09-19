@@ -90,6 +90,21 @@ def transcribe(audio: bytes, language: str) -> str:
         return "".join(segment.text for segment in segments).strip()
 
 
+def transcribe_segments(audio: bytes, language: str) -> list[dict]:
+    """Like transcribe, but keeps each segment's timing -- 1분 말하기 needs the
+    gaps between segments (app/timed.py's long_pauses), which the joined
+    string alone throws away. Same options as transcribe (see its comment on
+    initial_prompt) so the two never disagree on what the model heard."""
+    if _status != "ready" or _model is None:
+        raise SttUnavailable(_status)
+    with _lock:
+        segments, _info = _model.transcribe(
+            io.BytesIO(audio), language=language, vad_filter=True,
+            beam_size=1, condition_on_previous_text=False,
+        )
+        return [{"start": s.start, "end": s.end, "text": s.text.strip()} for s in segments]
+
+
 def _reset_for_tests() -> None:
     global _model, _status
     _model, _status = None, "idle"
