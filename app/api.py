@@ -1433,6 +1433,7 @@ COACH_UNAVAILABLE = "지금은 코치 한마디를 만들 수 없어요"
 _COACH_DAYS = 30
 _COACH_MIN_WRONG = 5
 _COACH_MAX_ITEMS = 3
+_COACH_EXAMPLE_HABITS = frozenset(i["habit"].strip() for i in prompts.COACH_EXAMPLE_OUTPUT["items"])
 _coach_locks = {"en": threading.Lock(), "ja": threading.Lock()}
 
 
@@ -1445,7 +1446,9 @@ def _valid_coach_items(raw, rows, kept: list[dict]) -> list[dict]:
     example by number only; the sentence shown is the learner's own row, so
     an invented example cannot reach the screen. A habit or tip that is not
     Korean (a Chinese leak, an English answer) is dropped -- quoted target-
-    language phrases inside a tip are allowed, as in the ▸ 뜻 check."""
+    language phrases inside a tip are allowed, as in the ▸ 뜻 check. A habit
+    copied word for word from the few-shot answer is the example talking, not
+    the learner's sentences, and is dropped too."""
     out = list(kept)
     source = "\n".join(f"{r['text']} {r['fixed']}" for r in rows)
     for item in raw if isinstance(raw, list) else []:
@@ -1461,7 +1464,7 @@ def _valid_coach_items(raw, rows, kept: list[dict]) -> list[dict]:
             continue
         if not (_is_korean_meaning(habit, source=source) and _is_korean_meaning(tip, source=source)):
             continue
-        if any(o["habit"] == habit for o in out):
+        if habit in _COACH_EXAMPLE_HABITS or any(o["habit"] == habit for o in out):
             continue
         row = rows[no - 1]
         out.append({"habit": habit, "tip": tip, "said": row["text"], "fixed": row["fixed"], "tag": row.get("tag")})

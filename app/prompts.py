@@ -778,21 +778,27 @@ COACH_SYSTEM = """당신은 한국인 학생의 {lang} 말하기를 지도하는
 
 마크다운과 이모지는 쓰지 않습니다."""
 
+# Synthetic on purpose: none of these is a real learner's sentence, and their
+# error families (third-person -s, a missing "a", question word order) are
+# kept apart from the habits real learners here show most (run-on sentences,
+# past tense, dropped prepositions) -- a few-shot built from real rows taught
+# the model to copy its habits onto unrelated rows. Two tags are wrong on
+# purpose, as real ones often are.
 COACH_EXAMPLE_INPUT = [
-    {"text": "Yes water please And this is my first time Can you recommend", "fixed": "Yes, water please. This is my first time here. Can you recommend something?", "tag": "어순", "correction": "문장을 나눠야 합니다."},
-    {"text": "I'd like to sit the window", "fixed": "I'd like to sit by the window.", "tag": "어순", "correction": "by the를 넣어야 합니다."},
-    {"text": "I go there yesterday", "fixed": "I went there yesterday.", "tag": "시제", "correction": "과거형을 써야 합니다."},
-    {"text": "Okay I will take At the bar and let me know if The seat Available", "fixed": "Okay, I'll take a seat at the bar. Let me know if the window seat is available.", "tag": "어순", "correction": "문장을 나누고 is를 넣어야 합니다."},
-    {"text": "I arrive here last week", "fixed": "I arrived here last week.", "tag": "시제", "correction": "과거형을 써야 합니다."},
-    {"text": "Can I get a seat the bar", "fixed": "Can I get a seat at the bar?", "tag": "어순", "correction": "at을 넣어야 합니다."},
+    {"text": "She like coffee in the morning", "fixed": "She likes coffee in the morning.", "tag": "단복수", "correction": "주어가 she이면 likes를 써야 합니다."},
+    {"text": "I have question about the menu", "fixed": "I have a question about the menu.", "tag": "어휘", "correction": "question 앞에 a를 넣어야 합니다."},
+    {"text": "Where you are going after work?", "fixed": "Where are you going after work?", "tag": "어순", "correction": "are를 you 앞에 둬야 합니다."},
+    {"text": "My brother work at a bank", "fixed": "My brother works at a bank.", "tag": "어순", "correction": "주어가 한 사람이면 works입니다."},
+    {"text": "Can you give me pen?", "fixed": "Can you give me a pen?", "tag": "관사", "correction": "pen 앞에 a가 필요합니다."},
+    {"text": "What time the store opens?", "fixed": "What time does the store open?", "tag": "어순", "correction": "does를 넣고 주어 앞에 둬야 합니다."},
 ]
 COACH_EXAMPLE_OUTPUT = {"items": [
-    {"habit": "여러 말을 끊지 않고 한 문장처럼 길게 이어 말해요",
-     "tip": "한 가지를 말하면 멈추고 숨을 한 번 쉬고 다음 문장을 말해요", "example_no": 1},
-    {"habit": "장소 앞의 전치사(by, at)를 빠뜨려요",
-     "tip": "자리·장소를 말할 때 \"by the\", \"at the\"를 먼저 붙여 말해요", "example_no": 2},
-    {"habit": "지난 일을 말할 때 동사를 현재형으로 둬요",
-     "tip": "yesterday, last week가 나오면 동사를 과거형으로 바꿔요", "example_no": 3},
+    {"habit": "한 사람이 주어일 때 동사 끝의 -s를 빠뜨려요",
+     "tip": "she, he, 한 사람 뒤에는 \"likes\"처럼 -s를 붙여요", "example_no": 1},
+    {"habit": "셀 수 있는 물건 하나를 말할 때 a를 빠뜨려요",
+     "tip": "물건 하나는 \"a pen\"처럼 a부터 붙여 말해요", "example_no": 2},
+    {"habit": "물어볼 때 주어를 동사보다 먼저 말해요",
+     "tip": "Where, What 뒤에는 \"are you\"처럼 동사부터 둬요", "example_no": 3},
 ]}
 
 _COACH_CORRECTION_CHARS = 80

@@ -129,3 +129,13 @@ def test_languages_are_kept_apart(client, monkeypatch):
     _model(monkeypatch, GOOD)
     assert client.get("/api/mypage/coach?language=ja").json()["status"] == "too_few"
     assert client.get("/api/mypage/coach?language=en").json()["status"] == "ready"
+
+
+def test_a_habit_copied_from_the_few_shot_answer_is_dropped(client, monkeypatch):
+    from app import prompts
+    _wrong(6)
+    copied = dict(prompts.COACH_EXAMPLE_OUTPUT["items"][0], example_no=1)
+    copied["habit"] = f"  {copied['habit']} "
+    _model(monkeypatch, {"items": [copied, GOOD["items"][1]]}, {"items": [copied, GOOD["items"][1]]})
+    items = client.get("/api/mypage/coach?language=en").json()["items"]
+    assert [i["habit"] for i in items] == ["문장을 끊지 않고 이어 말해요"]
