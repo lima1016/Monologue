@@ -12,8 +12,12 @@
    recording) that only this module's DOM code knows about.
 
    The sentence is never shown. It is played once from the server's clip with
-   no text to fall back to; a clip that will not play offers 다시 듣기 once,
-   and after that the learner records anyway rather than ever reading it.
+   no text to fall back to. Only a clip that audio.js reports as played to its
+   end ('ended') counts as heard; an error, the browser-voice fallback, a stop
+   from elsewhere, or no word at all within LISTEN_WATCHDOG_MS is a clip that
+   did not play. That offers 다시 듣기 once, and after that the learner records
+   anyway rather than ever reading it. A sentence with no clip at all goes
+   straight to recording.
 
    Uploads go in the background: stopping a recording moves to the next step
    at once, and its upload runs beside it (one automatic retry). One that still
@@ -34,9 +38,16 @@ export const PREP_SECONDS = 5;
 export const ANSWER_SECONDS = 45;
 // The window for a sentence whose length is unknown (its clip never played).
 export const UNKNOWN_WINDOW = 10;
-// A clip that "ends" sooner than this never really played: an error, or the
-// browser's voice given nothing to say.
+// A backstop behind audio.js's reason: an 'ended' sooner than this is not a
+// sentence that was really heard.
 const MIN_CLIP_MS = 300;
+// No word from the clip at all in this long (no ended, no error): it is taken
+// as not played, rather than leaving the card on 잘 들어 보세요 for ever. The
+// longest sentence runs well under half of it.
+export const LISTEN_WATCHDOG_MS = 15000;
+// The one automatic re-upload waits this long first: a 503 is usually Whisper
+// still loading, and asking again at once only meets it loading.
+export const RETRY_DELAY_MS = 1500;
 const TICK_MS = 200;
 
 export const TEXT = {
@@ -95,6 +106,7 @@ export const clock = {
   now: () => Date.now(),
   every: (fn, ms) => setInterval(fn, ms),
   cancel: (id) => clearInterval(id),
+  wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
 /* The result screen. Drawn by Task 4; here it is only called. */
@@ -115,6 +127,7 @@ let rec = null;         // the recording running now: { handle, startedAt, limit
 let ticker = null;
 let phase = 'idle';     // inside a step: 'wait' | 'listen' | 'failed' | 'prep' | 'rec' | 'saving' | 'trouble'
 let listens = 0;        // plays of the current sentence
+let heardLimit = null;  // the current sentence's window, once it has been heard
 let starting = false;
 let finishing = false;
 let pending = [];       // uploads that failed twice: [{ kind, n, blob, seconds }]
@@ -228,6 +241,7 @@ export async function startTest() {
 function enterItem() {
   seq += 1;
   listens = 0;
+  heardLimit = null;
   showSlot('lt-item');
   $('lt-item-count').textContent = TEXT.itemCount(s.i);
   playItem();
@@ -248,16 +262,26 @@ function playItem() {
   setShown($('lt-relisten'), false);
   $('lt-item-bar').style.width = '100%';
   const item = test.items[s.i] || {};
-  if (!item.audio_key) { heard(mySeq, null); return; }
+  // No clip to play: 다시 듣기 could only fail the same way. Record at once.
+  if (!item.audio_key) { toRecording(UNKNOWN_WINDOW); return; }
   const t0 = clock.now();
+  ticker = clock.every(() => {
+    if (mySeq !== seq || phase !== 'listen') return;
+    if (clock.now() - t0 >= LISTEN_WATCHDOG_MS) {
+      heard(mySeq, null, 'watchdog');
+      // Whatever might still start playing must not talk into the recording.
+      stopPlayback();
+    }
+  }, TICK_MS);
   // No fallback text: the sentence is never read out by the browser's voice
   // from its words, and never shown.
-  play(item.audio_key, '', () => heard(mySeq, clock.now() - t0));
+  play(item.audio_key, '', (reason) => heard(mySeq, clock.now() - t0, reason));
 }
 
-function heard(mySeq, ms) {
+function heard(mySeq, ms, reason) {
   if (mySeq !== seq || s.step !== 'item' || phase !== 'listen') return;
-  if (ms === null || ms < MIN_CLIP_MS) {
+  clearTicker();
+  if (reason !== 'ended' || ms === null || ms < MIN_CLIP_MS) {
     if (listens < 2) {
       phase = 'failed';
       itemStatus(TEXT.playFailed);
@@ -266,10 +290,17 @@ function heard(mySeq, ms) {
       return;
     }
     // Twice without sound: record anyway -- the sentence is never shown.
-    beginRecording('item', UNKNOWN_WINDOW);
+    toRecording(UNKNOWN_WINDOW);
     return;
   }
-  beginRecording('item', itemWindow(ms / 1000));
+  toRecording(itemWindow(ms / 1000));
+}
+
+/* The sentence has had its hearing: from here a redo (a mic fault) goes back
+   to recording with this same window, never to a second hearing. */
+function toRecording(limit) {
+  heardLimit = limit;
+  beginRecording('item', limit);
 }
 
 /* 다시 듣기, once, for a sentence whose clip did not play. */
@@ -372,8 +403,13 @@ export async function redo() {
     return;
   }
   mic = m;
-  if (s.step === 'item') enterItem();
-  else enterAnswer();
+  if (s.step === 'answer') { enterAnswer(); return; }
+  // The sentence was already heard (a trouble only ever follows the hearing):
+  // back to saying it, same window, no second hearing.
+  showSlot('lt-item');
+  $('lt-item-count').textContent = TEXT.itemCount(s.i);
+  if (heardLimit === null) { enterItem(); return; }
+  beginRecording('item', heardLimit);
 }
 
 /* ---------- uploads ---------- */
@@ -391,11 +427,13 @@ async function send(tok, job) {
   }
 }
 
-/* One upload, in the background, retried once; still failing, it waits in
-   `pending` for finishing. */
+/* One upload, in the background, retried once after RETRY_DELAY_MS; still
+   failing, it waits in `pending` for finishing. */
 function upload(tok, job) {
   const p = (async () => {
     if (await send(tok, job)) return;
+    if (!live(tok)) return;
+    await clock.wait(RETRY_DELAY_MS);
     if (!live(tok)) return;
     if (await send(tok, job)) return;
     if (live(tok)) pending.push(job);

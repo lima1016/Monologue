@@ -73,14 +73,19 @@ globalThis.Audio = class Audio {
   fire(type) { for (const fn of this.listeners[type] || []) fn(); }
 };
 
-// Whatever the browser's voice is asked to say. An empty utterance ends at once.
+// Whatever the browser's voice is asked to say. An empty utterance ends at
+// once -- unless slowVoice holds it, as a first speechSynthesis use can, until
+// the test ends it (lastUtterance.end()).
 const spoken = [];
+let slowVoice = false;
+let lastUtterance = null;
 globalThis.SpeechSynthesisUtterance = class {
   constructor(text) { this.text = text; this.listeners = {}; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  end() { for (const fn of this.listeners.end || []) fn(); }
 };
 window.speechSynthesis = {
-  speak(u) { spoken.push(u.text); for (const fn of u.listeners.end || []) fn(); },
+  speak(u) { spoken.push(u.text); lastUtterance = u; if (!slowVoice) u.end(); },
   cancel() {},
 };
 globalThis.speechSynthesis = window.speechSynthesis;
@@ -91,6 +96,7 @@ stubFetch(async (url) => {
   return jsonResponse({});
 });
 const lt = await import('./leveltest.js');
+const audio = await import('./audio.js');
 await import('./main.js');
 const homeClick = $('btn-leveltest-home').listeners.click[0];
 const mypageClick = $('btn-mypage').listeners.click[0];
@@ -102,10 +108,14 @@ await new Promise((resolve) => setTimeout(resolve, 20));
 let now = 0;
 const tickers = new Map();
 let nextId = 1;
+// The upload retry's pause: recorded, and over at once unless a test holds it.
+const waits = [];
+let waitGate = null;
 Object.assign(lt.clock, {
   now: () => now,
   every: (fn) => { const id = nextId++; tickers.set(id, fn); return id; },
   cancel: (id) => { tickers.delete(id); },
+  wait: (ms) => { waits.push(ms); return waitGate ? waitGate.promise : Promise.resolve(); },
 });
 function advance(ms) {
   now += ms;
@@ -223,6 +233,9 @@ beforeEach(() => {
   recorderMode = 'ok';
   clipFails = 0;
   spoken.length = 0;
+  slowVoice = false;
+  waits.length = 0;
+  waitGate = null;
   rendered = [];
   lt.view.renderLevelResult = (r) => rendered.push(r);
 });
@@ -400,6 +413,18 @@ test('다 말했어요 moves to the next sentence at once; its upload does not h
   assert.equal(st().inflight, 0);
 });
 
+test('the one retry waits 1.5 s first -- Whisper may still be loading', async () => {
+  waitGate = deferred();
+  const seen = await start({ item: (n, k) => (k === 1 ? fail503() : jsonResponse({ i: n, done: true })) });
+  await sayItem();
+  assert.deepEqual(waits, [1500]);
+  assert.equal(seen.items.length, 1);
+  waitGate.resolve();
+  await flush();
+  assert.equal(seen.items.length, 2);
+  assert.equal(st().pending, 0);
+});
+
 test('an upload that fails is retried once by itself', async () => {
   const seen = await start({ item: (n, k) => (k === 1 ? fail503() : jsonResponse({ i: n, done: true })) });
   await sayItem();
@@ -435,6 +460,68 @@ test('a clip that will not play offers 다시 듣기 once -- never the text, nev
   assert.equal(st().phase, 'rec');
 });
 
+test('the browser-voice fallback is not a hearing, however long it takes to end', async () => {
+  clipFails = 1;
+  slowVoice = true;
+  await start();
+  assert.equal(st().phase, 'listen');
+  advance(2000);
+  lastUtterance.end();
+  await flush();
+  assert.equal(st().phase, 'failed');
+  assert.equal(visible('lt-relisten'), true);
+  assert.equal(recorders.filter((r) => r.state === 'recording').length, 0);
+  assert.deepEqual(spoken, ['']);
+});
+
+test('a clip error is not a hearing', async () => {
+  await start();
+  advance(2000);
+  lastClip().fire('error');
+  await flush();
+  assert.equal(st().phase, 'failed');
+  assert.equal(visible('lt-relisten'), true);
+});
+
+test('a clip cut off by something else (stopPlayback) is not a hearing', async () => {
+  await start();
+  advance(2000);
+  audio.stopPlayback();
+  await flush();
+  assert.equal(st().phase, 'failed');
+  assert.equal(recorders.filter((r) => r.state === 'recording').length, 0);
+});
+
+test('a clip that never says anything: after 15 s it is taken as not played, and silenced', async () => {
+  await start();
+  const clip = lastClip();
+  advance(14999);
+  assert.equal(st().phase, 'listen');
+  advance(1);
+  await flush();
+  assert.equal(st().phase, 'failed');
+  assert.equal(visible('lt-relisten'), true);
+  assert.equal(clip.paused, true);
+  // Its ended arriving after all changes nothing.
+  clip.fire('ended');
+  await flush();
+  assert.equal(st().phase, 'failed');
+});
+
+test('a sentence with no clip goes straight to recording, with the ten-second window and no 다시 듣기', async () => {
+  const noKey = { ...CREATED, items: CREATED.items.map((x, i) => (i === 0 ? { i, audio_key: null } : x)) };
+  const clipsBefore = clips.length;
+  await start({ create: () => jsonResponse(noKey) });
+  assert.equal(clips.length, clipsBefore);
+  assert.equal(st().phase, 'rec');
+  assert.equal(visible('lt-relisten'), false);
+  advance(9999);
+  assert.equal(st().phase, 'rec');
+  advance(1);
+  await flush();
+  assert.equal(st().i, 1);
+});
+
 test('a clip failing twice: recorded anyway, for the ten-second window', async () => {
   clipFails = 2;
   await start();
@@ -466,7 +553,28 @@ test('an empty recording is not uploaded: say so, and 다시 하기 opens the mi
   assert.equal(streams.length, streamsBefore + 1);
   assert.deepEqual(shown(), ['lt-item']);
   assert.equal(st().i, 0);
-  await sayItem();
+  advance(1500);
+  lt.stopNow();
+  await flush();
+  assert.deepEqual(seen.items.map((x) => x.n), [0]);
+});
+
+test('다시 하기 after a mic fault is not a second hearing: straight back to recording, same window', async () => {
+  const seen = await start();
+  recorderMode = 'no-data';
+  await sayItem();   // heard for 2 s: a 7 s window
+  recorderMode = 'ok';
+  const clipsBefore = clips.length;
+  lt.redo();
+  await flush();
+  assert.equal(clips.length, clipsBefore);
+  assert.equal(st().phase, 'rec');
+  assert.equal($('lt-item-status').textContent, lt.TEXT.say);
+  advance(6999);
+  assert.equal(st().phase, 'rec');
+  advance(1);
+  await flush();
+  assert.equal(st().i, 1);
   assert.deepEqual(seen.items.map((x) => x.n), [0]);
 });
 
