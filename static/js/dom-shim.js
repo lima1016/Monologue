@@ -160,6 +160,9 @@ export const document = {
   // index.html has no id="body" for getElementById to find, so it needs its
   // own stub. Only classList is exercised -- nothing else about <body> is.
   body: new El('body'),
+  // <html>: the theme attributes (data-theme/data-mode) live here. Tests
+  // read them with getAttribute; resetDom clears them.
+  documentElement: new El('html'),
   get activeElement() { return activeElement; },
 };
 
@@ -196,4 +199,5 @@ stubFetch(async () => jsonResponse({}));
 export function resetDom() {
   elements.clear();
   activeElement = null;
+  document.documentElement.attributes = {};
 }

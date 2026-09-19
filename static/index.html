@@ -5,6 +5,24 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Monologue</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<!-- 설정 > 화면. Runs before the stylesheets below so a saved theme is on
+     <html> before first paint -- no flash of the default palette. Mirrors
+     applyTheme/readScreenPrefs in js/settings.js (same keys, same theme list;
+     settings.test.js runs this very script, tests/test_themes_css.py checks
+     the ids). Storage that throws or holds junk leaves the defaults. -->
+<script>
+(function () {
+  var theme = 'default', mode = 'auto';
+  try {
+    theme = localStorage.getItem('screen-theme') || theme;
+    mode = localStorage.getItem('screen-mode') || mode;
+  } catch (e) { /* private window, blocked storage: defaults */ }
+  if (!/^(default|forest|sea|lavender|ink|white)$/.test(theme)) theme = 'default';
+  if (!/^(auto|light|dark)$/.test(mode)) mode = 'auto';
+  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-mode', mode);
+})();
+</script>
 <link rel="stylesheet" href="/css/fonts.css">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/base.css">
@@ -443,6 +461,24 @@
 
 <dialog id="settings">
   <h2>설정</h2>
+  <!-- Swatch colours are each theme's light --bg and --accent (the test
+       compares them with tokens.css). -->
+  <fieldset id="screen-prefs">
+    <legend>화면</legend>
+    <div class="swatches" role="group" aria-label="테마">
+      <button type="button" class="swatch" id="theme-default" data-theme-choice="default" aria-pressed="true" style="--sw-bg: #faf5ef; --sw-accent: #a85a3c;"><span class="swatch-chip" aria-hidden="true"></span>기본</button>
+      <button type="button" class="swatch" id="theme-forest" data-theme-choice="forest" aria-pressed="false" style="--sw-bg: #f2f3ea; --sw-accent: #56733a;"><span class="swatch-chip" aria-hidden="true"></span>숲</button>
+      <button type="button" class="swatch" id="theme-sea" data-theme-choice="sea" aria-pressed="false" style="--sw-bg: #f0f3f5; --sw-accent: #2a767b;"><span class="swatch-chip" aria-hidden="true"></span>바다</button>
+      <button type="button" class="swatch" id="theme-lavender" data-theme-choice="lavender" aria-pressed="false" style="--sw-bg: #f2f0f6; --sw-accent: #7155a6;"><span class="swatch-chip" aria-hidden="true"></span>보라</button>
+      <button type="button" class="swatch" id="theme-ink" data-theme-choice="ink" aria-pressed="false" style="--sw-bg: #f5f1e7; --sw-accent: #262522;"><span class="swatch-chip" aria-hidden="true"></span>먹</button>
+      <button type="button" class="swatch" id="theme-white" data-theme-choice="white" aria-pressed="false" style="--sw-bg: #f4f5f7; --sw-accent: #1a66d6;"><span class="swatch-chip" aria-hidden="true"></span>하양</button>
+    </div>
+    <span class="seg" role="group" aria-label="밝기">
+      <button type="button" id="mode-auto" data-mode-choice="auto" class="on" aria-pressed="true">자동</button>
+      <button type="button" id="mode-light" data-mode-choice="light" aria-pressed="false">밝게</button>
+      <button type="button" id="mode-dark" data-mode-choice="dark" aria-pressed="false">어둡게</button>
+    </span>
+  </fieldset>
   <label>언어
     <select id="settings-language">
       <option value="en">English</option>

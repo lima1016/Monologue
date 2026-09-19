@@ -325,6 +325,28 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .voice { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) 0; }
 .voice label { margin: 0; flex: 1; }
 
+/* 설정 > 화면. Each swatch paints its own theme (light --bg and --accent,
+   set inline in index.html) whatever theme is showing, so the six can be
+   compared side by side. The pressed one gets an inset ring rather than a
+   thicker border, so choosing never shifts the grid. */
+#screen-prefs { border: 0; padding: 0; margin: 0 0 var(--space-4); min-width: 0; }
+/* legend keeps the fieldset's grouping semantics but reads like the dialog's
+   other section labels (the plain `label` rule above 언어 sets these same
+   two values). */
+#screen-prefs legend { padding: 0; margin: 0 0 var(--space-3); font-size: var(--text-sm); }
+.swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2);
+            margin-bottom: var(--space-3); }
+.swatch { --sw-bg: var(--bg); --sw-accent: var(--accent); /* overridden inline per theme */
+          display: flex; align-items: center; gap: var(--space-2);
+          padding: var(--space-2) var(--space-3); font-size: var(--text-sm);
+          background: var(--surface); color: var(--text);
+          border: 1px solid var(--line); border-radius: var(--radius-sm);
+          transition: box-shadow var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out; }
+.swatch-chip { width: 20px; height: 20px; flex-shrink: 0; border-radius: var(--radius-pill);
+               border: 1px solid var(--line);
+               background: linear-gradient(135deg, var(--sw-bg) 50%, var(--sw-accent) 50%); }
+.swatch[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
 /* --- session screen --- */
 
 /* #mic-dock is `position: sticky; bottom: 0`, which only pins when the

@@ -45,3 +45,127 @@ test('the pronunciation script choice is saved with the other reading prefs', as
   await saveReadingPrefs();
   assert.deepEqual(posted, [{ furigana: true, romaji: true, pron_script: 'hangul' }]);
 });
+
+/* ---------- 화면: theme and brightness ---------- */
+
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import { THEMES, MODES, applyTheme, initScreenPrefs, readScreenPrefs } from './settings.js';
+
+const html = () => document.documentElement;
+
+function memoryStorage(initial = {}) {
+  const data = { ...initial };
+  return { data, getItem: (k) => (k in data ? data[k] : null), setItem: (k, v) => { data[k] = String(v); } };
+}
+const throwingStorage = {
+  getItem() { throw new Error('blocked'); },
+  setItem() { throw new Error('blocked'); },
+};
+
+function withStorage(storage, fn) {
+  globalThis.localStorage = storage;
+  try { return fn(); } finally { delete globalThis.localStorage; }
+}
+
+test('choosing a theme sets data-theme on <html> and saves it', () => {
+  const s = memoryStorage();
+  withStorage(s, () => applyTheme('forest', 'auto'));
+  assert.equal(html().getAttribute('data-theme'), 'forest');
+  assert.equal(s.data['screen-theme'], 'forest');
+});
+
+test('choosing a brightness sets data-mode and saves it', () => {
+  const s = memoryStorage();
+  withStorage(s, () => applyTheme('default', 'dark'));
+  assert.equal(html().getAttribute('data-mode'), 'dark');
+  assert.equal(s.data['screen-mode'], 'dark');
+});
+
+test('aria-pressed marks the chosen swatch and brightness, and only those', () => {
+  withStorage(memoryStorage(), () => applyTheme('sea', 'light'));
+  for (const t of THEMES) {
+    assert.equal($(`theme-${t}`).getAttribute('aria-pressed'), String(t === 'sea'), t);
+  }
+  for (const m of MODES) {
+    assert.equal($(`mode-${m}`).getAttribute('aria-pressed'), String(m === 'light'), m);
+    assert.equal($(`mode-${m}`).classList.contains('on'), m === 'light', m);
+  }
+});
+
+test('unknown values fall back to 기본 / 자동', () => {
+  const applied = withStorage(memoryStorage(), () => applyTheme('neon', 'dim'));
+  assert.deepEqual(applied, { theme: 'default', mode: 'auto' });
+  assert.equal(html().getAttribute('data-theme'), 'default');
+});
+
+test('storage that throws: the choice still applies, nothing crashes', () => {
+  withStorage(throwingStorage, () => {
+    assert.doesNotThrow(() => applyTheme('ink', 'dark'));
+    assert.deepEqual(readScreenPrefs(), { theme: 'default', mode: 'auto' });
+  });
+  assert.equal(html().getAttribute('data-theme'), 'ink');
+  assert.equal(html().getAttribute('data-mode'), 'dark');
+});
+
+test('no storage at all reads as the defaults', () => {
+  assert.deepEqual(readScreenPrefs(), { theme: 'default', mode: 'auto' });
+});
+
+test('the swatch and brightness buttons apply on click, keeping the other half', () => {
+  const s = memoryStorage();
+  withStorage(s, () => {
+    html().setAttribute('data-theme', 'white');
+    html().setAttribute('data-mode', 'dark');
+    initScreenPrefs();
+    assert.equal($('theme-white').getAttribute('aria-pressed'), 'true');
+    $('theme-lavender').listeners.click.at(-1)();
+    assert.equal(html().getAttribute('data-theme'), 'lavender');
+    assert.equal(html().getAttribute('data-mode'), 'dark');
+    $('mode-light').listeners.click.at(-1)();
+    assert.equal(html().getAttribute('data-theme'), 'lavender');
+    assert.equal(html().getAttribute('data-mode'), 'light');
+  });
+  assert.deepEqual(s.data, { 'screen-theme': 'lavender', 'screen-mode': 'light' });
+});
+
+/* The pre-paint script in index.html's <head>, run as the browser would: in
+   its own context, with only document and localStorage. */
+function headScript() {
+  const src = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const head = src.slice(0, src.indexOf('</head>'));
+  const m = head.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(m, 'no inline script in <head>');
+  return m[1];
+}
+function runHeadScript(storage) {
+  const attrs = {};
+  const documentElement = { setAttribute: (k, v) => { attrs[k] = String(v); } };
+  const ctx = { document: { documentElement } };
+  if (storage) ctx.localStorage = storage;
+  runInNewContext(headScript(), ctx);
+  return attrs;
+}
+
+test('the head script applies the saved theme and brightness', () => {
+  const attrs = runHeadScript(memoryStorage({ 'screen-theme': 'forest', 'screen-mode': 'dark' }));
+  assert.deepEqual(attrs, { 'data-theme': 'forest', 'data-mode': 'dark' });
+});
+
+test('the head script accepts every theme and mode settings.js offers', () => {
+  for (const t of THEMES) {
+    for (const m of MODES) {
+      const attrs = runHeadScript(memoryStorage({ 'screen-theme': t, 'screen-mode': m }));
+      assert.deepEqual(attrs, { 'data-theme': t, 'data-mode': m });
+    }
+  }
+});
+
+test('the head script falls back to 기본/자동 on junk, empty or throwing storage', () => {
+  const fallback = { 'data-theme': 'default', 'data-mode': 'auto' };
+  assert.deepEqual(runHeadScript(memoryStorage({ 'screen-theme': 'neon', 'screen-mode': 'x' })), fallback);
+  assert.deepEqual(runHeadScript(memoryStorage()), fallback);
+  assert.deepEqual(runHeadScript(throwingStorage), fallback);
+  // No localStorage global at all: the ReferenceError is caught too.
+  assert.deepEqual(runHeadScript(null), fallback);
+});
