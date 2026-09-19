@@ -5,6 +5,11 @@ import * as router from './router.js';
 import * as turn from './turnstate.js';
 import { annotate, attachMeaning, escapeHtml } from './reading.js';
 import { setSuggestVisible } from './suggest.js';
+// A leaf module (imports nothing): timed.js (the live screen) and this file
+// (the report) both use it, so neither has to import the other -- session.js
+// importing timed.js would be a cycle (timed.js already imports renderReport
+// from here).
+import { compareRounds, formatMetric } from './timedmath.js';
 
 /* ---------- turn state ---------- */
 
@@ -961,6 +966,7 @@ export function renderReport(data) {
   // reopened from my page belongs to no current session, so those flags say
   // nothing about it (and endSession clears state.shadowing before this runs).
   if (data.kind === 'shadow') { renderShadowReport(data); return; }
+  if (data.kind === 'timed') { renderTimedReport(data); return; }
   const s = data.stats || {};
   // 헤드라인. LLM 에 새 필드를 요구하지 않는다 -- 리포트 프롬프트는 여러 라운드에
   // 걸쳐 다듬어졌고, 필드를 하나 더 넣는 것만으로 그 품질이 회귀할 수 있다.
@@ -1071,6 +1077,134 @@ function renderShadowReport(data) {
   // Not loadWeakPoints(): that panel is app-wide history, and a shadowing
   // session graded nothing that could feed it.
   $('report-weak').hidden = true;
+}
+
+/* 1분 말하기's report (Task 7): every round exactly as it was graded live --
+   _timed_report (app/api.py) never calls the model again, so there is
+   nothing to summarise here either (no 총평/부족한 부분/외워둘 표현/다음엔 이것을,
+   same reason renderShadowReport skips them). Unlike shadowing, though,
+   round 1 *did* grade real turns and feed messages/복습/레벨 (Global
+   Constraint: "1회차만 기록"), so this session's turns do count toward the
+   app-wide weak-points panel -- loadWeakPoints() runs here.
+
+   No recording: finish_session sweeps every round's audio before this
+   payload is even built (Global Constraint), so there is no ▶ 내 녹음 here
+   the way the live screen has one. */
+function renderTimedReport(data) {
+  const rounds = data.rounds || [];
+  $('report-headline').textContent = `1분 말하기 ${rounds.length}회`;
+  $('report-counts').textContent = data.topic || '';
+
+  const body = $('report-body');
+  body.replaceChildren();
+  if (!rounds.length) {
+    const p = document.createElement('p');
+    p.textContent = '말한 기록이 없어요';
+    body.append(p);
+  } else {
+    // state.language, not a field off `data`: _timed_report carries no
+    // language of its own. Live, this is always the session just spoken in.
+    // Reopened from my page, openReport's own staleness check ties the
+    // request to the language its history row was loaded under -- it bails
+    // before renderReport ever runs if the learner switches language while
+    // the request is in flight -- so state.language is the right source
+    // either way, not something this function needs to guess at.
+    const language = state.language;
+    body.append(timedRoundsCard(rounds, language));
+    const first = rounds[0];
+    if (first.sentences && first.sentences.length) body.append(timedSentencesCard(first.sentences));
+    const last = rounds[rounds.length - 1];
+    if (last.native) body.append(timedNativeCard(last.native));
+  }
+
+  const s = data.stats || {};
+  $('rep-turns').textContent = s.turns ?? 0;
+  $('rep-wrong').textContent = String(s.wrong ?? 0);
+  $('rep-minutes').textContent = s.minutes ?? 0;
+
+  loadWeakPoints().catch(() => {}); // 리포트를 막지 않는다
+}
+
+/* 회차 표: one line per round, 회차 · 단어(글자) · 분당 · 긴 멈춤 · 고친 곳 --
+   round 1's own line has nothing to compare against (compareRounds(null, …)),
+   every later round is measured against round 1 and the metric that moved
+   the good way is marked .timed-better, exactly as the live result screen
+   marks it (timed.js's toResult) -- same functions, same class, same rule. */
+function timedRoundsCard(rounds, language) {
+  const card = document.createElement('section');
+  card.className = 'report-card';
+  const heading = document.createElement('p');
+  heading.className = 'label';
+  heading.textContent = '회차별 기록';
+  card.append(heading);
+  const first = rounds[0];
+  for (const r of rounds) card.append(timedRoundRow(r, first, language));
+  return card;
+}
+
+function timedRoundRow(round, first, language) {
+  const p = document.createElement('p');
+  const n = document.createElement('span');
+  n.className = 'timed-report-round-n';
+  n.textContent = `${round.round}회차`;
+  p.append(n);
+  const compared = compareRounds(round === first ? null : first, round);
+  for (const m of compared) {
+    p.append(document.createTextNode(' · '));
+    const span = document.createElement('span');
+    span.className = m.better ? 'timed-metric timed-better' : 'timed-metric';
+    span.textContent = formatMetric(m, language);
+    p.append(span);
+  }
+  return p;
+}
+
+/* 1회차 문장 목록: 내 말(never struck through -- not .fix-row .said, which is
+   a correction's wrong half) / 고친 문장 / 설명. A filler line ("Um.") has
+   nothing to judge -- it shows plainly, just what was said, no verdict. */
+function timedSentencesCard(sentences) {
+  const card = document.createElement('section');
+  card.className = 'report-card';
+  const heading = document.createElement('p');
+  heading.className = 'label';
+  heading.textContent = '1회차에 말한 문장';
+  card.append(heading);
+  for (const s of sentences) {
+    const row = document.createElement('div');
+    row.className = 'fix-row';
+    const mine = document.createElement('p');
+    mine.className = 'mine';
+    mine.append(labelled('내 말'), document.createTextNode(' '), plain(s.text));
+    row.append(mine);
+    if (!s.filler) {
+      if (s.ok === false && s.fixed) {
+        const fixed = document.createElement('p');
+        fixed.className = 'fixed';
+        fixed.append(labelled('고친 문장'), document.createTextNode(' '), plain(s.fixed));
+        row.append(fixed);
+      }
+      if (s.correction) {
+        const why = document.createElement('p');
+        why.append(labelled('설명'), document.createTextNode(' '), plain(s.correction));
+        row.append(why);
+      }
+    }
+    card.append(row);
+  }
+  return card;
+}
+
+function timedNativeCard(native) {
+  const card = document.createElement('section');
+  card.className = 'report-card';
+  const heading = document.createElement('p');
+  heading.className = 'label';
+  heading.textContent = '원어민이라면';
+  card.append(heading);
+  const p = document.createElement('p');
+  p.textContent = native;
+  card.append(p);
+  return card;
 }
 
 function shadowHardCard(hard) {

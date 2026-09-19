@@ -298,6 +298,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .fix-row .mine { font-size: var(--text-sm); color: var(--text-dim); }
 .fix-row .label { display: inline; margin: 0 var(--space-2) 0 0; }
 
+/* 1분 말하기 리포트의 회차 표: 한 줄에 한 회차, 회차 번호만 굵게 -- 뒤따르는
+   .timed-metric/.timed-better(static/css의 다른 곳, #timed 결과 화면과 공유)은
+   새로 정의하지 않는다. */
+.timed-report-round-n { font-weight: 700; margin-right: var(--space-1); }
+
 #weak-list { list-style: none; margin: 0; padding: 0; }
 #weak-list li { display: flex; align-items: center; justify-content: space-between;
                 padding: var(--space-2) 0; border-bottom: 1px solid var(--line);
