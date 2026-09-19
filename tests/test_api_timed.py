@@ -552,3 +552,75 @@ def test_an_upload_to_an_ended_session_writes_no_file(client, monkeypatch):
     db.end_session(sid, "{}", None)
     assert _upload(client, sid).status_code == 409
     assert not (config.AUDIO_DIR / f"s{sid}_r1.webm").exists()
+
+
+# ---------------------------------------------------------------------------
+# a filler-only sentence is done, not retried forever; a round's length is real
+# ---------------------------------------------------------------------------
+
+FILLER_FIRST = [
+    {"start": 0.0, "end": 1.0, "text": "Um."},
+    {"start": 1.5, "end": 4.0, "text": "Last weekend I go to the park."},
+]
+
+
+def test_a_filler_only_sentence_is_graded_as_filler_with_no_model_call_and_no_row(client, monkeypatch):
+    Stt(monkeypatch, FILLER_FIRST)
+    sid = _timed()
+    assert [s["text"] for s in _upload(client, sid).json()["sentences"]] == [
+        "Um.", "Last weekend I go to the park."]
+    model = Model(monkeypatch, WRONG)
+    body = client.post(f"/api/sessions/{sid}/timed/rounds/1/grade/0").json()
+    assert body == {"i": 0, "text": "Um.", "ok": None, "fixed": None, "correction": None,
+                    "suggestion": None, "tag": None, "filler": True}
+    assert model.calls == [], "a filler-only sentence must not reach the model"
+    assert db.get_messages(sid) == []
+    stored = db.get_rounds(sid)[0]["sentences"][0]
+    assert stored["graded"] is True and stored["filler"] is True and stored["message_id"] is None
+
+    again = client.post(f"/api/sessions/{sid}/timed/rounds/1/grade/0").json()
+    assert again == body
+    assert model.calls == []
+    assert db.get_messages(sid) == []
+
+
+@pytest.mark.parametrize("language,text", [("en", "Um"), ("en", "Uh, um..."), ("ja", "えーと。")])
+def test_other_filler_only_shapes_count_too(language, text):
+    assert api._is_filler_only(text, language)
+
+
+def test_a_sentence_with_words_after_its_filler_is_not_filler():
+    assert not api._is_filler_only("Um, I went home.", "en")
+
+
+def test_the_native_prompt_leaves_filler_sentences_out(client, monkeypatch):
+    Stt(monkeypatch, FILLER_FIRST)
+    sid = _timed()
+    _upload(client, sid)
+    Model(monkeypatch, WRONG)
+    client.post(f"/api/sessions/{sid}/timed/rounds/1/grade/0")
+    model = Model(monkeypatch, NATIVE)
+    client.post(f"/api/sessions/{sid}/timed/rounds/1/native")
+    ask = model.calls[0]["messages"][-1]["content"]
+    assert "Um." not in ask
+    assert "Last weekend I go to the park." in ask
+
+
+@pytest.mark.parametrize("seconds", ["nan", "inf", "-inf", "0", "-1", "500", "120.5"])
+def test_upload_refuses_a_length_that_is_not_real_before_writing_anything(client, monkeypatch, seconds):
+    fake = Stt(monkeypatch)
+    sid = _timed()
+    # Without the check, nan/inf crash inside the route (wpm, JSON); this client
+    # turns that into a 500 so the test fails on its own assertion, not a traceback.
+    r = _upload(TestClient(app, raise_server_exceptions=False), sid, seconds=seconds)
+    assert r.status_code == 422
+    assert not (config.AUDIO_DIR / f"s{sid}_r1.webm").exists()
+    assert db.get_rounds(sid) == []
+    assert fake.calls == 0
+
+
+@pytest.mark.parametrize("seconds", ["0.5", "60", "120"])
+def test_upload_takes_a_real_length_up_to_the_cap(client, monkeypatch, seconds):
+    Stt(monkeypatch)
+    sid = _timed()
+    assert _upload(client, sid, seconds=seconds).status_code == 200

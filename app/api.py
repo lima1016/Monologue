@@ -2,6 +2,7 @@
 import functools
 import json
 import logging
+import math
 import re
 import threading
 import uuid
@@ -1250,6 +1251,10 @@ _NATIVE_MAX = {"en": 220, "ja": 450}
 # 한 회차 문장 목록의 읽기-고치기-쓰기를 한 줄로 세운다. 교정 호출(수 초) 자체는
 # 밖에서 돈다 -- 잠그는 것은 DB를 다시 읽고 문장 하나를 바꿔 쓰는 순간뿐이다.
 _ROUND_WRITE = threading.Lock()
+_TIMED_MAX_SECONDS = 120
+# What is left of a sentence once its fillers are gone: "Um." leaves ".", so
+# "nothing left" means no letter or digit at all, not an empty string.
+_WORD_CHAR = re.compile(r"\w")
 
 
 def _timed_session(session_id: int) -> dict:
@@ -1300,6 +1305,11 @@ async def upload_timed_round(session_id: int, seconds: float = Form(...),
     learner's minute: the round is stored with no sentences and the 503 says
     which round to retry."""
     session = _timed_session(session_id)
+    # The client's own clock: it stops at 60 s. Anything not a real length
+    # (nan, inf, zero, negative, far past the safety cap) is refused before a
+    # file is written or a round number is taken -- wpm divides by it.
+    if not (math.isfinite(seconds) and 0 < seconds <= _TIMED_MAX_SECONDS):
+        raise HTTPException(422, "seconds must be a real length, 0 < seconds <= 120")
     audio = await file.read(_MAX_TRANSCRIBE_BYTES + 1)
     if len(audio) > _MAX_TRANSCRIBE_BYTES:
         raise HTTPException(413, "녹음이 너무 큽니다")
@@ -1334,8 +1344,15 @@ async def retranscribe_timed_round(session_id: int, n: int):
 
 
 def _graded_response(i: int, s: dict) -> dict:
-    return {"i": i, "text": s["text"], "ok": s["ok"], "fixed": s["fixed"],
-            "correction": s["correction"], "suggestion": s["suggestion"], "tag": s["tag"]}
+    out = {"i": i, "text": s["text"], "ok": s["ok"], "fixed": s["fixed"],
+           "correction": s["correction"], "suggestion": s["suggestion"], "tag": s["tag"]}
+    if s.get("filler"):
+        out["filler"] = True
+    return out
+
+
+def _is_filler_only(text: str, language: str) -> bool:
+    return not _WORD_CHAR.search(text_cleanup.strip_fillers(text, language))
 
 
 @router.post("/sessions/{session_id}/timed/rounds/{n}/grade/{i}")
@@ -1357,6 +1374,19 @@ def grade_timed_sentence(session_id: int, n: int, i: int):
 
     language = session["language"]
     text = sentence["text"]
+    if _is_filler_only(text, language):
+        # Nothing but "Um." -- there is nothing to grade, and _feedback would
+        # either skip it (ok None, so the client retries forever) or send the
+        # bare punctuation to the model. It is done: graded, no verdict, no
+        # messages row, no model call.
+        with _ROUND_WRITE:
+            current = _timed_round(session_id, n)["sentences"]
+            if not current[i]["graded"]:
+                current[i] = {**current[i], "graded": True, "ok": None, "fixed": None,
+                              "correction": None, "suggestion": None, "tag": None,
+                              "message_id": None, "filler": True}
+                db.set_round_sentences(session_id, n, current)
+        return _graded_response(i, current[i])
     feedback = _feedback(language, text, topic=session["topic"])
     if feedback["ok"] is None:
         # The model failed: leave it ungraded so the client can offer a retry.
@@ -1401,7 +1431,9 @@ def timed_native(session_id: int, n: int):
     if rnd["native"]:
         return {"native": rnd["native"], "level": rnd["level"],
                 "audio_key": _speak(rnd["native"], language)}
-    said = [s["fixed"] if s["ok"] is False and s["fixed"] else s["text"] for s in rnd["sentences"]]
+    said = [s["fixed"] if s["ok"] is False and s["fixed"] else s["text"]
+            for s in rnd["sentences"]
+            if not (s.get("filler") or _is_filler_only(s["text"], language))]
     if not said:
         raise HTTPException(503, TIMED_NATIVE_UNAVAILABLE)
     messages = prompts.build_timed_native_messages(
