@@ -491,6 +491,40 @@ test('1분 말하기 리포트: 회차 표 두 줄, 강조 방향, 1회차 문�
   assert.equal(fetched, true, '1회차가 채점한 것은 누적 약점(/stats/home)에 들어간다 -- 쉐도잉과 다르다');
 });
 
+test('1분 말하기 리포트: 맞은 문장은 설명 없이 ✓ 좋아요만 보여준다 (틀린 문장은 그대로 고친 문장+설명)', () => {
+  resetDom();
+  stubFetch(async () => jsonResponse({ top_tags: [] }));
+  state.language = 'en';
+  session.renderReport({
+    kind: 'timed', topic: 'x',
+    rounds: [{
+      round: 1, seconds: 60, words: 10, wpm: 10, long_pauses: 0, fixed: 0, graded: 2,
+      sentences: [
+        { text: 'I like cats.', graded: true, ok: true, fixed: null,
+          correction: '이미 맞습니다', suggestion: null, tag: null, message_id: null },
+        { text: 'They is cute.', graded: true, ok: false, fixed: 'They are cute.',
+          correction: '복수 주어에는 are를 써요', suggestion: null, tag: 'agreement', message_id: 11 },
+      ],
+      native: null,
+    }],
+    stats: { turns: 2, wrong: 1, minutes: 1 },
+  });
+  const body = $('report-body');
+  const rows = findAllByClass(body, 'fix-row');
+  assert.equal(rows.length, 2);
+
+  const good = findByClass(rows[0], 'timed-good');
+  assert.ok(good, '맞은 문장에는 ✓ 좋아요가 있다');
+  assert.equal(text(good), '✓ 좋아요');
+  assert.equal(findByClass(rows[0], 'fixed'), null, '맞은 문장에는 고친 문장이 없다');
+  assert.ok(!text(rows[0]).includes('이미 맞습니다'), '맞은 문장은 설명을 보여주지 않는다');
+
+  assert.equal(findByClass(rows[1], 'timed-good'), null, '틀린 문장에는 ✓ 좋아요가 없다');
+  const fixed = findByClass(rows[1], 'fixed');
+  assert.equal(text(fixed), '고친 문장 They are cute.');
+  assert.match(text(rows[1]), /복수 주어에는 are를 써요/);
+});
+
 test('1분 말하기 리포트: 내 말은 취소선이 없고(.said 아님), 원어민이라면이 없으면 카드도 없다', () => {
   resetDom();
   stubFetch(async () => jsonResponse({ top_tags: [] }));

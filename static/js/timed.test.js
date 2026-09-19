@@ -46,10 +46,10 @@ class FakeRecorder {
 const RealRecorder = FakeRecorder;
 globalThis.MediaRecorder = FakeRecorder;
 
-let micMode = 'ok';           // 'ok' | 'denied'
+let micMode = 'ok';           // 'ok' | 'denied' | 'ended'
 const streams = [];
-function fakeStream() {
-  const tracks = [{ stopped: false, stop() { this.stopped = true; } }];
+function fakeStream({ ended = false } = {}) {
+  const tracks = [{ stopped: false, readyState: ended ? 'ended' : 'live', stop() { this.stopped = true; } }];
   const s = { tracks, getTracks: () => tracks };
   streams.push(s);
   return s;
@@ -60,7 +60,7 @@ Object.defineProperty(globalThis, 'navigator', {
     mediaDevices: {
       getUserMedia: () => (micMode === 'denied'
         ? Promise.reject(new Error('NotAllowedError'))
-        : Promise.resolve(fakeStream())),
+        : Promise.resolve(fakeStream({ ended: micMode === 'ended' }))),
     },
   },
 });
@@ -207,14 +207,15 @@ test('nextStage follows the table, LEAVE goes idle from anywhere, and nothing el
   const allowed = {
     prep: { START: 'rec', PREP_DONE: 'rec' },
     rec: { STOP: 'upload', TIME_UP: 'upload' },
-    upload: { UPLOADED: 'grading', TRANSCRIBE_FAILED: 'retry-transcribe' },
+    upload: { UPLOADED: 'grading', TRANSCRIBE_FAILED: 'retry-transcribe', EMPTY: 'empty' },
     'retry-transcribe': { RETRY: 'upload' },
     grading: { GRADED: 'result' },
     result: { AGAIN: 'prep' },
+    empty: { BACK: 'prep' },
   };
   const stages = ['idle', ...Object.keys(allowed)];
   const events = ['START', 'PREP_DONE', 'STOP', 'TIME_UP', 'UPLOADED', 'TRANSCRIBE_FAILED',
-                  'RETRY', 'GRADED', 'AGAIN'];
+                  'RETRY', 'GRADED', 'AGAIN', 'EMPTY', 'BACK'];
   for (const s of stages) {
     assert.equal(timed.nextStage(s, 'LEAVE'), 'idle', `${s} + LEAVE`);
     for (const e of events) {
@@ -668,6 +669,64 @@ test('a MediaRecorder that throws on construction releases the mic, says so, and
   advance(60000);
   await flush();
   assert.equal(seen.uploads.length, 0);
+});
+
+test('a MediaRecorder that throws on start() reads the same as one that throws on construction', async () => {
+  class DeadStartRecorder extends FakeRecorder {
+    start() { throw new Error('NotSupportedError'); }
+  }
+  globalThis.MediaRecorder = DeadStartRecorder;
+  const seen = await open();
+  timed.startNow();
+  assert.equal(stage(), 'prep', 'no dead minute ticking with nothing recording');
+  assert.equal($('timed-mic-note').textContent,
+    '마이크를 쓸 수 없어요 — 브라우저 설정에서 마이크를 허용해 주세요');
+  assert.equal($('timed-mic-note').classList.contains('is-invisible'), false);
+  assert.equal($('timed-start').disabled, true);
+  assert.ok(lastStream().tracks.every((t) => t.stopped), 'the microphone is released');
+  assert.equal(tickers.size, 0, 'no clock left running');
+  advance(60000);
+  await flush();
+  assert.equal(seen.uploads.length, 0);
+});
+
+test('a stream whose track already ended reads the same as a refused microphone, without even trying MediaRecorder', async () => {
+  const before = recorders.length;
+  const seen = await open({ mic: 'ended' });
+  timed.startNow();
+  assert.equal(stage(), 'prep', 'no dead minute ticking with nothing recording');
+  assert.equal(recorders.length, before, 'MediaRecorder is never constructed on a dead stream');
+  assert.equal($('timed-mic-note').textContent,
+    '마이크를 쓸 수 없어요 — 브라우저 설정에서 마이크를 허용해 주세요');
+  assert.equal($('timed-start').disabled, true);
+  assert.ok(lastStream().tracks.every((t) => t.stopped), 'the microphone is released');
+  advance(60000);
+  await flush();
+  assert.equal(seen.uploads.length, 0);
+});
+
+test('an empty recording is never uploaded -- the card asks to try again, and 다시 하기 goes back to prep', async () => {
+  class SilentRecorder extends FakeRecorder {
+    // A mic that produced nothing: the stop event fires, but no data ever came.
+    stop() {
+      this.calls.push('stop');
+      this.state = 'inactive';
+      for (const fn of this.listeners.stop || []) fn();
+    }
+  }
+  globalThis.MediaRecorder = SilentRecorder;
+  const seen = await open();
+  timed.startNow();
+  advance(60000);
+  await flush();
+  assert.equal(seen.uploads.length, 0, 'nothing is uploaded');
+  assert.equal(stage(), 'empty');
+  assert.equal($('timed-empty').hidden, false);
+  assert.equal($('timed-empty-text').textContent, '녹음된 소리가 없어요 — 다시 해 주세요');
+  timed.backToPrep();
+  assert.equal(stage(), 'prep');
+  assert.equal($('timed-prep').hidden, false);
+  assert.equal($('timed-prep-count').textContent, '10');
 });
 
 /* ---------- CSS ---------- */

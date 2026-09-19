@@ -12,7 +12,7 @@ import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
          selectTab, onTabKey, onTagClick, loadCoach, showMoreReviews } from './mypage.js';
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
-import { leaveTimed, startNow, stopNow, retryTranscribe, again, endTimed, playMine,
+import { leaveTimed, startNow, stopNow, retryTranscribe, backToPrep, again, endTimed, playMine,
          playNative, retryNative } from './timed.js';
 import * as router from './router.js';
 
@@ -128,6 +128,7 @@ $('btn-timed-home').addEventListener('click', () => {
 $('timed-start').addEventListener('click', () => startNow());
 $('timed-stop').addEventListener('click', () => stopNow());
 $('timed-retry-btn').addEventListener('click', () => retryTranscribe());
+$('timed-empty-btn').addEventListener('click', () => backToPrep());
 $('timed-native-play').addEventListener('click', () => playNative());
 $('timed-native-retry').addEventListener('click', () => retryNative());
 $('timed-mine').addEventListener('click', () => playMine());

@@ -35,6 +35,7 @@ const LIVE_TAIL = 240;
 
 export const TEXT = {
   micBlocked: '마이크를 쓸 수 없어요 — 브라우저 설정에서 마이크를 허용해 주세요',
+  emptyRecording: '녹음된 소리가 없어요 — 다시 해 주세요',
   grading: (i, n) => `교정하는 중이에요 · ${i}/${n}문장`,
   nothingHeard: '알아들은 문장이 없어요',
   good: '✓ 좋아요',
@@ -52,10 +53,11 @@ export const TEXT = {
 const TABLE = {
   prep: { START: 'rec', PREP_DONE: 'rec' },
   rec: { STOP: 'upload', TIME_UP: 'upload' },
-  upload: { UPLOADED: 'grading', TRANSCRIBE_FAILED: 'retry-transcribe' },
+  upload: { UPLOADED: 'grading', TRANSCRIBE_FAILED: 'retry-transcribe', EMPTY: 'empty' },
   'retry-transcribe': { RETRY: 'upload' },
   grading: { GRADED: 'result' },
   result: { AGAIN: 'prep' },
+  empty: { BACK: 'prep' },
 };
 
 /* Where `event` takes `stage`. LEAVE goes to idle from anywhere; anything the
@@ -107,7 +109,8 @@ const live = (tok) => Boolean(ctx) && tok.sessionId === ctx.sessionId && tok.att
 
 const SLOT = {
   prep: 'timed-prep', rec: 'timed-rec', upload: 'timed-upload',
-  'retry-transcribe': 'timed-retry', grading: 'timed-review', result: 'timed-review',
+  'retry-transcribe': 'timed-retry', empty: 'timed-empty',
+  grading: 'timed-review', result: 'timed-review',
 };
 
 function setStage(next) {
@@ -226,6 +229,15 @@ export function startNow(event = 'START') {
 
 /* ---------- the minute ---------- */
 
+/* A track whose stream died under us (mic unplugged, device gone) reads
+   'ended': starting a recorder on it would only throw, same as below, but
+   catching it here means the stream is never even handed to MediaRecorder. */
+function streamUsable(stream) {
+  const tracks = typeof stream.getAudioTracks === 'function'
+    ? stream.getAudioTracks() : stream.getTracks();
+  return tracks.some((t) => t.readyState !== 'ended');
+}
+
 function begin(event) {
   if (stage !== 'prep') return;
   clearTicker();
@@ -234,11 +246,18 @@ function begin(event) {
   const m = mic;
   let recorder;
   try {
+    if (!streamUsable(m.stream)) throw new Error('ended');
     recorder = new MediaRecorder(m.stream);
+    m.chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data) m.chunks.push(e.data); };
+    // Chrome throws NotSupportedError from start() (not the constructor) when
+    // the stream's track has already ended -- must be caught here too, before
+    // the stage moves, or a 0-byte recording gets uploaded a minute later.
+    recorder.start();
   } catch {
-    // A recorder that cannot be made would leave a minute ticking with nothing
-    // recorded. Release the mic, say so, and stay in prep (nothing has moved
-    // the stage yet) with 바로 시작 off.
+    // A recorder that cannot be made or started would leave a minute ticking
+    // with nothing recorded. Release the mic, say so, and stay in prep
+    // (nothing has moved the stage yet) with 바로 시작 off.
     stopTracks(m);
     blockMic(m);
     return;
@@ -246,9 +265,6 @@ function begin(event) {
   go(event);
   const tok = token();
   m.recorder = recorder;
-  m.chunks = [];
-  m.recorder.ondataavailable = (e) => { if (e.data) m.chunks.push(e.data); };
-  m.recorder.start();
   startRecognition(m);
   $('timed-live').textContent = '';
   $('timed-clock').textContent = mmss(ROUND_SECONDS);
@@ -329,8 +345,25 @@ export async function stopNow(event = 'STOP') {
   });
   stopTracks(m);
   if (!live(tok)) return;
-  blob = new Blob(m.chunks, { type: (m.recorder && m.recorder.mimeType) || 'audio/webm' });
+  const rec = new Blob(m.chunks, { type: (m.recorder && m.recorder.mimeType) || 'audio/webm' });
+  // A dead mic (or one that never actually started) leaves nothing to send:
+  // uploading it would only fail transcription server-side. Ask again instead,
+  // without ever creating a round.
+  if (!m.chunks.length || rec.size === 0) {
+    $('timed-empty-text').textContent = TEXT.emptyRecording;
+    go('EMPTY');
+    return;
+  }
+  blob = rec;
   await upload(tok);
+}
+
+/* The empty-recording card's 다시 하기: no round was ever created, so this is
+   just prep again for the same question -- the same path result's 같은
+   주제로 다시 1분 (again()) takes. */
+export function backToPrep() {
+  if (stage !== 'empty') return;
+  enterPrep();
 }
 
 async function upload(tok) {

@@ -1182,16 +1182,27 @@ function timedSentencesCard(sentences) {
     mine.append(labelled('내 말'), document.createTextNode(' '), plain(s.text));
     row.append(mine);
     if (!s.filler) {
-      if (s.ok === false && s.fixed) {
-        const fixed = document.createElement('p');
-        fixed.className = 'fixed';
-        fixed.append(labelled('고친 문장'), document.createTextNode(' '), plain(s.fixed));
-        row.append(fixed);
-      }
-      if (s.correction) {
-        const why = document.createElement('p');
-        why.append(labelled('설명'), document.createTextNode(' '), plain(s.correction));
-        row.append(why);
+      // A correct sentence has nothing to fix and nothing to explain --
+      // 설명 for one is just "이미 맞습니다", which says nothing. Show the
+      // same ✓ 좋아요 the live result screen shows instead (timed.js's
+      // drawVerdict, same wording and class) and skip 고친 문장/설명.
+      if (s.ok === true) {
+        const good = document.createElement('p');
+        good.className = 'timed-good';
+        good.textContent = '✓ 좋아요';
+        row.append(good);
+      } else {
+        if (s.ok === false && s.fixed) {
+          const fixed = document.createElement('p');
+          fixed.className = 'fixed';
+          fixed.append(labelled('고친 문장'), document.createTextNode(' '), plain(s.fixed));
+          row.append(fixed);
+        }
+        if (s.correction) {
+          const why = document.createElement('p');
+          why.append(labelled('설명'), document.createTextNode(' '), plain(s.correction));
+          row.append(why);
+        }
       }
     }
     card.append(row);
