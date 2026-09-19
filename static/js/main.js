@@ -7,7 +7,7 @@ import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
          startFromPick, startTheme, syncLanguageButtons,
          selectQuestion, retryQuestions, onOwnInput } from './pick.js';
 import { renderVoiceList, renderVoiceLists, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections, initScreenPrefs,
-         initResetPrefs, setResetScope } from './settings.js';
+         initResetPrefs, setResetScope, resetAftermath } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
@@ -357,15 +357,20 @@ $('settings-language').addEventListener('change', () => {
   renderVoiceList($('settings-language').value);
 });
 $('btn-close-settings').addEventListener('click', () => $('settings').close());
-/* 기록 지우기: whatever was on screen was counted from what is now gone, so
-   my page reloads itself and every other screen goes home and reloads that
-   (a live session may have just been deleted under it). */
-initResetPrefs(() => {
-  if (router.current() === 'mypage') return openMypage();
-  leaving();
-  router.show('home');
-  return loadHome();
-});
+/* 기록 지우기: settings.js's resetAftermath decides; a practice screen in the
+   language just cleared goes home, since its session was deleted under it. */
+initResetPrefs((scope) => resetAftermath(scope, router.current(), state.language, {
+  mypage: () => openMypage(),
+  home: () => loadHome(),
+  goHome: () => {
+    // A listen still running in a session would post a turn into a session
+    // that no longer exists.
+    if (canDo('cancel')) cancelTurn();
+    leaving();
+    router.show('home');
+    return loadHome();
+  },
+}));
 $('lang-sections').addEventListener('click', (e) => {
   const preview = e.target.dataset.preview;
   if (preview) previewVoice(preview);

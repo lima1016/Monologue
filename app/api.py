@@ -2376,8 +2376,13 @@ def history_summary(language: HistoryScope):
 def reset_history(payload: HistoryReset):
     """Delete the learner's history in one language or both (db.reset_history
     says what goes and what stays), then their recordings. Open sessions go
-    too: a request still in flight for one gets the same 404 as any session
-    that no longer exists. Suggestions and 1분 말하기 questions are cached in
+    too. A request for one that arrives afterwards gets the usual 404 from
+    its route's session lookup; one already past that lookup when the rows
+    go can instead fail its write on the messages/timed_rounds foreign key
+    and answer 500 -- no row is stored either way (a 1분 말하기 upload may
+    leave its one recording file, written before the insert), and the reset has
+    already moved the screen off any session in the language it cleared.
+    Suggestions and 1분 말하기 questions are cached in
     this process keyed by session and by level -- both came from the history
     just removed, so they are dropped rather than left to age out."""
     counts, ids, paths = db.reset_history(payload.language)

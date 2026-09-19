@@ -183,12 +183,39 @@ def test_resetting_both_clears_both(client):
 
 
 def test_other_files_in_the_audio_folder_are_left_alone(client):
-    _seed("en")
-    ja_sid = db.create_session("ja", "free")
+    """en owns session 1; ja owns 12 and up, whose files start with `s1`
+    too. Only an exact session-id match is en's."""
+    en_files = _seed("en")
+    assert en_files[0].name.startswith("s1_")
+    while db.create_session("ja", "free") < 11:
+        pass
+    ja_files = _seed("ja")
+    assert any(p.name.startswith("s12_") for p in ja_files)
+    near_miss = _clip("s1x_m1.webm")
     stranger = _clip("notes.txt")
-    other = _clip(f"s{ja_sid}_m1.webm")
     client.post("/api/history/reset", json={"language": "en"})
-    assert stranger.exists() and other.exists()
+    assert not any(p.exists() for p in en_files)
+    assert all(p.exists() for p in ja_files)
+    assert near_miss.exists() and stranger.exists()
+
+
+def test_a_card_whose_language_disagrees_with_its_session_goes_with_the_session(client):
+    """A review card is cleared through its message too, so a card whose own
+    language column says ja cannot outlive the en turn it points at -- and
+    the confirm counted it."""
+    _seed("en")
+    ja_files = _seed("ja")
+    sid = db.create_session("en", "free")
+    mid = db.add_message(sid, "user", "I go", ok=0, fixed="I went.", tag="시제")
+    db.enqueue_review(mid, "ja", date.today())
+    assert client.get("/api/history/summary?language=en").json()["counts"]["reviews"] == 2
+    deleted = client.post("/api/history/reset", json={"language": "en"}).json()["deleted"]
+    assert deleted["reviews"] == 2
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM review_queue WHERE message_id = ?", (mid,)).fetchone()[0] == 0
+    # ja's own card is still there.
+    assert _count("review_queue", "ja") == 1
+    assert all(p.exists() for p in ja_files)
 
 
 def test_reset_drops_cached_suggestions_and_questions(client, monkeypatch):

@@ -1534,11 +1534,16 @@ def _history_languages(scope) -> tuple:
 
 def _history_counts(conn, langs) -> dict:
     marks = ",".join("?" * len(langs))
-    one = lambda sql: conn.execute(sql.format(marks=marks), langs).fetchone()[0]  # noqa: E731
+    def one(sql):
+        sql = sql.format(marks=marks)
+        return conn.execute(sql, langs * (sql.count("?") // len(langs))).fetchone()[0]
     return {
         "sessions": one("SELECT COUNT(*) FROM sessions WHERE language IN ({marks})"),
         "reports": one("SELECT COUNT(*) FROM sessions WHERE language IN ({marks}) AND report IS NOT NULL"),
-        "reviews": one("SELECT COUNT(*) FROM review_queue WHERE language IN ({marks})"),
+        # The same rows _RESET_STATEMENTS' first DELETE removes, so the
+        # confirm never promises fewer cards than go.
+        "reviews": one("SELECT COUNT(*) FROM review_queue WHERE language IN ({marks}) OR message_id IN"
+                       " (SELECT id FROM messages WHERE session_id IN (" + _HISTORY_SESSIONS + "))"),
         "timed_rounds": one("SELECT COUNT(*) FROM timed_rounds WHERE session_id IN ("
                             + _HISTORY_SESSIONS + ")"),
         "level_tests": one("SELECT COUNT(*) FROM level_tests WHERE language IN ({marks})"),

@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import './dom-shim.js';
 import { $ } from './api.js';
 import { resetDom, stubFetch, jsonResponse } from './dom-shim.js';
-import { cancelReset, confirmReset, initResetPrefs, openResetConfirm, resetCountsLine, resetScope,
-         setResetScope } from './settings.js';
+import { cancelReset, confirmReset, initResetPrefs, openResetConfirm, resetAftermath, resetCountsLine,
+         resetScope, setResetScope } from './settings.js';
 
 beforeEach(() => resetDom());
 
@@ -190,4 +190,56 @@ test('the buttons are wired: 기록 지우기… opens the confirm, 취소 close
   for (const fn of $('btn-reset-cancel').listeners.click) fn({});
   assert.equal($('reset-confirm').open, false);
   assert.deepEqual(posts(calls), []);
+});
+
+test('a failure after the confirm was closed anyway (a second Escape) still says so, as a notice', async () => {
+  let answer;
+  install({ reset: () => new Promise((r) => { answer = r; }) });
+  await openResetConfirm();
+  const done = confirmReset(() => {});
+  $('reset-confirm').close();
+  answer(jsonResponse({ detail: 'boom' }, { ok: false, status: 500 }));
+  await done;
+  assert.equal($('notice-text').textContent, '지우지 못했어요. 잠시 뒤 다시 해 주세요.');
+});
+
+test('a failure with the confirm still open does not also raise a notice', async () => {
+  install({ reset: () => jsonResponse({ detail: 'boom' }, { ok: false, status: 500 }) });
+  await openResetConfirm();
+  await confirmReset(() => {});
+  assert.equal($('notice-text').textContent, '');
+});
+
+/* ---------- after the reset: which screen moves ---------- */
+
+function spies() {
+  const calls = [];
+  return { calls, h: { mypage: () => calls.push('mypage'), home: () => calls.push('home'),
+                       goHome: () => calls.push('goHome') } };
+}
+
+for (const screen of ['session', 'timed', 'leveltest', 'pick', 'report']) {
+  test(`resetting the other language leaves the ${screen} screen alone`, () => {
+    const { calls, h } = spies();
+    resetAftermath('ja', screen, 'en', h);
+    assert.deepEqual(calls, []);
+  });
+  test(`resetting this language (or both) takes the ${screen} screen home`, () => {
+    for (const scope of ['en', 'all']) {
+      const { calls, h } = spies();
+      resetAftermath(scope, screen, 'en', h);
+      assert.deepEqual(calls, ['goHome'], scope);
+    }
+  });
+}
+
+test('home and my page just reload, whichever language was reset', () => {
+  for (const scope of ['en', 'ja', 'all']) {
+    const a = spies();
+    resetAftermath(scope, 'home', 'en', a.h);
+    assert.deepEqual(a.calls, ['home'], scope);
+    const b = spies();
+    resetAftermath(scope, 'mypage', 'en', b.h);
+    assert.deepEqual(b.calls, ['mypage'], scope);
+  }
 });

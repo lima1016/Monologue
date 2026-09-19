@@ -241,6 +241,7 @@ const RESET_KINDS = [
 const RESET_COUNTING = '개수를 세는 중이에요';
 const RESET_LABEL = '기록 지우기';
 const RESET_BUSY = '지우는 중이에요';
+const RESET_FAILED = '지우지 못했어요. 잠시 뒤 다시 해 주세요.';
 
 let resetCall = 0;        // the latest open; a count answering an older one is dropped
 let resetFor = null;      // the scope the shown counts are for, once they are in
@@ -309,8 +310,11 @@ export async function confirmReset(onDone) {
     await postJSON('/history/reset', { language: scope });
     ok = true;
   } catch {
-    $('reset-error').textContent = '지우지 못했어요. 잠시 뒤 다시 해 주세요.';
+    $('reset-error').textContent = RESET_FAILED;
     confirm.disabled = false;
+    // Escape pressed twice closes a modal even through preventDefault; the
+    // learner would then never see the line above.
+    if (!$('reset-confirm').open) notify(RESET_FAILED);
   } finally {
     resetBusy = false;
     confirm.textContent = RESET_LABEL;
@@ -323,6 +327,20 @@ export async function confirmReset(onDone) {
   $('settings').close();
   notify(`${RESET_NAMES[scope]} 기록을 지웠어요`);
   await onDone?.(scope);
+}
+
+/* What the screen does once `scope` is gone. Only a reset that covers the
+   language on screen moves the learner: a session, 1분 말하기 or level test
+   in the *other* language is left running, and home or my page merely reload
+   (their counts may include nothing of it, but reloading is cheap and never
+   wrong). `current` is router.current(); `h` supplies mypage(), home() and
+   goHome() -- main.js owns the screens, this module must not import them. */
+export function resetAftermath(scope, current, language, h) {
+  const onScreen = scope === 'all' || scope === language;
+  if (current === 'mypage') return h.mypage();
+  if (current === 'home') return h.home();
+  if (onScreen) return h.goHome();
+  return undefined;
 }
 
 export function initResetPrefs(onDone) {
