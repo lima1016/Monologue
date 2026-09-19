@@ -2115,12 +2115,32 @@ async def level_test_answer(test_id: int, q: int, seconds: float = Form(...),
     return {"q": q, "done": True}
 
 
+# CJK ideographs and kana together -- a comment naming the learner's own
+# Japanese word (週末) may leave it bare, not just quoted (「週末」). Deliberately
+# narrower than _CJK_IDEOGRAPH: that range's 豈-﫿 block (CJK compatibility
+# ideographs) also spans the Hangul syllables block, which would merge a run
+# like "週末의" into one unit that no longer matches verbatim against the
+# source and so never gets dropped.
+_CJK_OR_KANA_RUN = re.compile(r"[一-鿿぀-ヿ]+")
+
+
+def _drop_answers_own_words(comment: str, source: str) -> str:
+    """Remove every run of CJK ideographs/kana in `comment` that occurs
+    verbatim in `source` (that learner's own answer text). A comment
+    reasonably calls out the learner's own words by name; that is not the
+    language leaking, so it should not fail the Korean check. A run of
+    ideographs the model invented -- not present in the answer -- stays, and
+    still fails the check."""
+    return _CJK_OR_KANA_RUN.sub(lambda m: "" if m.group(0) in source else m.group(0), comment)
+
+
 def _level_judgments(raw, answers: dict) -> dict:
     """{q: {"cefr", "comment"}} from one model answer. The comment is "" unless
     it is Korean; a word quoted from that learner's own answer (「週末」) is
-    not a leak. "raw_comment" keeps the untranslated comment when it failed the
-    Korean check, so _judge_level_answers can try translating it instead of
-    dropping it outright."""
+    not a leak, and neither is one named bare (週末의 활동을...) -- see
+    _drop_answers_own_words. "raw_comment" keeps the untranslated comment when
+    it failed the Korean check, so _judge_level_answers can try translating it
+    instead of dropping it outright."""
     items = raw.get("answers") if isinstance(raw, dict) else None
     out: dict = {}
     for item in items if isinstance(items, list) else []:
@@ -2131,7 +2151,8 @@ def _level_judgments(raw, answers: dict) -> dict:
             continue
         comment = item.get("comment")
         comment = _first_line(comment) if isinstance(comment, str) else None
-        korean = comment and _is_korean_meaning(comment, source=answers[q]["text"] or "")
+        source = answers[q]["text"] or ""
+        korean = comment and _is_korean_meaning(_drop_answers_own_words(comment, source), source=source)
         out[q] = {"cefr": cefr, "comment": comment if korean else "",
                   "raw_comment": None if korean else comment}
     return out
@@ -2187,15 +2208,23 @@ def _judge_level_answers(language: str, answers: dict, questions: list) -> dict:
     # there is. Either way, rather than drop it, translate it with the same
     # checked ja->ko path the ▸ 뜻 button uses (_cached_translation) -- it
     # already rejects Chinese leaks and returns None on failure. Prefer the
-    # retry's raw comment when the retry answered that q, else fall back to
-    # the first call's. Only a comment that still fails the Korean check and
-    # looks Japanese (has kana) is translated; an English comment that
-    # merely isn't Korean is left "".
+    # retry's raw comment when it looks Japanese (has kana); otherwise fall
+    # back to the first call's, only if that one has kana. A raw comment
+    # with no kana at all -- from either call -- is never a translation
+    # candidate: it is not Japanese to translate (or, if it merely isn't
+    # Korean, it is left "").
     for q in result:
         if result[q]["comment"]:
             continue
-        raw_comment = retry.get(q, {}).get("raw_comment") or out.get(q, {}).get("raw_comment")
-        if raw_comment and _KANA.search(raw_comment):
+        retry_raw = retry.get(q, {}).get("raw_comment")
+        first_raw = out.get(q, {}).get("raw_comment")
+        if retry_raw and _KANA.search(retry_raw):
+            raw_comment = retry_raw
+        elif first_raw and _KANA.search(first_raw):
+            raw_comment = first_raw
+        else:
+            raw_comment = None
+        if raw_comment:
             translated = _cached_translation(language, raw_comment)
             if translated and _is_korean_meaning(translated, source=answers[q]["text"] or ""):
                 result[q]["comment"] = translated

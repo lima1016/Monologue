@@ -561,10 +561,57 @@ ENGLISH_RETRY_COMMENT = {"answers": [
 
 
 def test_an_english_retry_comment_is_not_sent_to_translation(client, monkeypatch):
-    """Translation only fires for a comment that looks Japanese (has kana);
-    an English comment that merely fails the Korean check stays ""."""
+    """Translation only fires for a raw comment that has kana; an English
+    comment that merely fails the Korean check is never a candidate -- and
+    with the first call's raw also kana-free (a Chinese-style leak here),
+    neither call gives the fallback anything to translate."""
     translate = TranslationSpy(monkeypatch, "이 번역은 쓰이면 안 됩니다.")
-    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, ENGLISH_RETRY_COMMENT)
+    chinese_leak_first = {"answers": [{"q": 0, "cefr": "B1",
+                                       "comment": "周末活动介绍得很好，但是句子有点短。"}]}
+    model, res = _ja_finish(client, monkeypatch, chinese_leak_first, ENGLISH_RETRY_COMMENT)
+    assert translate.calls == []
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [("B1", "")]
+
+
+def test_a_retry_raw_without_kana_falls_back_to_the_first_calls_kana_raw(client, monkeypatch):
+    """When the retry's raw comment doesn't look Japanese (no kana) but the
+    first call's does, the fallback translates the first call's raw rather
+    than giving up -- the retry no longer being truthy is not enough to
+    disqualify the first call's raw."""
+    translate = TranslationSpy(monkeypatch, "주말 이야기는 잘 전했지만 문장이 짧았어요.")
+    no_kana_retry = {"answers": [{"q": 0, "cefr": "B1", "comment": "周末活动介绍得很好。"}]}
+    model, res = _ja_finish(client, monkeypatch, JA_COMMENT, no_kana_retry)
+    assert translate.calls == [("ja", "週末の話はよくできましたが、文が短いです。")]
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [
+        ("B1", "주말 이야기는 잘 전했지만 문장이 짧았어요.")]
+
+
+OWN_WORD_FIRST_COMMENT = {"answers": [{"q": 0, "cefr": "B1", "comment":
+    "週末の活動を詳しく説明しましたが、文のつながりがもう少し滑らかになると良いですね。"}]}
+OWN_WORD_RETRY_COMMENT = {"answers": [{"q": 0, "cefr": "B1", "comment":
+    "週末의 활동을 자세히 설명했지만, 문장 연결이 좀 더 자연스러워지면 좋을 것 같아요."}]}
+
+
+def test_a_korean_comment_naming_the_answers_own_word_bare_is_kept(client, monkeypatch):
+    """Measured on the real model: the retry names 週末, a word straight out
+    of the learner's own answer, without quoting it. That word is dropped
+    before the Korean check (see _drop_answers_own_words), so the retry's
+    Korean text passes and is kept as-is -- no translation needed."""
+    translate = TranslationSpy(monkeypatch, "이 번역은 쓰이면 안 된다")
+    model, res = _ja_finish(client, monkeypatch, OWN_WORD_FIRST_COMMENT, OWN_WORD_RETRY_COMMENT)
+    assert translate.calls == []
+    assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [
+        ("B1", "週末의 활동을 자세히 설명했지만, 문장 연결이 좀 더 자연스러워지면 좋을 것 같아요.")]
+
+
+def test_a_comment_naming_a_word_not_in_the_answer_still_fails(client, monkeypatch):
+    """先生 never appears in the learner's answer ("週末はよく寝ます。友達に会
+    います。"), so it is not exempted the way 週末 is above -- the comment
+    still fails the Korean check. Its raw has no kana either, so the
+    translation fallback is skipped too, and the comment stays blank."""
+    translate = TranslationSpy(monkeypatch, "이 번역은 쓰이면 안 된다")
+    comment = {"answers": [{"q": 0, "cefr": "B1", "comment": "선생님과 先生 이야기를 했어요."}]}
+    model, res = _ja_finish(client, monkeypatch, comment, comment)
     assert translate.calls == []
     assert [(a["cefr"], a["comment"]) for a in res["answers"]] == [("B1", "")]
 
