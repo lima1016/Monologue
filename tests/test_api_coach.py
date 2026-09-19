@@ -151,7 +151,17 @@ def test_a_repeated_sentence_reaches_the_model_once_with_how_often(client, monke
     assert body["count"] == 6
     query = calls[0][-1]["content"]
     assert query.count("학생: I go /") == 1
-    assert "1. 학생: I go / 고친 문장: I went. / 설명: 설명 / 분류: 시제 (4번 반복)" in query
-    assert "2. 학생: He don't / 고친 문장: He doesn't. / 설명: 설명 / 분류: 시제\n" in query
+    assert "1. 학생: I go / 고친 문장: I went. / 설명: 설명 (4번 반복)" in query
+    assert "2. 학생: He don't / 고친 문장: He doesn't. / 설명: 설명\n" in query
     # example_no still names a distinct row, and the sentence shown is the learner's own words
     assert [(i["said"], i["fixed"]) for i in body["items"]] == [("I go", "I went."), ("He don't", "He doesn't.")]
+
+
+def test_the_model_never_sees_a_tag(client):
+    from app import prompts
+    rows = [{"text": "I go", "fixed": "I went.", "correction": "과거형으로 바꿔요.", "tag": "시제"}]
+    messages = prompts.build_coach_messages("en", rows)
+    for message in messages:
+        assert "분류" not in message["content"]
+    query = messages[-1]["content"]
+    assert "학생: I go" in query and "고친 문장: I went." in query and "설명: 과거형으로 바꿔요." in query

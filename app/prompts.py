@@ -768,7 +768,7 @@ COACH_SYSTEM = """당신은 한국인 학생의 {lang} 말하기를 지도하는
 설명은 한국어로만 씁니다.
 
 아래는 학생이 최근 말하기 연습에서 틀린 문장들입니다. 번호마다 학생이 한 말, 고친 문장,
-교사의 설명, 분류가 있습니다. 분류 이름은 자주 틀리니 믿지 말고, 학생이 한 말과 고친 문장을
+교사의 설명이 있습니다. 학생이 한 말과 고친 문장을
 직접 비교해서 여러 문장에 되풀이되는 습관을 찾으세요.
 
 습관을 2~3개 주세요. 가장 자주 되풀이되는 것부터.
@@ -782,8 +782,9 @@ COACH_SYSTEM = """당신은 한국인 학생의 {lang} 말하기를 지도하는
 # error families (third-person -s, a missing "a", question word order) are
 # kept apart from the habits real learners here show most (run-on sentences,
 # past tense, dropped prepositions) -- a few-shot built from real rows taught
-# the model to copy its habits onto unrelated rows. Two tags are wrong on
-# purpose, as real ones often are.
+# the model to copy its habits onto unrelated rows. Rows keep a "tag" key for
+# shape (rows from the real data have one too), but the prompt never shows it
+# to the model -- see _coach_input.
 COACH_EXAMPLE_INPUT = [
     {"text": "She like coffee in the morning", "fixed": "She likes coffee in the morning.", "tag": "단복수", "correction": "주어가 she이면 likes를 써야 합니다."},
     {"text": "I have question about the menu", "fixed": "I have a question about the menu.", "tag": "어휘", "correction": "question 앞에 a를 넣어야 합니다."},
@@ -809,7 +810,7 @@ def _coach_input(rows) -> str:
     for i, r in enumerate(rows, 1):
         why = (r.get("correction") or "").replace("\n", " ")[:_COACH_CORRECTION_CHARS]
         again = f" ({r['reps']}번 반복)" if (r.get("reps") or 1) > 1 else ""
-        lines.append(f"{i}. 학생: {r['text']} / 고친 문장: {r['fixed']} / 설명: {why} / 분류: {r.get('tag') or '-'}{again}")
+        lines.append(f"{i}. 학생: {r['text']} / 고친 문장: {r['fixed']} / 설명: {why}{again}")
     return "틀린 문장들:\n" + "\n".join(lines) + "\n\n되풀이되는 습관을 2~3개 주세요."
 
 
