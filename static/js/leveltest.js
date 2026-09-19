@@ -142,6 +142,17 @@ export function levelName(r) {
    result slot of the level test screen itself, so my page's 결과 보기 lands on
    the same screen the test ends on (`from: 'mypage'` gives it ← 마이페이지).
    Everything the model wrote goes in by textContent. */
+const QUESTION_HEAD = 20;
+
+// The first QUESTION_HEAD characters of the question (by code point, so a
+// character is never cut in half), or the whole question when it is shorter.
+function answerHead(a) {
+  const text = typeof a.question === 'string' ? a.question.trim() : '';
+  if (!text) return `질문 ${Number(a.q) + 1}`;
+  const chars = Array.from(text);
+  return chars.length > QUESTION_HEAD ? `${chars.slice(0, QUESTION_HEAD).join('').trimEnd()}…` : text;
+}
+
 export function renderLevelResult(result, { from = 'home' } = {}) {
   const r = result || {};
   resultFrom = from === 'mypage' ? 'mypage' : 'home';
@@ -183,8 +194,9 @@ export function renderLevelResult(result, { from = 'home' } = {}) {
   parts.push(eiBox);
 
   // A line for each answer the model said something about; an empty (or
-  // missing) comment is no line at all. The result carries no question text,
-  // so the line is headed by the question's number.
+  // missing) comment is no line at all. The line is headed by the start of
+  // its question; a result stored before answers carried their question
+  // falls back to the question's number.
   const said = (Array.isArray(r.answers) ? r.answers : [])
     .filter((a) => a && typeof a.comment === 'string' && a.comment.trim());
   if (said.length) {
@@ -192,7 +204,7 @@ export function renderLevelResult(result, { from = 'home' } = {}) {
     box.append(rel('p', 'label', RESULT_TEXT.answers));
     for (const a of said) {
       const line = rel('p', 'lt-answer-line');
-      line.append(rel('b', '', `질문 ${Number(a.q) + 1}`), document.createTextNode(` · ${a.comment.trim()}`));
+      line.append(rel('b', '', answerHead(a)), document.createTextNode(` · ${a.comment.trim()}`));
       box.append(line);
     }
     parts.push(box);

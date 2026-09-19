@@ -350,6 +350,17 @@ def test_two_b2_answers_lift_a_28_over_the_b2_cut(client, monkeypatch):
     assert BANK["questions"][0]["text"] in asked and "Then I meet my friends for lunch." in asked
 
 
+def test_each_result_answer_carries_its_question(client, monkeypatch):
+    Heard(monkeypatch)
+    Segments(monkeypatch)
+    Model(monkeypatch, _judged("B1", "B1"))
+    tid = _start(client)["test_id"]
+    _repeat(client, tid, perfect=7)
+    _answer(client, tid, 1)
+    res = client.post(f"/api/level-test/{tid}/finish").json()
+    assert [(a["q"], a["question"]) for a in res["answers"]] == [(1, BANK["questions"][1]["text"])]
+
+
 def test_judging_failure_leaves_the_sentences_to_decide(client, monkeypatch):
     Heard(monkeypatch)
     Segments(monkeypatch)

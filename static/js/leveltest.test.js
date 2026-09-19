@@ -893,6 +893,19 @@ test('a line on each answer, headed by its question; an empty or missing comment
   assert.equal(byClass($('lt-result-body'), 'lt-cefr')[0].textContent, 'B1 상위');
 });
 
+test('an answer line is headed by the start of its question, and the whole question when it is short', () => {
+  onResultScreen();
+  lt.renderLevelResult({ ...EN_RESULT, answers: [
+    { ...EN_RESULT.answers[0], question: 'Tell me about how you usually spend your weekends.' },
+    { ...EN_RESULT.answers[1], question: 'Where do you live?' },
+  ] });
+  assert.deepEqual(byClass($('lt-result-body'), 'lt-answer-line').map(deep),
+    ['Tell me about how yo… · 문장을 이어 말하는 힘이 좋아요.', 'Where do you live? · 이유를 하나 더 붙여 보세요.']);
+  // An old result without the question keeps the number.
+  lt.renderLevelResult({ ...EN_RESULT, answers: [{ ...EN_RESULT.answers[0], question: '' }] });
+  assert.deepEqual(byClass($('lt-result-body'), 'lt-answer-line').map(deep), ['질문 1 · 문장을 이어 말하는 힘이 좋아요.']);
+});
+
 test('model text goes in as text, never as markup', () => {
   onResultScreen();
   const comment = '<img src=x onerror=alert(1)> 좋아요';

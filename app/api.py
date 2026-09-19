@@ -2186,7 +2186,8 @@ def finish_level_test(test_id: int):
     cefr, step = leveltest.apply_boundary(
         score, cefr, step, leveltest.answers_level([j["cefr"] for j in judged.values()]))
     app_level = leveltest.app_level(cefr)
-    answers = [{"q": q, "text": a["text"], "cefr": judged.get(q, {}).get("cefr"),
+    answers = [{"q": q, "question": bank["questions"][q]["text"], "text": a["text"],
+                "cefr": judged.get(q, {}).get("cefr"),
                 "comment": judged.get(q, {}).get("comment"), "wpm": a["wpm"],
                 "long_pauses": a["long_pauses"]} for q, a in sorted(test["answers"].items())]
     result = {"test_id": test_id, "language": language, "cefr": cefr, "step": step,
