@@ -292,8 +292,7 @@ def _cached_timed_questions(language: str, theme_id: str, level: str, today_iso:
     a model failure is retried on the next request rather than sticking until
     the process restarts. Keyed by day, so the same theme gets a fresh set of
     questions tomorrow rather than the same three forever."""
-    theme = library.get_theme(theme_id)
-    theme_title = theme["title"] if theme else theme_id
+    theme_title = library.get_theme(theme_id)["title"]
     return tuple(_generate_timed_questions(language, theme_title, level))
 
 
