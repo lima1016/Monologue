@@ -195,7 +195,8 @@
     <div class="session-grid">
       <div class="conversation-col">
         <!-- Shadowing's one card: the current line, heard first and read after.
-             Its min-height is fixed so a stage change never moves the dock. -->
+             Each part holds its own height (components.css), so a stage
+             change never moves the dock. -->
         <section id="shadow-card" class="shadow-card" hidden>
           <p class="shadow-count" id="shadow-count"></p>
           <p class="shadow-status" id="shadow-status" aria-live="polite"></p>

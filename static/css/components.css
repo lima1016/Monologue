@@ -287,6 +287,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
    읽어야 할 것은 고친 쪽이다. */
 .fix-row .said { font-size: var(--text-sm); color: var(--text-faint); text-decoration: line-through; }
 .fix-row .fixed { font-size: var(--text-lg); font-weight: 600; color: var(--suggest-ink); }
+/* 쉐도잉의 어려웠던 줄: 내 말은 틀린 문장이 아니라 따라 한 말이므로 취소선이 없다.
+   라벨(내 말 / 대본)은 마이페이지 복습 카드처럼 문장 앞에 한 줄로 붙는다. */
+.fix-row .mine { font-size: var(--text-sm); color: var(--text-dim); }
+.fix-row .label { display: inline; margin: 0 var(--space-2) 0 0; }
 
 #weak-list { list-style: none; margin: 0; padding: 0; }
 #weak-list li { display: flex; align-items: center; justify-content: space-between;
@@ -461,19 +465,36 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
   .side-panel { position: static; }
 }
 
-/* Shadowing's line card: one fixed box whose parts fade in and out in place
-   (.fade + .is-invisible). The line's text is written into .shadow-text while
-   it is still invisible, so the reveal takes no room it did not already hold. */
-.shadow-card { min-height: 15rem; display: grid; align-content: start; gap: var(--space-3);
+/* Shadowing's line card: one box whose parts fade in and out in place
+   (.fade + .is-invisible, which keeps their room). The card's height is the
+   sum of its rows, and every row that changes holds a fixed floor, so a stage
+   change, a short line or a long one leave it the same height:
+   - .shadow-text holds two lines of the sentence. shadow.js writes the line
+     -- and, for Japanese, its ruby and pronunciation line -- while it is
+     still invisible, at the line change, so the reveal only fades it in.
+   - Japanese sets line-height 2.1 whether or not /reading has answered (and
+     whether furigana is on): the half-leading, (2.1 - 1) / 2 = .55em, is
+     exactly the rt's .55em (its line-height pinned to 1), so ruby sits
+     inside the line box and never makes a line taller. The pronunciation line (one of .romaji/.hangul, 1.5 x
+     --text-xs + its 2px margin) is reserved too, drawn or not.
+   - The card's ▸ 뜻 is not shown: it does nothing here (the side panel's
+     does), and opening it would grow the card. */
+.shadow-card { display: grid; align-content: start; gap: var(--space-3);
                margin-top: var(--space-5); padding: var(--space-4);
                border: 1px solid var(--line); border-radius: var(--radius);
                background: var(--surface); }
 .shadow-card p { margin: 0; }
 .shadow-count { color: var(--text-dim); font-size: var(--text-sm); }
 .shadow-status { min-height: 1.55em; color: var(--text-dim); }
-.shadow-text { font-size: var(--text-xl); line-height: 1.6; min-height: 2em; }
-/* Three rows (내 말, the verdict, 글자 보고 함) held while empty. */
-.shadow-said { min-height: calc(3 * 1.55em + 2 * var(--space-1)); display: grid;
+.shadow-text { font-size: var(--text-xl); line-height: 1.6; min-height: calc(2 * 1.6em); }
+.shadow-text[data-lang="ja"] { line-height: 2.1;
+                               min-height: calc(2 * 2.1em + 1.5 * var(--text-xs) + 2px); }
+.shadow-text .romaji, .shadow-text .hangul { line-height: 1.5; }
+.shadow-text rt { line-height: 1; }
+.shadow-text .meaning, .shadow-text .meaning-body { display: none; }
+/* Four rows held while empty: 내 말 (up to two lines -- it is the learner's
+   whole sentence), the verdict, and 글자 보고 함. */
+.shadow-said { min-height: calc(4 * 1.55em + 2 * var(--space-1)); display: grid;
                align-content: start; justify-items: start; gap: var(--space-1); }
 #shadow-verdict.good { color: var(--suggest-ink); }
 #shadow-verdict.bad { color: var(--correct-ink); }

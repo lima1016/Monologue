@@ -294,13 +294,18 @@ def test_review_home_sits_right_after_today_alt_in_the_phone_order():
 
 
 def test_the_shadowing_card_holds_its_height_and_never_transforms():
-    """Shadowing's line card changes stage in place: a fixed min-height, both
-    button rows on one two-column grid (so both are two buttons tall), and no
-    transform -- the dock under it must not move."""
+    """Shadowing's line card changes stage in place: every row that changes
+    holds a floor (the text two lines -- for Japanese at a line-height its ruby
+    fits inside, plus the pronunciation line -- and the said block its rows),
+    both button rows on one two-column grid (so both are two buttons tall),
+    and no transform -- the dock under it must not move."""
     css = _all_css()
     card = _rule_body(css, ".shadow-card {")
-    assert "min-height: 15rem" in card
     assert "transform" not in card
+    assert "min-height: calc(2 * 1.6em)" in _rule_body(css, ".shadow-text {")
+    ja = _rule_body(css, '.shadow-text[data-lang="ja"] {')
+    assert "line-height: 2.1" in ja
+    assert "min-height: calc(2 * 2.1em" in ja
     actions = _rule_body(css, ".shadow-actions {")
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in actions
     assert "min-height:" in _rule_body(css, ".shadow-said {")
