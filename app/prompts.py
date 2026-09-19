@@ -760,3 +760,70 @@ def build_suggest_messages(language, bot_last, *, level="beginner", scenario_tit
         {"role": "assistant", "content": json.dumps({"replies": example_replies}, ensure_ascii=False)},
         {"role": "user", "content": _suggest_request(bot_last)},
     ]
+
+
+# Editing this string? Run `pytest tests/test_coach_quality.py -m engine`
+# against the real model afterward, and look at the table it prints.
+COACH_SYSTEM = """당신은 한국인 학생의 {lang} 말하기를 지도하는 한국어 원어민 코치입니다.
+설명은 한국어로만 씁니다.
+
+아래는 학생이 최근 말하기 연습에서 틀린 문장들입니다. 번호마다 학생이 한 말, 고친 문장,
+교사의 설명, 분류가 있습니다. 분류 이름은 자주 틀리니 믿지 말고, 학생이 한 말과 고친 문장을
+직접 비교해서 여러 문장에 되풀이되는 습관을 찾으세요.
+
+습관을 2~3개 주세요. 가장 자주 되풀이되는 것부터.
+- habit: 학생이 실제로 하는 일을 구체적으로 한 문장(40자 이내). "문법이 약해요"처럼 막연하면 안 됩니다
+- tip: 다음에 말할 때 바로 해 볼 수 있는 행동 한 문장(40자 이내). {lang} 표현을 넣을 때는 따옴표로 감쌉니다
+- example_no: 이 습관이 가장 잘 보이는 문장의 번호 하나
+
+마크다운과 이모지는 쓰지 않습니다."""
+
+COACH_EXAMPLE_INPUT = [
+    {"text": "Yes water please And this is my first time Can you recommend", "fixed": "Yes, water please. This is my first time here. Can you recommend something?", "tag": "어순", "correction": "문장을 나눠야 합니다."},
+    {"text": "I'd like to sit the window", "fixed": "I'd like to sit by the window.", "tag": "어순", "correction": "by the를 넣어야 합니다."},
+    {"text": "I go there yesterday", "fixed": "I went there yesterday.", "tag": "시제", "correction": "과거형을 써야 합니다."},
+    {"text": "Okay I will take At the bar and let me know if The seat Available", "fixed": "Okay, I'll take a seat at the bar. Let me know if the window seat is available.", "tag": "어순", "correction": "문장을 나누고 is를 넣어야 합니다."},
+    {"text": "I arrive here last week", "fixed": "I arrived here last week.", "tag": "시제", "correction": "과거형을 써야 합니다."},
+    {"text": "Can I get a seat the bar", "fixed": "Can I get a seat at the bar?", "tag": "어순", "correction": "at을 넣어야 합니다."},
+]
+COACH_EXAMPLE_OUTPUT = {"items": [
+    {"habit": "여러 말을 끊지 않고 한 문장처럼 길게 이어 말해요",
+     "tip": "한 가지를 말하면 멈추고 숨을 한 번 쉬고 다음 문장을 말해요", "example_no": 1},
+    {"habit": "장소 앞의 전치사(by, at)를 빠뜨려요",
+     "tip": "자리·장소를 말할 때 \"by the\", \"at the\"를 먼저 붙여 말해요", "example_no": 2},
+    {"habit": "지난 일을 말할 때 동사를 현재형으로 둬요",
+     "tip": "yesterday, last week가 나오면 동사를 과거형으로 바꿔요", "example_no": 3},
+]}
+
+_COACH_CORRECTION_CHARS = 80
+
+
+def _coach_input(rows) -> str:
+    lines = []
+    for i, r in enumerate(rows, 1):
+        why = (r.get("correction") or "").replace("\n", " ")[:_COACH_CORRECTION_CHARS]
+        lines.append(f"{i}. 학생: {r['text']} / 고친 문장: {r['fixed']} / 설명: {why} / 분류: {r.get('tag') or '-'}")
+    return "틀린 문장들:\n" + "\n".join(lines) + "\n\n되풀이되는 습관을 2~3개 주세요."
+
+
+def coach_schema() -> dict:
+    return {"type": "object", "properties": {"items": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"habit": {"type": "string"}, "tip": {"type": "string"},
+                       "example_no": {"type": "integer"}},
+        "required": ["habit", "tip", "example_no"]}}},
+        "required": ["items"]}
+
+
+def build_coach_messages(language, rows) -> list[dict]:
+    """Few-shot, not rules alone: this file's feedback prompt learned that
+    this model does not follow rules it has not been shown. The example is in
+    English for both languages -- it teaches the shape (habits, not tags), and
+    the query turn carries the learner's own language."""
+    system = COACH_SYSTEM.format(lang=KOREAN_LANGUAGE_NAMES[language])
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": _coach_input(COACH_EXAMPLE_INPUT)},
+        {"role": "assistant", "content": json.dumps(COACH_EXAMPLE_OUTPUT, ensure_ascii=False)},
+        {"role": "user", "content": _coach_input(rows)},
+    ]

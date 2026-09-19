@@ -1429,6 +1429,90 @@ _ACCURACY_DAYS = 30
 _HISTORY_PAGE = 20
 
 
+COACH_UNAVAILABLE = "지금은 코치 한마디를 만들 수 없어요"
+_COACH_DAYS = 30
+_COACH_MIN_WRONG = 5
+_COACH_MAX_ITEMS = 3
+_coach_locks = {"en": threading.Lock(), "ja": threading.Lock()}
+
+
+class _NoCoach(Exception):
+    pass
+
+
+def _valid_coach_items(raw, rows, kept: list[dict]) -> list[dict]:
+    """Items that can be shown, appended to `kept`. The model names its
+    example by number only; the sentence shown is the learner's own row, so
+    an invented example cannot reach the screen. A habit or tip that is not
+    Korean (a Chinese leak, an English answer) is dropped -- quoted target-
+    language phrases inside a tip are allowed, as in the ▸ 뜻 check."""
+    out = list(kept)
+    source = "\n".join(f"{r['text']} {r['fixed']}" for r in rows)
+    for item in raw if isinstance(raw, list) else []:
+        if len(out) >= _COACH_MAX_ITEMS:
+            break
+        if not isinstance(item, dict):
+            continue
+        habit, tip, no = item.get("habit"), item.get("tip"), item.get("example_no")
+        if not (isinstance(habit, str) and isinstance(tip, str) and isinstance(no, int)):
+            continue
+        habit, tip = _first_line(habit), _first_line(tip)
+        if not habit or not tip or not 1 <= no <= len(rows):
+            continue
+        if not (_is_korean_meaning(habit, source=source) and _is_korean_meaning(tip, source=source)):
+            continue
+        if any(o["habit"] == habit for o in out):
+            continue
+        row = rows[no - 1]
+        out.append({"habit": habit, "tip": tip, "said": row["text"], "fixed": row["fixed"], "tag": row.get("tag")})
+    return out
+
+
+def _generate_coach(language, rows) -> list[dict]:
+    """Two or three habits, or _NoCoach. Fewer than two survivors earns one
+    more sample at the same temperature; a dead model does not (same rule as
+    _generate_suggestions)."""
+    messages = prompts.build_coach_messages(language, rows)
+    kept: list[dict] = []
+    for _ in range(2):
+        try:
+            result = llm.chat_json(messages, prompts.coach_schema(), temperature=0.3)
+        except Exception as exc:
+            if kept:
+                break
+            raise _NoCoach from exc
+        kept = _valid_coach_items(result.get("items") if isinstance(result, dict) else None, rows, kept)
+        if len(kept) >= 2:
+            break
+    if not kept:
+        raise _NoCoach
+    return kept
+
+
+@router.get("/mypage/coach")
+def mypage_coach(language: Language):
+    """코치 한마디: habits read off the learner's own wrong sentences, made
+    once a day per language. The lock keeps two opens of the weak tab (or two
+    tabs) from making the same note twice; the second waits and reads the
+    first's."""
+    today = _today()
+    since = today - timedelta(days=_COACH_DAYS - 1)
+    count = db.wrong_count_since(language, since)
+    if count < _COACH_MIN_WRONG:
+        return {"status": "too_few", "count": count, "need": _COACH_MIN_WRONG}
+    with _coach_locks[language]:
+        cached = db.get_coach(language)
+        if cached and cached["day"] == today.isoformat():
+            return {"status": "ready", "day": cached["day"], "count": count, "items": cached["items"]}
+        rows = db.coach_inputs(language, since)
+        try:
+            items = _generate_coach(language, rows)
+        except _NoCoach:
+            raise HTTPException(503, COACH_UNAVAILABLE)
+        db.save_coach(language, today.isoformat(), items)
+    return {"status": "ready", "day": today.isoformat(), "count": count, "items": items}
+
+
 @router.get("/stats/mypage")
 def mypage_stats(language: Language):
     today = _today()
