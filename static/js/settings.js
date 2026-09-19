@@ -123,21 +123,25 @@ export async function saveReadingPrefs() {
    it. Keep THEMES, MODES and the two keys in step with that script. */
 export const THEMES = ['default', 'forest', 'sea', 'lavender', 'ink', 'white'];
 export const MODES = ['auto', 'light', 'dark'];
+/* What a learner with nothing saved sees: 보라 · 밝게 (the user's pick). The
+   head script in index.html starts from the same pair. */
+export const DEFAULT_THEME = 'lavender';
+export const DEFAULT_MODE = 'light';
 const THEME_KEY = 'screen-theme';
 const MODE_KEY = 'screen-mode';
 
-function storedOr(key, allowed) {
+function storedOr(key, allowed, fallback) {
   try {
     const v = globalThis.localStorage?.getItem(key);
-    return allowed.includes(v) ? v : allowed[0];
+    return allowed.includes(v) ? v : fallback;
   } catch {
-    return allowed[0]; // private window, blocked storage: the defaults
+    return fallback; // private window, blocked storage: the defaults
   }
 }
 
-/* The saved pair, or 기본/자동 for anything missing, unknown or unreadable. */
+/* The saved pair, or 보라/밝게 for anything missing, unknown or unreadable. */
 export function readScreenPrefs() {
-  return { theme: storedOr(THEME_KEY, THEMES), mode: storedOr(MODE_KEY, MODES) };
+  return { theme: storedOr(THEME_KEY, THEMES, DEFAULT_THEME), mode: storedOr(MODE_KEY, MODES, DEFAULT_MODE) };
 }
 
 /* Mark the pressed swatch and brightness button. getAttribute/setAttribute
@@ -159,8 +163,8 @@ function syncScreenControls(theme, mode) {
    save it. Unknown values fall back to the defaults; a storage failure only
    means the choice lasts for this page. Returns what was applied. */
 export function applyTheme(theme, mode) {
-  const t = THEMES.includes(theme) ? theme : THEMES[0];
-  const m = MODES.includes(mode) ? mode : MODES[0];
+  const t = THEMES.includes(theme) ? theme : DEFAULT_THEME;
+  const m = MODES.includes(mode) ? mode : DEFAULT_MODE;
   const root = document.documentElement;
   root.setAttribute('data-theme', t);
   root.setAttribute('data-mode', m);
@@ -222,4 +226,136 @@ function readCurrentTheme() {
 function readCurrentMode() {
   const v = document.documentElement.getAttribute('data-mode');
   return MODES.includes(v) ? v : MODES[0];
+}
+
+/* ---------- 기록 지우기 ----------
+   #reset-prefs picks the scope (English / 日本語 / 둘 다, starting at the
+   current language); 기록 지우기… opens #reset-confirm, which counts what
+   would go before its own 기록 지우기 can be pressed. The scope deleted is
+   the one the counts were shown for, whatever the radios say by then. Both
+   dialogs keep their size throughout: the count line and the error line have
+   their room reserved in components.css, and the confirm button's two
+   labels share one min-width. */
+const RESET_SCOPES = ['en', 'ja', 'all'];
+const RESET_NAMES = { en: 'English', ja: '日本語', all: '모든' };
+const RESET_KINDS = [
+  ['sessions', '세션', '개'], ['reports', '리포트', '개'], ['reviews', '복습 카드', '개'],
+  ['timed_rounds', '1분 말하기', '회'], ['level_tests', '레벨 테스트', '개'], ['recordings', '내 녹음', '개'],
+];
+const RESET_COUNTING = '개수를 세는 중이에요';
+const RESET_LABEL = '기록 지우기';
+const RESET_BUSY = '지우는 중이에요';
+const RESET_FAILED = '지우지 못했어요. 잠시 뒤 다시 해 주세요.';
+
+let resetCall = 0;        // the latest open; a count answering an older one is dropped
+let resetFor = null;      // the scope the shown counts are for, once they are in
+let resetBusy = false;    // a reset is out
+
+export function setResetScope(language) {
+  const scope = RESET_SCOPES.includes(language) ? language : 'en';
+  for (const s of RESET_SCOPES) $(`reset-scope-${s}`).checked = s === scope;
+}
+
+export function resetScope() {
+  return RESET_SCOPES.find((s) => $(`reset-scope-${s}`).checked) || 'en';
+}
+
+/* 세션 71개 · 복습 카드 16개 · ... -- kinds with nothing are left out; '' for none. */
+export function resetCountsLine(counts) {
+  return RESET_KINDS.filter(([key]) => counts[key] > 0)
+    .map(([key, name, unit]) => `${name} ${counts[key]}${unit}`)
+    .join(' · ');
+}
+
+export async function openResetConfirm() {
+  const scope = resetScope();
+  const call = ++resetCall;
+  resetFor = null;
+  $('reset-title').textContent = `${RESET_NAMES[scope]} 기록을 지울까요?`;
+  $('reset-counts').textContent = RESET_COUNTING;
+  $('reset-error').textContent = '';
+  $('btn-reset-confirm').disabled = true;
+  if (!$('reset-confirm').open) $('reset-confirm').showModal();
+  try {
+    const { counts } = await getJSON(`/history/summary?language=${scope}`);
+    if (call !== resetCall) return;
+    const line = resetCountsLine(counts);
+    $('reset-counts').textContent = line || '지울 기록이 없어요';
+    if (line) {
+      resetFor = scope;
+      $('btn-reset-confirm').disabled = false;
+    }
+  } catch {
+    if (call !== resetCall) return;
+    $('reset-counts').textContent = '';
+    $('reset-error').textContent = '개수를 세지 못했어요. 닫고 다시 열어 주세요.';
+  }
+}
+
+export function cancelReset() {
+  if (resetBusy) return;
+  resetCall++;
+  resetFor = null;
+  $('reset-confirm').close();
+}
+
+/* `onDone(scope)` reloads whatever screen is showing (main.js knows which). */
+export async function confirmReset(onDone) {
+  const scope = resetFor;
+  if (!scope || resetBusy) return;
+  resetBusy = true;
+  const confirm = $('btn-reset-confirm');
+  confirm.disabled = true;
+  confirm.textContent = RESET_BUSY;
+  $('btn-reset-cancel').disabled = true;
+  $('reset-error').textContent = '';
+  let ok = false;
+  try {
+    await postJSON('/history/reset', { language: scope });
+    ok = true;
+  } catch {
+    $('reset-error').textContent = RESET_FAILED;
+    confirm.disabled = false;
+    // Escape pressed twice closes a modal even through preventDefault; the
+    // learner would then never see the line above.
+    if (!$('reset-confirm').open) notify(RESET_FAILED);
+  } finally {
+    resetBusy = false;
+    confirm.textContent = RESET_LABEL;
+    $('btn-reset-cancel').disabled = false;
+  }
+  if (!ok) return;
+  resetCall++;
+  resetFor = null;
+  $('reset-confirm').close();
+  $('settings').close();
+  notify(`${RESET_NAMES[scope]} 기록을 지웠어요`);
+  await onDone?.(scope);
+}
+
+/* What the screen does once `scope` is gone. Only a reset that covers the
+   language on screen moves the learner: a session, 1분 말하기 or level test
+   in the *other* language is left running, and home or my page merely reload
+   (their counts may include nothing of it, but reloading is cheap and never
+   wrong). `current` is router.current(); `h` supplies mypage(), home() and
+   goHome() -- main.js owns the screens, this module must not import them. */
+export function resetAftermath(scope, current, language, h) {
+  const onScreen = scope === 'all' || scope === language;
+  if (current === 'mypage') return h.mypage();
+  if (current === 'home') return h.home();
+  if (onScreen) return h.goHome();
+  return undefined;
+}
+
+export function initResetPrefs(onDone) {
+  $('btn-reset-open').addEventListener('click', () => openResetConfirm());
+  $('btn-reset-cancel').addEventListener('click', () => cancelReset());
+  $('btn-reset-confirm').addEventListener('click', () => confirmReset(onDone));
+  // Escape fires `cancel` on a modal dialog: let it close the confirm like
+  // 취소 does, except while a reset is out -- that one has to be seen through.
+  $('reset-confirm').addEventListener('cancel', (e) => {
+    if (resetBusy) { e.preventDefault(); return; }
+    resetCall++;
+    resetFor = null;
+  });
 }

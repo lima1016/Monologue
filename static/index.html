@@ -12,13 +12,13 @@
      the ids). Storage that throws or holds junk leaves the defaults. -->
 <script>
 (function () {
-  var theme = 'default', mode = 'auto';
+  var theme = 'lavender', mode = 'light';
   try {
     theme = localStorage.getItem('screen-theme') || theme;
     mode = localStorage.getItem('screen-mode') || mode;
   } catch (e) { /* private window, blocked storage: defaults */ }
-  if (!/^(default|forest|sea|lavender|ink|white)$/.test(theme)) theme = 'default';
-  if (!/^(auto|light|dark)$/.test(mode)) mode = 'auto';
+  if (!/^(default|forest|sea|lavender|ink|white)$/.test(theme)) theme = 'lavender';
+  if (!/^(auto|light|dark)$/.test(mode)) mode = 'light';
   document.documentElement.setAttribute('data-theme', theme);
   document.documentElement.setAttribute('data-mode', mode);
 })();
@@ -537,16 +537,16 @@
   <fieldset id="screen-prefs">
     <legend>화면</legend>
     <div class="swatches" role="group" aria-label="테마">
-      <button type="button" class="swatch" id="theme-default" data-theme-choice="default" aria-pressed="true" style="--sw-bg: #faf5ef; --sw-accent: #a85a3c;"><span class="swatch-chip" aria-hidden="true"></span>기본</button>
+      <button type="button" class="swatch" id="theme-default" data-theme-choice="default" aria-pressed="false" style="--sw-bg: #faf5ef; --sw-accent: #a85a3c;"><span class="swatch-chip" aria-hidden="true"></span>기본</button>
       <button type="button" class="swatch" id="theme-forest" data-theme-choice="forest" aria-pressed="false" style="--sw-bg: #f2f3ea; --sw-accent: #56733a;"><span class="swatch-chip" aria-hidden="true"></span>숲</button>
       <button type="button" class="swatch" id="theme-sea" data-theme-choice="sea" aria-pressed="false" style="--sw-bg: #f0f3f5; --sw-accent: #2a767b;"><span class="swatch-chip" aria-hidden="true"></span>바다</button>
-      <button type="button" class="swatch" id="theme-lavender" data-theme-choice="lavender" aria-pressed="false" style="--sw-bg: #f2f0f6; --sw-accent: #7155a6;"><span class="swatch-chip" aria-hidden="true"></span>보라</button>
+      <button type="button" class="swatch" id="theme-lavender" data-theme-choice="lavender" aria-pressed="true" style="--sw-bg: #f2f0f6; --sw-accent: #7155a6;"><span class="swatch-chip" aria-hidden="true"></span>보라</button>
       <button type="button" class="swatch" id="theme-ink" data-theme-choice="ink" aria-pressed="false" style="--sw-bg: #f5f1e7; --sw-accent: #262522;"><span class="swatch-chip" aria-hidden="true"></span>먹</button>
       <button type="button" class="swatch" id="theme-white" data-theme-choice="white" aria-pressed="false" style="--sw-bg: #f4f5f7; --sw-accent: #1a66d6;"><span class="swatch-chip" aria-hidden="true"></span>하양</button>
     </div>
     <span class="seg" role="group" aria-label="밝기">
-      <button type="button" id="mode-auto" data-mode-choice="auto" class="on" aria-pressed="true">자동</button>
-      <button type="button" id="mode-light" data-mode-choice="light" aria-pressed="false">밝게</button>
+      <button type="button" id="mode-auto" data-mode-choice="auto" aria-pressed="false">자동</button>
+      <button type="button" id="mode-light" data-mode-choice="light" class="on" aria-pressed="true">밝게</button>
       <button type="button" id="mode-dark" data-mode-choice="dark" aria-pressed="false">어둡게</button>
     </span>
   </fieldset>
@@ -580,7 +580,30 @@
       </fieldset>
     </div>
   </div>
+  <!-- 기록 지우기: self-contained (this block + #reset-confirm below) so the
+       dialog's layout can move around it. settings.js has the logic. -->
+  <fieldset id="reset-prefs">
+    <legend>기록 지우기</legend>
+    <p class="hint">연습 기록·리포트·복습·레벨을 지우고 처음부터 시작해요. 대본과 설정은 그대로예요.</p>
+    <div class="reset-scope" role="radiogroup" aria-label="지울 언어">
+      <label><input type="radio" name="reset-scope" id="reset-scope-en" value="en" checked> English</label>
+      <label><input type="radio" name="reset-scope" id="reset-scope-ja" value="ja"> 日本語</label>
+      <label><input type="radio" name="reset-scope" id="reset-scope-all" value="all"> 둘 다</label>
+    </div>
+    <button type="button" id="btn-reset-open" class="danger">기록 지우기…</button>
+  </fieldset>
   <button id="btn-close-settings">닫기</button>
+</dialog>
+
+<dialog id="reset-confirm" aria-labelledby="reset-title" aria-describedby="reset-counts reset-warn">
+  <h2 id="reset-title">기록을 지울까요?</h2>
+  <p id="reset-counts" class="reset-counts" aria-live="polite">개수를 세는 중이에요</p>
+  <p id="reset-warn" class="hint">지우면 되돌릴 수 없어요. 대본과 설정은 그대로예요.</p>
+  <p id="reset-error" class="reset-error" role="alert"></p>
+  <div class="reset-actions">
+    <button type="button" id="btn-reset-cancel">취소</button>
+    <button type="button" id="btn-reset-confirm" class="danger" disabled>기록 지우기</button>
+  </div>
 </dialog>
 
 <script type="module" src="/js/main.js"></script>
