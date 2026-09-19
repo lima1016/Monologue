@@ -42,6 +42,22 @@ def test_item_score_boundary_just_below_the_four_point_floor():
     assert leveltest.item_score(heard, target, "en") == 3
 
 
+# Whisper writes ’ for ', splits or joins hyphenated words, and writes 3 (or ３) for 三 --
+# none of that is the learner's mistake, so a word-for-word repeat still scores 4.
+@pytest.mark.parametrize("heard,target,language", [
+    ("I’ve been waiting for you", "I've been waiting for you.", "en"),
+    ("a careful weighing of long term costs", "a careful weighing of long-term costs.", "en"),
+    ("もう3年", "もう三年", "ja"),                # short, so one character decides the tier
+    ("もう３年", "もう三年", "ja"),               # full-width digit
+])
+def test_item_score_ignores_whisper_spelling_conventions(heard, target, language):
+    assert leveltest.item_score(heard, target, language) == 4
+
+
+def test_bank_spells_realized_the_way_whisper_does():
+    assert "realized" in leveltest.load_bank("en")["items"][10]["text"]
+
+
 @pytest.mark.parametrize("score,expected", [
     (0, ("A1", "하위")), (4, ("A1", "하위")), (5, ("A1", "상위")), (9, ("A1", "상위")),
     (10, ("A2", "하위")), (19, ("A2", "상위")), (20, ("B1", "하위")), (24, ("B1", "하위")), (25, ("B1", "상위")),

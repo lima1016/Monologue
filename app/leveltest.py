@@ -2,6 +2,7 @@
 docs/superpowers/specs/2026-09-19-monologue-level-test-design.md"""
 import functools
 import json
+import unicodedata
 
 from app import config, text_match
 
@@ -34,8 +35,22 @@ def load_bank(language) -> dict:
     return _bank()[language]
 
 
+_MARKS = str.maketrans({"-": " ", "–": " ", "—": " ", "’": "'", "‘": "'"})
+_KANJI_DIGITS = str.maketrans("一二三四五六七八九", "123456789")
+
+
+def _fold(text, language) -> str:
+    """Whisper's spelling conventions must not cost a correct repeat: it writes 3 for 三, ’ for ',
+    and splits or joins hyphenated words either way. Folded here, on both sides, and not in
+    text_match -- that file is hand-synced with static/js/match.js."""
+    text = (text or "").translate(_MARKS)
+    if language == "ja":
+        text = unicodedata.normalize("NFKC", text).translate(_KANJI_DIGITS)
+    return text
+
+
 def item_score(heard, target, language) -> int:
-    r = text_match.similarity(heard or "", target, language)
+    r = text_match.similarity(_fold(heard, language), _fold(target, language), language)
     for points, floor in ((4, 0.95), (3, 0.8), (2, 0.6), (1, 0.3)):
         if r >= floor:
             return points
