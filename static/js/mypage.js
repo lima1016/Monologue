@@ -20,7 +20,7 @@ import { play } from './audio.js';
 import * as router from './router.js';
 import { startRespeak, renderReport, canDo, cancelTurn } from './session.js';
 import { openLevelTest, renderLevelResult, levelName } from './leveltest.js';
-import { GROWTH_TEXT, growthSkeleton, renderGrowth } from './growth.js';
+import { GROWTH_TEXT, WIDE_MIN, growthSkeleton, renderGrowth } from './growth.js';
 
 const LEVEL_NAMES = { beginner: '초급', intermediate: '중급', advanced: '고급' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극', lesson: '수업', timed: '1분 말하기' };
@@ -96,7 +96,10 @@ export function syncTabOrientation() {
   $('mypage-tabs').setAttribute('aria-orientation', narrow ? 'horizontal' : 'vertical');
 }
 
-export function selectTab(name, { focus = false } = {}) {
+/* `scroll`: a press or a key on the menu. Deep in a long panel, the new one
+   starts at its top -- and on a wide screen the sticky menu stays where the
+   pointer is, instead of the page shortening under it. */
+export function selectTab(name, { focus = false, scroll = false } = {}) {
   if (!TABS.includes(name)) name = TABS[0];
   for (const t of TABS) {
     const on = t === name;
@@ -107,9 +110,26 @@ export function selectTab(name, { focus = false } = {}) {
   }
   shownTab = name;
   if (focus) $(`tab-${name}`).focus();
+  if (scroll) keepPanelsInView();
   try { globalThis.localStorage?.setItem(TAB_KEY, name); } catch { /* private window: fine */ }
   if (name === 'weak') onWeakShown();
   if (name === 'growth') onGrowthShown();
+}
+
+// The sticky menu's `top` (var(--space-4) in components.css).
+const STICKY_TOP = 16;
+
+/* Scrolled past the top of the panels (the tab row's top below 900px, where
+   the tabs sit above the panel and do not stick), the page goes back to it
+   at once -- no smooth scroll, nothing to watch. */
+function keepPanelsInView() {
+  const narrow = $('mypage-tabs').getAttribute('aria-orientation') === 'horizontal';
+  const anchor = $(narrow ? 'mypage-tabs' : 'mypage-panels');
+  const rect = typeof anchor.getBoundingClientRect === 'function' ? anchor.getBoundingClientRect() : null;
+  if (!rect || typeof globalThis.scrollTo !== 'function') return;
+  const y = Number(globalThis.scrollY) || 0;
+  const top = Math.max(0, Math.round(y + rect.top - STICKY_TOP));
+  if (y > top) globalThis.scrollTo({ top, behavior: 'auto' });
 }
 
 /* The coach is asked for only when 약점 is looked at -- it is the one slow
@@ -134,7 +154,7 @@ export function onTabKey(e) {
                  Home: 0, End: TABS.length - 1 }[e.key];
   if (next === undefined) return;
   e.preventDefault();
-  selectTab(TABS[next], { focus: true });
+  selectTab(TABS[next], { focus: true, scroll: true });
 }
 
 /* ---------- opening ---------- */
@@ -155,6 +175,13 @@ export async function openMypage({ tab } = {}) {
   // starts a newer load, and this one's answers must not paint over it.
   const lang = state.language;
   const token = ++loadToken;
+  // Another language's answer is never drawn: 성장 shown before this load's
+  // answer lands keeps what is on screen (dimmed) rather than drawing it.
+  if (lang !== growthLang) {
+    growthData = null;
+    growthDrawn = false;
+  }
+  growthLang = lang;
   // After the bump, not before: selecting 약점 starts its own load (Task 4's
   // coach), keyed to this token -- selected earlier, it would be stale at once.
   selectTab(tab || rememberedTab());
@@ -844,6 +871,8 @@ let growthData = null;      // the answer for this load, for a later draw
 let growthDrawn = false;    // renderGrowth has run for growthData
 let growthCall = 0;         // the latest ask: a 다시 시도 outruns one still out
 let skeletonWidth = 0;      // the width the skeleton on screen was built at; 0 once replaced
+let growthLang = '';        // the language growthData is (or is about to be) for
+let drawnWidth = 0;         // the width the answer on screen was drawn at
 
 /* The width the panel is drawn at: the body's own. dom-shim has none (and a
    hidden panel has none), so a sensible default. */
@@ -895,7 +924,26 @@ function drawGrowth() {
   if (!growthData || growthDrawn) return;
   growthDrawn = true;
   skeletonWidth = 0;
-  $('growth-body').replaceChildren(...renderGrowth(growthData, growthWidth()));
+  drawnWidth = growthWidth();
+  $('growth-body').replaceChildren(...renderGrowth(growthData, drawnWidth));
+}
+
+/* main.js, when the window crosses the 900px fold: the panel's width has
+   changed, so the answer is drawn again at the new one -- now if 성장 is on
+   screen, else when it is next shown (onGrowthShown). */
+export function redrawGrowth() {
+  if (!growthData) return;
+  growthDrawn = false;
+  if (!$('growth-section').hidden) drawGrowth();
+}
+
+/* main.js, on a (debounced) window resize: drawn again only when the panel
+   crosses WIDE_MIN, where its blocks go from one column to two or back --
+   inside one layout the charts scale by their viewBox. A hidden panel has
+   no width of its own; at worst it is drawn again when next shown. */
+export function onGrowthResize() {
+  if (!growthData || !drawnWidth) return;
+  if ((growthWidth() >= WIDE_MIN) !== (drawnWidth >= WIDE_MIN)) redrawGrowth();
 }
 
 /* 성장 on screen: an answer that landed while it was hidden is drawn now.

@@ -1510,3 +1510,105 @@ test('a panel that fails says so with 다시 시도, and trying again draws it a
   assert.equal(byCls(body(), 'cal-cell').length, 112);
   assert.equal(document.activeElement, body());
 });
+
+test('after a language switch, 성장 shown before the new answer lands draws nothing of the old language', async () => {
+  routes({ growth: () => jsonResponse(GROWTH({ streak: 9 })) });
+  await mypage.openMypage({ tab: 'history' });
+  await settleAll();
+  // The English answer landed while 성장 was hidden: kept, not drawn.
+  assert.equal(byCls(body(), 'cal-cell').length, 0);
+  let release;
+  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH({ streak: 2 }))); }) });
+  state.language = 'ja';
+  const reloading = mypage.openMypage();
+  await settleAll();
+  mypage.selectTab('growth');
+  assert.equal(byCls(body(), 'cal-cell').length, 0, 'the English answer was drawn after the switch to Japanese');
+  release();
+  await reloading;
+  state.language = 'en';
+  assert.equal(tileText('growth-streak'), '연속2일최장 4일');
+});
+
+test('the same language reopened keeps its answer for 성장 until the new one lands', async () => {
+  routes({ growth: () => jsonResponse(GROWTH({ streak: 9 })) });
+  await mypage.openMypage({ tab: 'history' });
+  await settleAll();
+  routes({ growth: () => new Promise(() => {}) });
+  mypage.openMypage();
+  await settleAll();
+  mypage.selectTab('growth');
+  assert.equal(tileText('growth-streak'), '연속9일최장 4일');
+});
+
+test('redrawGrowth draws the answer on screen again at the panel\'s new width, and nothing when hidden', async () => {
+  const { layout } = await import('./growth.js');
+  routes();
+  body().clientWidth = 900;
+  await mypage.openMypage();
+  await settleAll();
+  const svgWidth = () => byCls(byCls(body(), 'growth-acc-block')[0], 'growth-chart')[0].children[0].getAttribute('viewBox');
+  assert.equal(svgWidth(), `0 0 ${layout(900).acc.width} 170`);
+  body().clientWidth = 640;
+  mypage.redrawGrowth();
+  assert.equal(svgWidth(), `0 0 ${layout(640).acc.width} 170`);
+  assert.equal(byCls(body(), 'growth-grid')[0].classList.contains('is-wide'), false);
+  mypage.selectTab('review');
+  const before = body().children[0];
+  body().clientWidth = 900;
+  mypage.redrawGrowth();
+  assert.equal(body().children[0], before, 'a hidden panel was drawn');
+  mypage.selectTab('growth');
+  assert.notEqual(body().children[0], before, 'shown again after the fold, it is drawn at its new width');
+});
+
+test('a resize draws 성장 again only when the panel crosses WIDE_MIN', async () => {
+  const { WIDE_MIN } = await import('./growth.js');
+  routes();
+  body().clientWidth = WIDE_MIN + 200;
+  await mypage.openMypage();
+  await settleAll();
+  const first = body().children[0];
+  body().clientWidth = WIDE_MIN + 50;
+  mypage.onGrowthResize();
+  assert.equal(body().children[0], first, 'drawn again inside one layout');
+  body().clientWidth = WIDE_MIN - 1;
+  mypage.onGrowthResize();
+  assert.notEqual(body().children[0], first);
+  assert.equal(byCls(body(), 'growth-grid')[0].classList.contains('is-wide'), false);
+});
+
+test('a tab chosen deep in a long panel brings the page back to the panels\' top at once', async () => {
+  routes();
+  await mypage.openMypage();
+  const calls = [];
+  globalThis.scrollTo = (o) => calls.push(o);
+  globalThis.scrollY = 900;
+  try {
+    // The panels start 700px down the page: scrolled 900, they are 200 above.
+    $('mypage-panels').getBoundingClientRect = () => ({ top: -200 });
+    mypage.selectTab('review', { scroll: true });
+    assert.deepEqual(calls, [{ top: 700 - 16, behavior: 'auto' }]);
+    // By the arrow keys too.
+    mypage.onTabKey({ key: 'ArrowDown', target: $('tab-review'), preventDefault() {} });
+    assert.equal(calls.length, 2);
+    // Not scrolled past them: nothing moves.
+    globalThis.scrollY = 100;
+    $('mypage-panels').getBoundingClientRect = () => ({ top: 600 });
+    mypage.selectTab('history', { scroll: true });
+    assert.equal(calls.length, 2);
+    // Opening my page on a tab is not a press: no scroll.
+    globalThis.scrollY = 900;
+    $('mypage-panels').getBoundingClientRect = () => ({ top: -200 });
+    mypage.selectTab('growth');
+    assert.equal(calls.length, 2);
+    // Below 900px the tabs are the row above the panel: back to the tabs.
+    $('mypage-tabs').setAttribute('aria-orientation', 'horizontal');
+    $('mypage-tabs').getBoundingClientRect = () => ({ top: -300 });
+    mypage.selectTab('weak', { scroll: true });
+    assert.deepEqual(calls[2], { top: 600 - 16, behavior: 'auto' });
+  } finally {
+    delete globalThis.scrollTo;
+    delete globalThis.scrollY;
+  }
+});

@@ -137,10 +137,15 @@ def test_the_tiles_are_four_across_and_two_on_a_phone():
     assert len(phone) == 1 and "repeat(2, minmax(0, 1fr))" in phone[0]
 
 
-def test_review_cards_go_two_a_row_when_two_whole_ones_fit_each_its_own_height():
+def test_review_cards_go_two_a_row_when_two_whole_ones_fit_one_height_a_row():
     body = _rule("#review-list")
     assert "grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr))" in body
-    assert "align-items: start" in body, "a card's fold opening must not stretch the one beside it"
+    assert "align-items: stretch" in body, "cards of a row are one height, not a ragged edge"
+    assert "flex-direction: column" in _rule(".review-card")
+    actions = _rule(".review-card .actions")
+    # The buttons sit at the card's foot; the gap above them is padding now,
+    # so a card alone in its row is the same height as before.
+    assert "margin-top: auto" in actions and "padding-top: var(--space-2)" in actions
     assert "grid-column: 1 / -1" in _rule(".review-empty")
 
 
@@ -156,3 +161,25 @@ def test_nothing_new_on_my_page_moves_or_names_a_colour():
         body = _rule(sel)
         assert "transform" not in body and "animation" not in body and "transition" not in body, sel
         assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", body), sel
+
+
+def test_the_skeletons_table_row_is_the_summarys_size():
+    """표로 보기 is a summary at --text-xs inside .growth-table; its loading
+    line is the same size in the same box, so the row does not change."""
+    assert "font-size: var(--text-xs)" in _rule(".growth-table summary")
+    skel = _rule(".growth-table-skel")
+    assert "font-size: var(--text-xs)" in skel and "margin: 0" in skel
+
+
+def test_the_skeletons_test_row_is_a_real_row():
+    """The loading line sits in a real .growth-test row, so it takes the row's
+    padding and line height; no rule of its own may add margin or height."""
+    skel = _rule(".growth-test-skel")
+    assert "margin" not in skel and "height" not in skel
+    assert ".growth-test.skeleton" not in COMPONENTS
+
+
+def test_the_tests_list_holds_the_empty_hints_floor():
+    """No test (the empty hint), one test and the loading row are one height."""
+    floor = "min-height: calc(3 * var(--text-sm) * 1.55)"
+    assert floor in _rule(".growth-empty") and floor in _rule(".growth-tests")

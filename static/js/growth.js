@@ -84,8 +84,9 @@ export function layout(width) {
 
 /* The panel's loading state, built from the real panel's classes and sizes:
    the four tiles, the calendar's own box with its key, the two chart blocks
-   at their charts' heights and the tests block -- so the answer lands
-   without the panel growing. */
+   at their charts' heights, a 표로 보기 row wherever the answer has one (the
+   calendar's side column, accuracy, each 1분 말하기 chart) and the tests
+   block -- so the answer lands without the panel growing. */
 export function growthSkeleton(width) {
   const L = layout(width);
   const tiles = el('div', 'growth-tiles is-skeleton');
@@ -101,17 +102,23 @@ export function growthSkeleton(width) {
     return b;
   };
   const side = el('div', 'growth-cal-side');
-  side.append(heatKeyRow(), skelLine('growth-line'));
+  side.append(heatKeyRow(), skelLine('growth-line'), tableSkeleton());
   const days = block('연습한 날', calBody(L, box(L.cal.height, L.cal.width), side));
-  const acc = block('정확도 변화', box(L.acc.height));
+  const acc = block('정확도 변화', box(L.acc.height), tableSkeleton());
   const pair = el('div', `growth-pair${L.small.split ? ' is-split' : ''}`);
   for (let i = 0; i < 2; i += 1) {
     const small = el('div', 'growth-small');
-    small.append(skelLine('growth-sub'), box(L.small.height));
+    small.append(skelLine('growth-sub'), box(L.small.height), tableSkeleton());
     pair.append(small);
   }
   const timed = block('1분 말하기', pair);
-  const tests = block('레벨 테스트 기록', skelLine('growth-test'), skelLine('growth-test'));
+  // One real row (the list's own box, a line in it): the size of the one
+  // test most learners have, if any.
+  const list = el('ol', 'growth-tests');
+  const row = el('li', 'growth-test');
+  row.append(el('span', 'growth-test-skel skeleton', NBSP));
+  list.append(row);
+  const tests = block('레벨 테스트 기록', list);
   for (const b of [days, acc, timed, tests]) b.classList.add('is-skeleton');
   return [tiles, days, chartsGrid(L, acc, timed, tests)];
 }
@@ -566,6 +573,14 @@ function table(head, rows) {
   });
   t.append(thead, tbody);
   box.append(t);
+  return box;
+}
+
+/* 표로 보기's place while loading: the same .growth-table box (its margin)
+   around one line at the summary's size. */
+function tableSkeleton() {
+  const box = el('div', 'growth-table');
+  box.append(el('p', 'growth-table-skel skeleton', NBSP));
   return box;
 }
 

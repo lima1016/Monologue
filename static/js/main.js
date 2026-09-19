@@ -12,6 +12,7 @@ import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
          selectTab, onTabKey, onTagClick, loadCoach, loadGrowth, syncTabOrientation,
+         redrawGrowth, onGrowthResize,
          showMoreReviews } from './mypage.js';
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
 import { leaveTimed, startNow, stopNow, retryTranscribe, backToPrep, again, endTimed, playMine,
@@ -77,14 +78,25 @@ $('btn-mypage-home').addEventListener('click', () => {
 $('mypage-tabs').addEventListener('click', (e) => {
   // closest, so a press on 복습's count (#tab-review-n) still finds its tab.
   const tab = e.target.closest?.('[role="tab"]');
-  if (tab) selectTab(tab.dataset.tab);
+  if (tab) selectTab(tab.dataset.tab, { scroll: true });
 });
 $('mypage-tabs').addEventListener('keydown', onTabKey);
 // The menu turns from a column into a row at the 900px fold; its
-// aria-orientation follows (guarded: no matchMedia, no listener).
+// aria-orientation follows, and 성장 is drawn again at its new width
+// (guarded: no matchMedia, no listener).
 try {
-  globalThis.matchMedia?.('(max-width: 900px)')?.addEventListener?.('change', syncTabOrientation);
+  globalThis.matchMedia?.('(max-width: 900px)')?.addEventListener?.('change', () => {
+    syncTabOrientation();
+    redrawGrowth();
+  });
 } catch { /* no media queries */ }
+// A resize that takes 성장 across two columns and one draws it again, once
+// the window has settled.
+let resizeTimer = 0;
+globalThis.addEventListener?.('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(onGrowthResize, 150);
+});
 $('review-list').addEventListener('click', onReviewClick);
 $('btn-review-more').addEventListener('click', () => showMoreReviews());
 $('history-list').addEventListener('click', onHistoryClick);

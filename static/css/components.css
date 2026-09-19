@@ -1342,10 +1342,12 @@ button.meaning:hover { color: var(--accent-ink); }
 .review-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .review-head .label { margin: 0 0 var(--space-2); }
 /* Two cards a row when the panel has room for two whole ones (their buttons
-   on one line), else one. Each card keeps its own height (start, not
-   stretch): a card's ▸ 설명 opening never pulls the card beside it taller. */
+   on one line), else one. The cards of a row are one height (stretch), each
+   with its buttons at its foot (.actions' margin-top: auto), so a row reads
+   as a row, not a ragged edge. A card's own content sets the row: the verdict
+   line holds its room (.review-result), so answering grows nothing. */
 #review-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
-               gap: var(--space-2); align-items: start; }
+               gap: var(--space-2); align-items: stretch; }
 .review-empty { grid-column: 1 / -1; }
 .review-card { border: 1px solid var(--line); border-radius: var(--radius-sm);
                padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-1); }
@@ -1367,7 +1369,7 @@ button.meaning:hover { color: var(--accent-ink); }
 .review-card button.explain:hover { color: var(--accent-ink); }
 .explain-body p { margin: var(--space-1) 0 0; font-size: var(--text-sm); color: var(--text); }
 .review-card .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
-                        margin-top: var(--space-2); }
+                        margin-top: auto; padding-top: var(--space-2); }
 .review-card .actions button { font-size: var(--text-sm); padding: var(--space-1) var(--space-3); }
 /* ▶ 듣기 <-> 음성 준비 중... and 🎤 말해보기 <-> 🎤 그만 말하기 keep one width
    (R7): the longer label, 음성 준비 중..., at this row's smaller type. */
@@ -1526,7 +1528,8 @@ button.tag-bar:hover .name { color: var(--accent-ink); }
 .growth-empty { padding: var(--space-2) 0; min-height: calc(3 * var(--text-sm) * 1.55); }
 .growth-block.is-skeleton .growth-line { width: 50%; }
 .growth-block.is-skeleton .growth-sub { width: 30%; }
-.growth-test.skeleton { width: 70%; margin: var(--space-1) 0; }
+/* The loading row is a real .growth-test (its padding and line) holding this. */
+.growth-test-skel { width: 70%; }
 .growth-sub { margin: 0 0 var(--space-1); font-size: var(--text-sm); color: var(--text-dim); font-weight: 600; }
 .growth-fail { display: flex; align-items: center; gap: var(--space-2); }
 
@@ -1579,11 +1582,16 @@ button.tag-bar:hover .name { color: var(--accent-ink); }
 .growth-table { margin-top: var(--space-2); font-size: var(--text-sm); }
 .growth-table summary { cursor: pointer; color: var(--text-dim); font-size: var(--text-xs); width: fit-content; }
 .growth-table summary:hover { color: var(--accent-ink); }
+/* The summary's line while loading: its size, so the row does not change. */
+.growth-table-skel { margin: 0; font-size: var(--text-xs); width: 5em; }
 .growth-table table { border-collapse: collapse; margin-top: var(--space-2); font-variant-numeric: tabular-nums; }
 .growth-table th, .growth-table td { text-align: left; padding: 2px var(--space-3) 2px 0; border-bottom: 1px solid var(--line); }
 .growth-table th { color: var(--text-dim); font-weight: 600; font-size: var(--text-xs); }
 
-.growth-tests { list-style: none; margin: 0; padding: 0; }
+/* The list holds the empty hint's floor (.growth-empty: three lines), so no
+   test, one, two, and the one-row loading state are all one height; a
+   third test and on grow it, as data does. */
+.growth-tests { list-style: none; margin: 0; padding: 0; min-height: calc(3 * var(--text-sm) * 1.55); }
 .growth-test { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-3);
   padding: var(--space-2) 0; border-bottom: 1px solid var(--line); font-size: var(--text-sm); }
 .growth-test:last-child { border-bottom: 0; }

@@ -67,8 +67,9 @@ test('the details are four blocks in order, each named', () => {
 });
 
 /* The panel's skeleton is the panel's own shape: four tiles, the
- * calendar's box at its real height with its key, and the chart blocks at
- * their charts' heights -- so the panel does not grow when the answer lands. */
+ * calendar's box at its real height with its key, the chart blocks at their
+ * charts' heights, and a 표로 보기 row wherever the answer has one -- so the
+ * panel does not grow when the answer lands. */
 test("the panel's loading skeleton holds the tiles, the calendar's box and key, and each chart's height", () => {
   for (const width of [560, 900]) {
     const root = document.createElement('div');
@@ -86,6 +87,15 @@ test("the panel's loading skeleton holds the tiles, the calendar's box and key, 
       ['연습한 날', '정확도 변화', '1분 말하기', '레벨 테스트 기록']);
     assert.equal(one(root, 'growth-grid').classList.contains('is-wide'), L.wide);
     assert.equal(one(root, 'growth-cal-body').classList.contains('is-wide'), L.wide);
+    // A 표로 보기 row wherever the answer will have one, in the same blocks.
+    const where = (r) => all(r, 'growth-table').map((t) => {
+      let n = t;
+      while (n && !n.classList.contains('growth-block')) n = n.parentNode;
+      return one(n, 'label').textContent;
+    });
+    assert.deepEqual(where(root), where(panel(growthBody(), width)));
+    assert.equal(all(root, 'growth-table').length, 4);
+    assert.ok(all(root, 'growth-table').every((t) => one(t, 'growth-table-skel')));
   }
 });
 
