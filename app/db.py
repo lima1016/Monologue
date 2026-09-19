@@ -164,6 +164,18 @@ MIGRATIONS = [
         "ALTER TABLE messages ADD COLUMN matched INTEGER",
         "ALTER TABLE messages ADD COLUMN peeked INTEGER",
     ],
+    # v7 -> v8: the weak-spot coach's daily note (docs/superpowers/specs/
+    # 2026-09-19-monologue-mypage-tabs-coach-design.md, "서버"). One row per
+    # language, overwritten each day it is made; nothing here is the learner's
+    # own data -- it is rebuilt from messages whenever it is missing.
+    ["""
+    CREATE TABLE IF NOT EXISTS coach_notes (
+        language   TEXT PRIMARY KEY,
+        day        TEXT NOT NULL,
+        body       TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    """],
 ]
 
 
@@ -1042,9 +1054,6 @@ def accuracy_since(language, since) -> dict:
     ahead of UTC (as this app's Korea does). The date compare is still what
     actually decides membership; this bound only narrows what reaches it, so
     results are unchanged."""
-    local_tz = datetime.now().astimezone().tzinfo
-    cutoff_local = datetime.combine(since - timedelta(days=1), datetime.min.time(), tzinfo=local_tz)
-    cutoff = cutoff_local.astimezone(timezone.utc).isoformat(timespec="seconds")
     with connect() as conn:
         row = conn.execute(
             "SELECT COALESCE(SUM(m.ok = 1), 0) correct, COUNT(*) graded"
@@ -1052,18 +1061,78 @@ def accuracy_since(language, since) -> dict:
             " WHERE s.language = ? AND s.mode <> 'script' AND m.speaker = 'user' AND m.ok IS NOT NULL"
             "   AND m.created_at >= ?"
             "   AND substr(datetime(m.created_at, 'localtime'), 1, 10) >= ?",
-            (language, cutoff, since.isoformat())).fetchone()
+            (language, _local_cutoff(since), since.isoformat())).fetchone()
     return {"correct": row["correct"], "graded": row["graded"]}
 
 
+_TAG_EXAMPLES = 3
+
+
 def wrong_tag_counts(language) -> list[dict]:
+    """Every wrong tag with its count and its newest few sentences: a count
+    alone says *that* something goes wrong, the sentences say *what*."""
     with connect() as conn:
         rows = conn.execute(
             "SELECT m.tag, COUNT(*) n FROM messages m JOIN sessions s ON s.id = m.session_id"
             " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0"
             "   AND m.tag IS NOT NULL AND m.tag <> '없음'"
             " GROUP BY m.tag ORDER BY n DESC, m.tag", (language,)).fetchall()
-    return [{"tag": r["tag"], "n": r["n"]} for r in rows]
+        out = []
+        for r in rows:
+            examples = conn.execute(
+                "SELECT m.text, m.fixed, m.correction FROM messages m JOIN sessions s ON s.id = m.session_id"
+                " WHERE s.language = ? AND m.speaker = 'user' AND m.ok = 0 AND m.tag = ?"
+                " ORDER BY m.created_at DESC, m.id DESC LIMIT ?",
+                (language, r["tag"], _TAG_EXAMPLES)).fetchall()
+            out.append({"tag": r["tag"], "n": r["n"], "examples": [dict(e) for e in examples]})
+    return out
+
+
+def _local_cutoff(since) -> str:
+    """UTC ISO string one day before local midnight of `since` -- a cheap
+    string prefilter; the localtime date compare still decides membership
+    (same reasoning as accuracy_since's docstring)."""
+    local_tz = datetime.now().astimezone().tzinfo
+    cutoff_local = datetime.combine(since - timedelta(days=1), datetime.min.time(), tzinfo=local_tz)
+    return cutoff_local.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+_COACH_WHERE = (
+    " FROM messages m JOIN sessions s ON s.id = m.session_id"
+    " WHERE s.language = ? AND s.mode <> 'script' AND m.speaker = 'user' AND m.ok = 0"
+    "   AND m.fixed IS NOT NULL AND m.fixed <> ''"
+    "   AND m.created_at >= ? AND substr(datetime(m.created_at, 'localtime'), 1, 10) >= ?"
+)
+
+
+def coach_inputs(language, since, limit=30) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT m.text, m.fixed, m.tag, m.correction" + _COACH_WHERE +
+            " ORDER BY m.created_at DESC, m.id DESC LIMIT ?",
+            (language, _local_cutoff(since), since.isoformat(), limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def wrong_count_since(language, since) -> int:
+    with connect() as conn:
+        return conn.execute("SELECT COUNT(*)" + _COACH_WHERE,
+                            (language, _local_cutoff(since), since.isoformat())).fetchone()[0]
+
+
+def get_coach(language) -> dict | None:
+    with connect() as conn:
+        row = conn.execute("SELECT day, body FROM coach_notes WHERE language = ?", (language,)).fetchone()
+    return {"day": row["day"], "items": json.loads(row["body"])} if row else None
+
+
+def save_coach(language, day, items) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO coach_notes (language, day, body, created_at) VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(language) DO UPDATE SET day = excluded.day, body = excluded.body,"
+            " created_at = excluded.created_at",
+            (language, day, json.dumps(items, ensure_ascii=False), _now()))
 
 
 def history(language, offset, limit) -> list[dict]:
