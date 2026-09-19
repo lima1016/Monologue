@@ -1351,9 +1351,12 @@ def get_level_test(test_id) -> dict | None:
 
 def _set_level_json(test_id, column, key, value) -> None:
     # column is one of two names written in this file, never user input.
+    # finished_at IS NULL: an upload still in flight when /finish landed must
+    # not rewrite a test whose result is already stored.
     with connect() as conn:
         conn.execute(
-            f"UPDATE level_tests SET {column} = json_set({column}, ?, json(?)) WHERE id = ?",
+            f"UPDATE level_tests SET {column} = json_set({column}, ?, json(?))"
+            " WHERE id = ? AND finished_at IS NULL",
             (f'$."{int(key)}"', json.dumps(value, ensure_ascii=False), test_id))
 
 

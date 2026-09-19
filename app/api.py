@@ -2015,6 +2015,7 @@ def session_detail(session_id: int):
 
 LEVEL_STT_UNAVAILABLE = "받아쓰기를 할 수 없어요"
 LEVEL_NOT_DONE = "아직 따라 말하기가 끝나지 않았어요"
+LEVEL_NO_VOICE = "지금은 문장 음성을 준비할 수 없어요"
 _LEVEL_ANSWER_MAX_SECONDS = 60
 
 
@@ -2025,13 +2026,20 @@ class LevelTestStart(BaseModel):
 @router.post("/level-test")
 def start_level_test(payload: LevelTestStart):
     """The sentences go out as audio only: the learner repeats what they
-    heard, so sending the text would hand them the answer. audio_key is None
-    when TTS is down."""
+    heard, so sending the text would hand them the answer -- which also means
+    there is no browser-voice fallback. No voice, no test: the voices are made
+    first, the first one TTS cannot make is a 503, and only then is a test row
+    created, so a failed start leaves nothing behind."""
     language = payload.language
     bank = leveltest.load_bank(language)
+    items = []
+    for it in bank["items"]:
+        key = _speak(it["text"], language)
+        if key is None:
+            raise HTTPException(503, LEVEL_NO_VOICE)
+        items.append({"i": it["i"], "audio_key": key})
     test_id = db.create_level_test(language)
-    return {"test_id": test_id,
-            "items": [{"i": it["i"], "audio_key": _speak(it["text"], language)} for it in bank["items"]],
+    return {"test_id": test_id, "items": items,
             "questions": [{"q": q["q"], "text": q["text"], "meaning": q["meaning"]}
                           for q in bank["questions"]]}
 
@@ -2093,7 +2101,9 @@ async def level_test_answer(test_id: int, q: int, seconds: float = Form(...),
     audio = await _read_level_audio(file)
     segments = await _level_stt(stt.transcribe_segments, audio, language)
     stats = timed.round_stats(segments, language, seconds)
-    db.set_level_answer(test_id, q, {"text": " ".join(stats["sentences"]), "seconds": seconds,
+    # Japanese is written without spaces between sentences.
+    joiner = "" if language == "ja" else " "
+    db.set_level_answer(test_id, q, {"text": joiner.join(stats["sentences"]), "seconds": seconds,
                                      "words": stats["words"], "wpm": stats["wpm"],
                                      "long_pauses": stats["long_pauses"]})
     return {"q": q, "done": True}

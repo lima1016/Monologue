@@ -978,9 +978,9 @@ def build_timed_native_messages(language, topic, sentences, level) -> list[dict]
 # test-design.md). The two answers only nudge a score near a CEFR cut, so the
 # model's job is small: one CEFR label and one Korean line per answer.
 LEVEL_ANSWERS_SYSTEM = """당신은 한국인 학생의 {lang} 말하기 수준을 판정하는 시험관입니다.
-학생이 질문 두 개에 각각 45초 동안 {lang}로 답했습니다. 답은 음성을 받아 적은 것이라 오탈자나 잘못 알아들은 단어가 있을 수 있습니다. 그런 받아쓰기 오류는 감점하지 않습니다.
+학생이 질문에 45초 동안 {lang}로 답했습니다. 답은 음성을 받아 적은 것이라 오탈자나 잘못 알아들은 단어가 있을 수 있습니다. 그런 받아쓰기 오류는 감점하지 않습니다.
 
-두 답을 각각 따로 판정하세요.
+받은 답을 각각 따로 판정하세요. 받지 않은 질문 번호는 쓰지 않습니다.
 - q: 질문 번호(주어진 그대로)
 - cefr: 그 답만 보고 판단한 CEFR 말하기 수준. A1, A2, B1, B2, C1, C2 중 하나
   - 문장의 길이와 짜임, 어휘의 폭, 말의 흐름(분당 낱말 수, 3초 넘게 멈춘 횟수)을 봅니다
@@ -1038,7 +1038,7 @@ def _level_answers_request(qa) -> str:
         blocks.append(f"[{a['q']}] 질문: {a['question']}\n"
                       f"답: {a['text'] or '(말이 없음)'}\n"
                       f"분당 낱말 수: {a['wpm']} · 3초 넘게 멈춤: {a['long_pauses']}번")
-    return "\n\n".join(blocks) + "\n\n두 답을 각각 판정해 주세요."
+    return "\n\n".join(blocks) + f"\n\n답 {len(qa)}개를 각각 판정해 주세요."
 
 
 def build_level_answers_messages(language, qa) -> list[dict]:

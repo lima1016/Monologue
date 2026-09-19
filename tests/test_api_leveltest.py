@@ -126,12 +126,32 @@ def test_start_sends_twelve_sentences_as_audio_only_and_two_questions(client):
     assert all(it["text"] not in json.dumps(body, ensure_ascii=False) for it in BANK["items"])
 
 
-def test_start_still_works_when_tts_is_down(client, monkeypatch):
+def test_no_voice_no_test_when_tts_is_down(client, monkeypatch):
+    calls = []
+
     def down(*a):
+        calls.append(a)
         raise tts.TTSError("down")
     monkeypatch.setattr(tts, "synthesize", down)
-    body = _start(client)
-    assert [it["audio_key"] for it in body["items"]] == [None] * 12
+    r = client.post("/api/level-test", json={"language": "en"})
+    assert r.status_code == 503
+    assert r.json()["detail"] == "지금은 문장 음성을 준비할 수 없어요"
+    assert all(it["text"] not in r.text for it in BANK["items"])
+    assert _count("level_tests") == 0, "a failed start leaves no test row"
+    assert len(calls) == 1, "stops at the first voice it cannot make"
+
+
+def test_a_voice_failing_partway_also_stops_the_start(client, monkeypatch):
+    calls = []
+
+    def fourth_fails(text, language, voice):
+        calls.append(text)
+        if len(calls) == 4:
+            raise tts.TTSError("down")
+        return b"RIFFfake"
+    monkeypatch.setattr(tts, "synthesize", fourth_fails)
+    assert client.post("/api/level-test", json={"language": "en"}).status_code == 503
+    assert len(calls) == 4 and _count("level_tests") == 0
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +278,47 @@ def test_answer_is_transcribed_and_stored_with_its_stats(client, monkeypatch):
     assert db.get_level_test(tid)["answers"] == {1: {
         "text": "On weekends I usually sleep late. Then I meet my friends for lunch.",
         "seconds": 30.0, "words": 13, "wpm": 26, "long_pauses": 1}}
+
+
+def test_japanese_answer_sentences_join_without_spaces(client, monkeypatch):
+    Heard(monkeypatch)
+    Segments(monkeypatch, [{"start": 0.0, "end": 2.0, "text": "週末は寝ます。"},
+                           {"start": 2.5, "end": 4.5, "text": "友達に会います。"}])
+    model = Model(monkeypatch, _judged("A2"))
+    tid = _start(client, "ja")["test_id"]
+    _answer(client, tid, 0, "30")
+    assert db.get_level_test(tid)["answers"][0]["text"] == "週末は寝ます。友達に会います。"
+    _repeat(client, tid, language="ja")
+    res = client.post(f"/api/level-test/{tid}/finish").json()
+    assert res["answers"][0]["text"] == "週末は寝ます。友達に会います。"
+    assert "답: 週末は寝ます。友達に会います。\n" in model.calls[0]["messages"][-1]["content"]
+
+
+def test_one_recorded_answer_keeps_only_that_judgment(client, monkeypatch):
+    Heard(monkeypatch)
+    Segments(monkeypatch)
+    model = Model(monkeypatch, _judged("C1", "A1"))   # judges q0 and a q1 nobody recorded
+    tid = _start(client)["test_id"]
+    _repeat(client, tid, perfect=7)
+    _answer(client, tid, 1)
+    res = client.post(f"/api/level-test/{tid}/finish").json()
+    assert [(a["q"], a["cefr"]) for a in res["answers"]] == [(1, "A1")]
+    asked = model.calls[0]["messages"][-1]["content"]
+    assert "답 1개를 각각 판정해 주세요." in asked and "두 답" not in asked
+    assert BANK["questions"][0]["text"] not in asked
+
+
+def test_an_upload_landing_after_finish_cannot_rewrite_the_test(client, monkeypatch):
+    Heard(monkeypatch)
+    tid = _start(client)["test_id"]
+    _repeat(client, tid)
+    client.post(f"/api/level-test/{tid}/finish")
+    # The routes already 409 here; this is the write that was in flight past that check.
+    db.set_level_item(tid, 0, "x", 0)
+    db.set_level_answer(tid, 0, {"text": "late", "seconds": 1, "words": 1, "wpm": 60, "long_pauses": 0})
+    test = db.get_level_test(tid)
+    assert test["items"][0] == {"heard": BANK["items"][0]["text"], "score": 4}
+    assert test["answers"] == {}
 
 
 def test_answer_stt_down_is_503(client, monkeypatch):
