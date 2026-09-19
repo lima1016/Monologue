@@ -18,7 +18,10 @@ def _header():
 
 
 def test_favicon_is_linked_and_exists():
-    link = re.search(r'<link rel="icon" href="/([^"]+)" type="image/svg\+xml">', INDEX)
+    # id="favicon-link" is what favicon.js's paintFavicon() repaints at
+    # runtime (data-shim has no CSS selector engine); the file link stays
+    # the first-paint/no-JS fallback this test exists to guard.
+    link = re.search(r'<link rel="icon" id="favicon-link" href="/([^"]+)" type="image/svg\+xml">', INDEX)
     assert link, "index.html 에 SVG 파비콘 링크가 없다"
     assert (STATIC / link.group(1)).exists(), f"링크된 파비콘이 없다: {link.group(1)}"
 

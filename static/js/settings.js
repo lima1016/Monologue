@@ -1,5 +1,6 @@
 import { $, api, getJSON, notify, postJSON } from './api.js';
 import { setPrefs } from './reading.js';
+import { paintFavicon } from './favicon.js';
 
 let currentPreviewAudio = null;
 let currentPreviewUrl = null;
@@ -160,6 +161,7 @@ export function applyTheme(theme, mode) {
     globalThis.localStorage?.setItem(THEME_KEY, t);
     globalThis.localStorage?.setItem(MODE_KEY, m);
   } catch { /* not saved; still applied */ }
+  paintFavicon();
   return { theme: t, mode: m };
 }
 
@@ -178,7 +180,29 @@ export function initScreenPrefs() {
       applyTheme(readCurrentTheme(), m);
     });
   }
+  paintFavicon();
+  watchSystemScheme();
   return current;
+}
+
+/* 자동 brightness follows the OS scheme (tokens.css's dark block is guarded
+   by `:not([data-mode="light"])`, i.e. it also applies under "auto"); when
+   the OS flips while the learner is on 자동, --accent's *computed* value
+   changes even though data-theme/data-mode do not, so nothing else here
+   would repaint the tab icon. Guarded for environments without matchMedia
+   (the node test harness, a stripped-down webview) -- no listener, no
+   throw, and the tab icon just keeps whatever it last had. */
+export function watchSystemScheme() {
+  let mq;
+  try {
+    mq = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
+  } catch {
+    return;
+  }
+  if (!mq || typeof mq.addEventListener !== 'function') return;
+  mq.addEventListener('change', () => {
+    if (readCurrentMode() === 'auto') paintFavicon();
+  });
 }
 
 /* What is on <html> right now -- the source of truth once the page is up,
