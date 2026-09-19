@@ -900,12 +900,40 @@ def test_v6_creates_review_queue_and_backfills_past_corrections(tmp_path, monkey
     store.init_db()
     with store.connect() as conn:            # simulate a v5 database with history
         conn.execute("DROP TABLE review_queue")
+        # init_db() above already ran every migration up to the current head,
+        # including v6 -> v7's ALTER TABLEs -- those aren't behind an "IF NOT
+        # EXISTS" the way CREATE TABLE is, so replaying them below without
+        # first undoing them here would fail with "duplicate column name".
+        # The "historical" rows are then written with raw SQL against the
+        # resulting v5 shape, not through create_session/add_message, which
+        # always target the *current* schema (shadowing/matched/peeked
+        # included) and would fail against the columns just dropped.
+        conn.execute("ALTER TABLE sessions DROP COLUMN shadowing")
+        conn.execute("ALTER TABLE messages DROP COLUMN matched")
+        conn.execute("ALTER TABLE messages DROP COLUMN peeked")
         conn.execute("PRAGMA user_version = 5")
-    wrong = _wrong_turn(store)
-    _wrong_turn(store, mode="script")                         # script sessions are skipped
-    sid = store.create_session("en", "free")
-    store.add_message(sid, "user", "fine", ok=1, fixed="fine")  # correct turns are skipped
-    store.add_message(sid, "user", "no fix", ok=0, fixed=None)  # nothing to practise
+        now = store._now()
+
+        def v5_session(language, mode):
+            return conn.execute(
+                "INSERT INTO sessions (language, mode, started_at) VALUES (?, ?, ?)",
+                (language, mode, now)).lastrowid
+
+        def v5_message(sid, text, ok, fixed, tag=None, correction=None):
+            return conn.execute(
+                "INSERT INTO messages (session_id, turn, speaker, text, correction,"
+                " ok, fixed, tag, created_at)"
+                " SELECT ?, (SELECT COALESCE(MAX(turn), 0) + 1 FROM messages WHERE session_id = ?),"
+                "        'user', ?, ?, ?, ?, ?, ?",
+                (sid, sid, text, correction, ok, fixed, tag, now)).lastrowid
+
+        wrong = v5_message(v5_session("en", "free"), "I go there", 0, "I went there.",
+                           tag="시제", correction="c")
+        v5_message(v5_session("en", "script"), "I go there", 0, "I went there.",
+                  tag="시제", correction="c")                    # script sessions are skipped
+        sid = v5_session("en", "free")
+        v5_message(sid, "fine", 1, "fine")                       # correct turns are skipped
+        v5_message(sid, "no fix", 0, None)                       # nothing to practise
     store.init_db()
     store.init_db()                                            # idempotent
     with store.connect() as conn:
@@ -1006,3 +1034,35 @@ def test_review_counts_due_skips_a_row_whose_message_is_gone(store):
     store.enqueue_review(987654, "en", date(2026, 9, 14))      # no such message
     assert len(store.due_reviews("en", date(2026, 9, 14))) == 1
     assert store.review_counts("en", date(2026, 9, 14))["due"] == 1
+
+
+def test_v7_adds_shadowing_columns(tmp_path, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "v7.db")
+    from app import db as store
+    store.init_db()
+    assert store.schema_version() == 7
+    sid = store.create_session("en", "script", scenario_id="x", shadowing=True)
+    assert store.get_session(sid)["shadowing"] == 1
+    assert store.get_session(store.create_session("en", "free"))["shadowing"] == 0
+    mid = store.add_message(sid, "user", "hi")
+    row = store.get_message(mid)
+    assert row["matched"] is None and row["peeked"] is None
+
+
+def test_save_shadow_line_keeps_one_row_per_index(tmp_path, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "s.db")
+    from app import db as store
+    store.init_db()
+    sid = store.create_session("en", "script", scenario_id="x", shadowing=True)
+    first = store.save_shadow_line(sid, 2, "i like it", "I like it.", matched=True, peeked=True)
+    again = store.save_shadow_line(sid, 2, "i liked it", "I like it.", matched=False, peeked=False)
+    other = store.save_shadow_line(sid, 3, "yes", "Yes.", matched=True, peeked=False)
+    assert again == first and other != first
+    rows = [m for m in store.get_messages(sid) if m["script_index"] == 2]
+    assert len(rows) == 1
+    r = rows[0]
+    assert (r["speaker"], r["text"], r["fixed"], r["matched"]) == ("user", "i liked it", "I like it.", 0)
+    assert r["peeked"] == 1, "a line once peeked stays peeked"
+    assert r["ok"] is None and r["tag"] is None

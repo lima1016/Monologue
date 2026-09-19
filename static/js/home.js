@@ -33,6 +33,16 @@ const GOAL_MIN = 1;
 const GOAL_MAX = 14;
 const START_LABELS = { script: '스크립트로 시작', free: '자유 대화로 시작' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극' };
+
+// Reads an item off /stats/home's `recent_themes` (renderRecentThemes below).
+// A shadowing session there is stored as a flagged script session -- its
+// `mode` is still "script" -- so MODE_NAMES alone would call it 스크립트;
+// `shadowing` (added by app/api.py's _recent_themes) always wins instead.
+// Same rule as mypage.js's modeName(); not shared -- the two screens have no
+// other reason to move together.
+function modeName(item) {
+  return item.shadowing ? '쉐도잉' : (MODE_NAMES[item.mode] || item.mode);
+}
 const REVIEW_PLAY_LABEL = '▶ 듣기';
 // A placeholder line needs a character to be a line at all: an empty or
 // space-only <p> is zero tall.
@@ -466,8 +476,11 @@ export function renderRecentThemes(items) {
     const card = el('button', 'recent-theme');
     card.type = 'button';
     card.dataset.theme = item.theme_id;
-    card.dataset.mode = item.mode;
-    card.append(el('span', 't', item.title), el('span', 'm', MODE_NAMES[item.mode] || item.mode));
+    // startThemeButton (main.js) hands this straight to startTheme(mode, …),
+    // which -- like openPick -- only recognises 'shadow' as its own mode; the
+    // server-side mode ('script') would start a plain script session instead.
+    card.dataset.mode = item.shadowing ? 'shadow' : item.mode;
+    card.append(el('span', 't', item.title), el('span', 'm', modeName(item)));
     list.append(card);
   }
   $('recent-themes-wrap').hidden = list.children.length === 0;
@@ -594,6 +607,14 @@ export async function resumeSession() {
     const { session, messages } = await getJSON(`/sessions/${resumeTarget.id}`);
     state.sessionId = resumeTarget.id;
     state.mode = resumeTarget.mode;
+    // A resumed session is never shadowing (script sessions are not
+    // resumable), and this path does not go through startSession, which is
+    // what otherwise puts the shadowing card and its hidden dock controls away.
+    state.shadowing = false;
+    $('shadow-card').hidden = true;
+    $('text-input').hidden = false;
+    $('btn-send').hidden = false;
+    $('btn-next').hidden = true;
     setSuggestVisible(resumeTarget.mode);
     // Same rule startSession follows for a session it just created: the
     // session that actually exists becomes the app's language, not whatever

@@ -14,7 +14,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Response, Uploa
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from app import config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, tts
+from app import config, db, library, llm, prompts, reading, scenarios, stt, text_cleanup, text_match, tts
 from app.text_cleanup import clean_for_tts
 from app.text_match import normalize
 from app.tts import voicevox_backend
@@ -551,6 +551,7 @@ class SessionStart(BaseModel):
     mode: Mode
     scenario_id: str | None = None
     topic: str | None = None
+    shadowing: bool = False
 
 
 class ChatTurn(BaseModel):
@@ -712,6 +713,8 @@ def _feedback(language: str, text: str, *, scenario_title=None,
 
 @router.post("/sessions")
 def start_session(payload: SessionStart):
+    if payload.shadowing and payload.mode != "script":
+        raise HTTPException(400, "shadowing is a script session")
     scenario = None
     if payload.mode in ("free", "script"):
         if not payload.scenario_id:
@@ -759,7 +762,8 @@ def start_session(payload: SessionStart):
             )
 
     session_id = db.create_session(payload.language, payload.mode,
-                                   scenario_id=payload.scenario_id, topic=payload.topic)
+                                   scenario_id=payload.scenario_id, topic=payload.topic,
+                                   shadowing=payload.shadowing)
 
     if payload.mode == "script":
         lines = []
@@ -769,7 +773,8 @@ def start_session(payload: SessionStart):
             # 16줄 남짓이고 tts는 캐시되므로 전부 선합성해도 비용은 무시할 만하다.
             key = _speak(line["text"], payload.language)
             lines.append({"speaker": line["speaker"], "text": line["text"], "audio_key": key})
-        return {"session_id": session_id, "mode": "script", "lines": lines}
+        return {"session_id": session_id, "mode": "script", "lines": lines,
+               "shadowing": payload.shadowing}
 
     system = prompts.build_system_prompt(
         payload.mode, payload.language, scenario=scenario, topic=payload.topic,
@@ -970,6 +975,8 @@ def store_script_line(session_id: int, payload: ScriptLineStore):
         raise HTTPException(404, "no such session")
     if session["mode"] != "script":
         raise HTTPException(400, "not a script session")
+    if session["shadowing"]:
+        raise HTTPException(400, "a shadowing session stores lines through /shadow-line")
     scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
     lines = scenario["lines"] if scenario else []
     if payload.index < 0 or payload.index >= len(lines):
@@ -1014,10 +1021,43 @@ def script_turn(payload: ScriptTurn):
         raise HTTPException(400, "text is empty")
     if session["mode"] != "script":
         raise HTTPException(400, "not a script session")
+    if session["shadowing"]:
+        raise HTTPException(400, "a shadowing session stores lines through /shadow-line")
 
     turns_used = sum(1 for m in db.get_messages(payload.session_id) if m["speaker"] == "user")
     db.add_message(payload.session_id, "user", text)
     return {"turn": turns_used + 1}
+
+
+class ShadowLine(BaseModel):
+    index: int
+    text: str
+    peeked: bool = False
+
+
+@router.post("/sessions/{session_id}/shadow-line")
+def shadow_line(session_id: int, payload: ShadowLine):
+    """One attempt at shadowing script line `index`. The verdict is the
+    server's (text_match.matches, the twin of match.js), and a retry replaces
+    the attempt in place -- see db.save_shadow_line."""
+    session = db.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "no such session")
+    if session["ended_at"] is not None:
+        raise HTTPException(409, "this session has already ended")
+    if not session["shadowing"]:
+        raise HTTPException(400, "not a shadowing session")
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(400, "text is empty")
+    scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
+    lines = scenario["lines"] if scenario else []
+    if payload.index < 0 or payload.index >= len(lines):
+        raise HTTPException(400, "line index out of range")
+    target = lines[payload.index]["text"]
+    matched = text_match.matches(text, target, session["language"])
+    message_id = db.save_shadow_line(session_id, payload.index, text, target, matched, payload.peeked)
+    return {"message_id": message_id, "matched": matched}
 
 
 @router.delete("/sessions/{session_id}/last-turn")
@@ -1028,6 +1068,8 @@ def undo_last_turn(session_id: int):
         raise HTTPException(404, "no such session")
     if session["ended_at"] is not None:
         raise HTTPException(409, "this session has already ended")
+    if session["shadowing"]:
+        raise HTTPException(400, "shadowing retries a line instead of undoing it")
     deleted, paths = db.delete_last_turn(session_id)
     # Undo is used exactly when recognition mishears, which is often -- without
     # this the deleted turn's recording becomes a file no row ever points to
@@ -1140,6 +1182,34 @@ def _forget_recordings(session_id: int) -> None:
     _unlink_audio(db.clear_session_audio(session_id))
 
 
+def _sweep_recordings(session_id: int) -> None:
+    """Best-effort cleanup shared by every path that ends a session: forget
+    this session's own clips, then sweep any sessions nobody came back to
+    while we're here. A failure here is housekeeping, not something the
+    caller's already-committed report should turn into an error."""
+    try:
+        _forget_recordings(session_id)
+        for stale in db.stale_open_sessions():
+            _forget_recordings(stale)
+    except Exception:
+        pass
+
+
+def _shadow_report(session: dict) -> dict:
+    """Shadowing's report: counts and the lines to try again. No model call and
+    no level -- the learner repeated lines they were given, which says nothing
+    about the level they would speak at."""
+    summary = db.shadow_summary(session["id"])
+    scenario = scenarios.get_scenario(session["scenario_id"]) if session["scenario_id"] else None
+    summary["lines"] = len(scenario["lines"]) if scenario else summary["done"]
+    for h in summary["hard"]:
+        h["audio_key"] = _speak(h["target"], session["language"])
+    stats = db.session_stats(session["id"])
+    stats["minutes"] = db.active_minutes(session["id"])
+    return {"kind": "shadow", "summary": "", "weak_points": [], "expressions": [], "next_focus": "",
+            "level": None, "stats": stats, "shadow": summary}
+
+
 @router.post("/sessions/{session_id}/end")
 def finish_session(session_id: int):
     session = db.get_session(session_id)
@@ -1147,6 +1217,15 @@ def finish_session(session_id: int):
         raise HTTPException(404, "no such session")
     if session["ended_at"] is not None:
         raise HTTPException(409, "this session has already ended")
+
+    if session["shadowing"]:
+        result = _shadow_report(session)
+        db.end_session(session_id, json.dumps({"kind": "shadow"}), None)
+        tomorrow = _today() + timedelta(days=1)
+        for h in result["shadow"]["hard"]:
+            db.enqueue_review(h["message_id"], session["language"], tomorrow)
+        _sweep_recordings(session_id)
+        return result
 
     stats = db.session_stats(session_id)
     # The right-hand panel's "분" -- active time, not wall time since the
@@ -1182,14 +1261,7 @@ def finish_session(session_id: int):
     # history screen) will need to handle both shapes.
     db.end_session(session_id, json.dumps(report, ensure_ascii=False), level)
 
-    # The report is already committed. Cleanup is housekeeping, and no failure
-    # in it is worth turning a finished report into an error the learner sees.
-    try:
-        _forget_recordings(session_id)
-        for stale in db.stale_open_sessions():
-            _forget_recordings(stale)
-    except Exception:
-        pass
+    _sweep_recordings(session_id)
 
     return {**report, "level": level, "stats": stats}
 
@@ -1275,7 +1347,11 @@ def _recent_themes(language):
         if theme is None or theme_id in seen:
             continue
         seen.add(theme_id)
-        out.append({"theme_id": theme_id, "title": theme["title"], "mode": row["mode"]})
+        # A shadowing session is stored as a flagged script session (mode is
+        # still "script"); the client needs the flag itself to show 쉐도잉
+        # instead of 스크립트 and to start the theme back into shadowing.
+        out.append({"theme_id": theme_id, "title": theme["title"], "mode": row["mode"],
+                    "shadowing": bool(row["shadowing"])})
         if len(out) == _RECENT_THEMES:
             break
     return out
@@ -1326,6 +1402,7 @@ def _recent_row(row: dict) -> dict:
         "title": (scenario["title"] if scenario else row["topic"]) or "자유 대화",
         "ended_at": row["ended_at"],
         "fixed": row["fixed"],
+        "shadowing": bool(row.get("shadowing")),
     }
 
 
@@ -1369,7 +1446,8 @@ def mypage_stats(language: Language):
 @router.get("/review")
 def review_items(language: Language):
     items = db.due_reviews(language, _today())
-    return {"items": [{k: i[k] for k in ("id", "text", "fixed", "correction", "tag", "created_at")} for i in items]}
+    return {"items": [{**{k: i[k] for k in ("id", "text", "fixed", "correction", "tag", "created_at")},
+                       "shadowing": bool(i["shadowing"])} for i in items]}
 
 
 class ReviewResult(BaseModel):
@@ -1405,7 +1483,7 @@ def session_history_page(language: Language, offset: int = Query(default=0, ge=0
         titled = _recent_row({**row, "fixed": row["wrong"]})
         items.append({"id": row["id"], "ended_at": row["ended_at"], "title": titled["title"],
                       "mode": row["mode"], "turns": row["turns"], "wrong": row["wrong"],
-                      "graded": row["graded"]})
+                      "graded": row["graded"], "shadowing": bool(row.get("shadowing"))})
     return {"items": items, "more": len(rows) > _HISTORY_PAGE}
 
 
@@ -1424,6 +1502,8 @@ def session_report(session_id: int):
     except ValueError:
         report = {"summary": session["report"]}
         graded = False
+    if session["shadowing"]:
+        return {**_shadow_report(session), "mode": session["mode"], "shadowing": True, "graded": True}
     stats = db.session_stats(session_id)
     stats["minutes"] = db.active_minutes(session_id)
     return {"summary": report.get("summary") or "", "weak_points": report.get("weak_points") or [],

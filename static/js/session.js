@@ -1,5 +1,5 @@
 import { $, api, getJSON, postJSON, state, notify, setShown } from './api.js';
-import { play, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening, beginListening, discardRecording, startRecording } from './audio.js';
+import { play, stopPlayback, setHeardHandler, recognition, BCP47, setRespeakHandler, setInterimHandler, setCancelHandler, cancelListening, beginListening, discardRecording, startRecording } from './audio.js';
 import { matches } from './match.js';
 import * as router from './router.js';
 import * as turn from './turnstate.js';
@@ -180,7 +180,16 @@ export function setTurnState(event) {
   // same reason.
   if (isListening && !wasListening) liveHeard = '';
   syncControls();
+  if (state.shadowing) shadowHooks.turn(turnState);
   return turnState;
+}
+
+/* Shadowing (shadow.js) owns its own line card; session.js only hands it the
+   session's lines, each final transcript, and each turn state. Injected, like
+   audio.js's handlers, so neither module imports the other. */
+let shadowHooks = { start() {}, heard() {}, turn() {} };
+export function setShadowHooks(hooks) {
+  shadowHooks = { ...shadowHooks, ...hooks };
 }
 
 /* Whisper's answer beats the browser's, but never blocks the turn: on any
@@ -234,6 +243,19 @@ export async function handleHeard(browserText, audioPromise) {
    returns control to the learner. Re-speak (Task 8) takes priority over this
    handler via audio.js's `deliver` and never reaches it. */
 function sendHeard(transcript) {
+  // Shadowing judges a line on the server and keeps the attempt in its own
+  // card; it never posts a turn. `sending` holds the mic while it saves.
+  if (state.shadowing) {
+    if (!transcript) {
+      discardRecording();
+      setTurnState('HEARD_NOTHING');
+      shadowHooks.heard(null);
+      return;
+    }
+    setTurnState('HEARD');
+    shadowHooks.heard(transcript);
+    return;
+  }
   if (!transcript) {
     // Nothing to attach the recording to, and chunks left behind would be
     // uploaded with whatever the learner types next.
@@ -343,7 +365,7 @@ export async function refreshHealth() {
    several seconds ago, and the session must be created under the same pair the
    id belongs to. Reading `state` here instead is exactly how a session came to
    be stamped with one language and bound to another language's scenario. */
-export async function startSession({ language, mode, scenarioId, topic } = {}) {
+export async function startSession({ language, mode, scenarioId, topic, shadowing = false } = {}) {
   // startScript resets this for a script session; a free session never went
   // through startScript before, so without this a free session started right
   // after a finished script session would inherit the earlier session's
@@ -356,6 +378,7 @@ export async function startSession({ language, mode, scenarioId, topic } = {}) {
     mode,
     scenario_id: mode === 'lesson' ? null : scenarioId,
     topic: topic || null,
+    shadowing,
   };
   $('btn-start').disabled = true;
   try {
@@ -374,8 +397,19 @@ export async function startSession({ language, mode, scenarioId, topic } = {}) {
     router.show('session');
     $('conversation').innerHTML = '';
     notify('');
+    // What the server made, not what was asked: shadowing is a script session
+    // with a flag, and the flag decides whose card the lines go to.
+    state.shadowing = Boolean(data.shadowing);
+    $('shadow-card').hidden = !state.shadowing;
+    // Shadowing is spoken or nothing -- a typed line has no sound to judge.
+    $('text-input').hidden = state.shadowing;
 
-    if (data.mode === 'script') startScript(data.lines);
+    if (state.shadowing) {
+      // The card's own 다음 줄 moves on, and there is no turn to send.
+      $('btn-next').hidden = true;
+      $('btn-send').hidden = true;
+      shadowHooks.start(data.lines);
+    } else if (data.mode === 'script') startScript(data.lines);
     else {
       // The scenario's goal (free mode) or the topic the learner typed
       // (lesson mode) is what the panel shows. Lesson mode with no topic has
@@ -631,6 +665,11 @@ export async function sendText(text) {
   bubble.title = '잘못 인식됐다면 눌러서 고치세요';
   bubble.dataset.turnText = text;
 
+  // A clip still playing from before (the learner typed over the last reply)
+  // is cut off now, while the turn is still `sending`: the AUDIO_DONE its
+  // stop raises lands where it changes nothing. Left to the play() below, it
+  // would land after REPLY and end this reply's `speaking` at once.
+  stopPlayback();
   setTurnState('REPLY');
   addMessage('bot', data.bot_reply, data.audio_key);
   addChip(bubble, data);
@@ -817,6 +856,23 @@ function addPlayButton(bubble, messageId) {
   bubble.appendChild(btn);
 }
 
+/* The learner's recording for one known message -- shadowing knows its row id,
+   and a retried line keeps it, so "the last user message" would be wrong. */
+export async function uploadRecordingFor(messageId, sessionId = state.sessionId) {
+  if (!state.chunks.length) return false;
+  const blob = new Blob(state.chunks, { type: 'audio/webm' });
+  state.chunks = [];
+  try {
+    const form = new FormData();
+    form.append('message_id', messageId);
+    form.append('file', blob, 'clip.webm');
+    await api(`/sessions/${sessionId}/audio`, { method: 'POST', body: form });
+    return true;
+  } catch {
+    return false;   // a recording never interrupts practice
+  }
+}
+
 export async function uploadPendingRecording(bubble) {
   if (!state.chunks.length) return;
   const blob = new Blob(state.chunks, { type: 'audio/webm' });
@@ -846,9 +902,15 @@ export async function uploadPendingRecording(bubble) {
 // one is already in flight just does nothing.
 let ending = false;
 
+/* A report is being made: shadow.js stops reporting a save that lands now. */
+export function sessionEnding() { return ending; }
+
 export async function endSession() {
   if (!state.sessionId || ending) return;
   ending = true;
+  // Nothing from the session plays on into the report (shadowing's native
+  // clip, a bot reply still talking).
+  stopPlayback();
   // Visible from the first frame: the report takes the local model 10-20s,
   // and a screen that does not change reads as a button that did nothing.
   $('report-wait').hidden = false;
@@ -865,6 +927,9 @@ export async function endSession() {
   // just disabled.
   try {
     const data = await postJSON(`/sessions/${state.sessionId}/end`);
+    // The session is over, and with it the card: turn states stop going to
+    // shadow.js, and a save still answering knows it has no one to tell.
+    state.shadowing = false;
     router.show('report');
     // Only a report opened from my page has a way back there.
     $('btn-report-back').hidden = true;
@@ -892,6 +957,10 @@ export async function endSession() {
    -- a later phase needs the history to compute a level over several
    sessions -- this function just does not render it. */
 export function renderReport(data) {
+  // Keyed on the payload's own kind, not state.mode/state.shadowing: a report
+  // reopened from my page belongs to no current session, so those flags say
+  // nothing about it (and endSession clears state.shadowing before this runs).
+  if (data.kind === 'shadow') { renderShadowReport(data); return; }
   const s = data.stats || {};
   // 헤드라인. LLM 에 새 필드를 요구하지 않는다 -- 리포트 프롬프트는 여러 라운드에
   // 걸쳐 다듬어졌고, 필드를 하나 더 넣는 것만으로 그 품질이 회귀할 수 있다.
@@ -967,6 +1036,90 @@ async function loadWeakPoints() {
     list.append(li);
   }
   $('report-weak').hidden = tags.length === 0;
+}
+
+/* Shadowing's report (Task 4): no model call ever ran (see `_shadow_report`
+   in app/api.py), so there is nothing to summarise -- 총평/부족한 부분/외워둘
+   표현/다음엔 이것을 all stay off, and so does the cumulative-weak-points
+   panel (that reads across every session, not this one; a session with
+   nothing graded has no grammar signal to feed it). Just the counts the
+   server already computed, and the lines worth trying again. */
+function renderShadowReport(data) {
+  const sh = data.shadow || {};
+  const s = data.stats || {};
+  $('report-headline').textContent = `${sh.done ?? 0}줄을 따라 말했어요.`;
+  $('report-counts').textContent =
+    `따라 한 줄 ${sh.done ?? 0}/${sh.lines ?? 0} · 대본과 같음 ${sh.matched ?? 0} · 글자 보고 함 ${sh.peeked ?? 0}`;
+
+  const body = $('report-body');
+  body.replaceChildren();
+  const hard = sh.hard || [];
+  if (hard.length) {
+    body.append(shadowHardCard(hard));
+  } else {
+    const p = document.createElement('p');
+    p.textContent = '전부 대본대로 따라 했어요 🎉';
+    body.append(p);
+  }
+
+  $('rep-turns').textContent = s.turns ?? 0;
+  // No grammar correction happens in a shadowing session (same reason script
+  // mode uses '—' above): 0 would read as "every line was perfect".
+  $('rep-wrong').textContent = '—';
+  $('rep-minutes').textContent = s.minutes ?? 0;
+
+  // Not loadWeakPoints(): that panel is app-wide history, and a shadowing
+  // session graded nothing that could feed it.
+  $('report-weak').hidden = true;
+}
+
+function shadowHardCard(hard) {
+  const card = document.createElement('section');
+  card.className = 'report-card';
+  const heading = document.createElement('p');
+  heading.className = 'label';
+  heading.textContent = '어려웠던 줄';
+  card.append(heading);
+  for (const h of hard) {
+    const row = document.createElement('div');
+    row.className = 'fix-row';
+    // Labelled like my page's shadowing review card. Not .said: that class is
+    // a correction's struck-through wrong half, and nothing here was wrong --
+    // it is only what the learner said back.
+    const said = document.createElement('p');
+    said.className = 'mine';
+    said.append(labelled('내 말'), document.createTextNode(' '), plain(h.said));
+    const target = document.createElement('p');
+    target.className = 'fixed';
+    target.append(labelled('대본'), document.createTextNode(' '), plain(h.target));
+    // No ▶ 내 발음: the recording is gone by the time this renders (the
+    // session's own end route sweeps it, see _forget_recordings).
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-stable';
+    btn.textContent = '▶ 원어민';
+    btn.addEventListener('click', () => play(h.audio_key, h.target));
+    row.append(said, target, btn);
+    card.append(row);
+  }
+  const note = document.createElement('p');
+  note.className = 'hint';
+  note.textContent = '이 줄들은 내일 복습에 나와요';
+  card.append(note);
+  return card;
+}
+
+function labelled(text) {
+  const span = document.createElement('span');
+  span.className = 'label';
+  span.textContent = text;
+  return span;
+}
+
+function plain(text) {
+  const span = document.createElement('span');
+  span.textContent = text;
+  return span;
 }
 
 function reportCard(title, items) {

@@ -17,36 +17,77 @@ function once(fn) {
   };
 }
 
+/* Whatever is playing right now -- a server clip or the browser's voice --
+   as the function that silences it. One slot: the app only ever means one
+   sound at a time, and a second play() used to start on top of the first
+   (two presses of 다시 듣기, a clip still talking over the next line or into
+   the report, or into the microphone). */
+let stopCurrent = null;
+
+/* Silences what is playing. A stopped sound counts as finished: its onDone
+   fires (once) here, so a turn waiting on AUDIO_DONE for it never sits in
+   `speaking` with nothing left to play. */
+export function stopPlayback() {
+  const stop = stopCurrent;
+  stopCurrent = null;
+  if (stop) stop();
+}
+
 /* `onDone` is optional and, when given, fires once playback actually finishes
-   (or immediately if nothing could be played at all) -- session.js uses it to
-   fire the AUDIO_DONE event that returns the turn state machine to `idle`. */
-export function play(audioKey, fallbackText, onDone) {
+   (or immediately if nothing could be played at all, or when stopPlayback()
+   cuts it off) -- session.js uses it to fire the AUDIO_DONE event that returns
+   the turn state machine to `idle`.
+   `rate` slows the same clip down (shadowing's 천천히 듣기) rather than asking
+   the server for a second, slower synthesis.
+   Every play() first stops the one before it. */
+export function play(audioKey, fallbackText, onDone, { rate = 1 } = {}) {
+  stopPlayback();
   const done = onDone ? once(onDone) : null;
   if (audioKey) {
     notify(''); // a real server clip means any earlier quality warning no longer applies
     const clip = new Audio(`/api/audio/${audioKey}.wav`);
+    clip.playbackRate = rate;
+    let stopped = false;
+    const stop = () => {
+      stopped = true;
+      clip.pause();
+      if (done) done();
+    };
+    stopCurrent = stop;
     if (done) {
       clip.addEventListener('ended', done);
       clip.addEventListener('error', done);
     }
-    clip.play().catch(() => speakInBrowser(fallbackText, done));
+    clip.play().catch(() => {
+      // pause() before the clip got going rejects play() too -- that is the
+      // stop working, not a clip that failed, and must not start the voice.
+      if (stopped) return;
+      if (stopCurrent === stop) stopCurrent = null;
+      speakInBrowser(fallbackText, done, rate);
+    });
     return;
   }
   notify('서버 음성 생성에 실패해 브라우저 음성으로 대체합니다. 품질이 떨어집니다.');
-  speakInBrowser(fallbackText, done);
+  speakInBrowser(fallbackText, done, rate);
 }
 
-export function speakInBrowser(text, onDone) {
+export function speakInBrowser(text, onDone, rate = 1) {
   if (!('speechSynthesis' in window)) {
     if (onDone) onDone();
     return;
   }
+  const done = onDone ? once(onDone) : null;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = BCP47[state.language];
-  if (onDone) {
-    u.addEventListener('end', onDone);
-    u.addEventListener('error', onDone);
+  u.rate = rate;
+  if (done) {
+    u.addEventListener('end', done);
+    u.addEventListener('error', done);
   }
+  stopCurrent = () => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (done) done();
+  };
   speechSynthesis.speak(u);
 }
 
@@ -170,7 +211,12 @@ function setupRecognition() {
     }
     // abort() raises `aborted` on its way to onend -- that is the cancel
     // working, not a failure to tell the learner about.
-    if (!cancelling) notify(`음성 인식 실패(${e.error}). 입력창에 직접 입력하세요.`);
+    // Shadowing has no input to fall back on (it is hidden there).
+    if (!cancelling) {
+      notify(state.shadowing
+        ? `음성 인식 실패(${e.error}). 다시 해보세요.`
+        : `음성 인식 실패(${e.error}). 입력창에 직접 입력하세요.`);
+    }
   };
   // onend fires whether or not anything was recognised, and it is the only
   // event that always arrives -- so it is the one place delivery can safely

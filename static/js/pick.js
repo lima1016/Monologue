@@ -28,7 +28,7 @@ export const CATEGORY_LABELS = {
 // Same order as config.THEME_CATEGORIES on the server.
 const THEME_CATEGORIES = ['daily', 'travel', 'smalltalk', 'business'];
 
-const MODE_LABELS = { free: '자유 상황극', script: '스크립트', lesson: '수업' };
+const MODE_LABELS = { free: '자유 상황극', script: '스크립트', lesson: '수업', shadow: '쉐도잉' };
 
 const SKELETON_CARDS = 5;                       // about one tab's worth of themes
 const NBSP = String.fromCharCode(0xa0);         // an empty span is zero tall
@@ -70,7 +70,11 @@ export async function openPick(mode) {
     if (locked) router.show('pick');
     return;
   }
-  state.mode = mode;
+  // Shadowing is a script session with a flag: it picks from the same scripts,
+  // so everything below (themes, picks, the start) runs as script mode, and
+  // only the heading and the session request know the difference.
+  state.shadowing = mode === 'shadow';
+  state.mode = mode === 'shadow' ? 'script' : mode;
   router.show('pick');
   $('pick-mode').textContent = MODE_LABELS[mode] || mode;
   const lesson = mode === 'lesson';
@@ -197,6 +201,7 @@ export async function startFromPick() {
   // forever with nothing on screen to say so.
   const language = state.language;
   const mode = state.mode;
+  const shadowing = state.shadowing;
   const script = mode === 'script';
   let failure = '시작하지 못했어요';
   // Inside the try, not before it: a throw between setting the guard and the
@@ -238,8 +243,9 @@ export async function startFromPick() {
       }
     }
 
+    // Shadowing waits on the same thing a script does: its lines' audio.
     setStatus(script ? STATUS.audio : STATUS.opening);
-    await startSession({ language, mode, scenarioId, topic: null });
+    await startSession({ language, mode, scenarioId, topic: null, shadowing });
   } catch (err) {
     notify(`${failure}: ${err.message}`);
   } finally {
@@ -268,17 +274,23 @@ export async function startTheme(mode, themeId) {
   await openPick(mode);
   // ← 홈 while the list loaded: the learner backed out, so nothing starts.
   if (router.current() !== 'pick') return;
-  if (state.language !== language || state.mode !== mode) return;
+  // openPick normalizes state.mode to 'script' for 'shadow' (its own
+  // comment explains why: shadowing picks from the same scripts as a script
+  // session). Every state.mode check below must compare against that same
+  // normalized value -- comparing against the raw `mode` argument would
+  // always mismatch for 'shadow' and silently abort the start.
+  const effectiveMode = mode === 'shadow' ? 'script' : mode;
+  if (state.language !== language || state.mode !== effectiveMode) return;
   if (!themes.length) return;              // the list failed to load, and loadThemes said so
   const theme = themes.find((t) => t.id === themeId);
   if (theme) selectCategory(theme.category);
-  if (!theme || !isReady(theme, mode)) {
+  if (!theme || !isReady(theme, effectiveMode)) {
     notify('이 테마는 아직 준비되지 않았어요');
     return;
   }
   await selectTheme(themeId);
   if (router.current() !== 'pick') return;
-  if (state.language !== language || state.mode !== mode) return;
+  if (state.language !== language || state.mode !== effectiveMode) return;
   if (selected?.kind !== 'theme' || selected.id !== themeId) return;
   await startFromPick();
 }

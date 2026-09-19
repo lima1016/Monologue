@@ -291,3 +291,31 @@ def test_review_home_sits_right_after_today_alt_in_the_phone_order():
         order[selector] = int(m.group(1))
     assert order["#today-alt"] < order["#review-home"] < order["#resume-card"] \
         < order["#week-card"] < order["#recommend"]
+
+
+def test_the_shadowing_card_holds_its_height_and_never_transforms():
+    """Shadowing's line card changes stage in place: every row that changes
+    holds a floor (the text two lines -- for Japanese at a line-height its ruby
+    fits inside, plus the pronunciation line -- and the said block its rows),
+    both button rows on one two-column grid (so both are two buttons tall),
+    and no transform -- the dock under it must not move."""
+    css = _all_css()
+    card = _rule_body(css, ".shadow-card {")
+    assert "transform" not in card
+    assert "min-height: calc(2 * 1.6em)" in _rule_body(css, ".shadow-text {")
+    ja = _rule_body(css, '.shadow-text[data-lang="ja"] {')
+    assert "line-height: 2.1" in ja
+    assert "min-height: calc(2 * 2.1em" in ja
+    actions = _rule_body(css, ".shadow-actions {")
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in actions
+    assert "min-height:" in _rule_body(css, ".shadow-said {")
+
+
+def test_four_modes_go_two_by_two_on_a_phone():
+    css = _all_css()
+    phone = re.findall(r"@media \(max-width: 480px\)\s*\{(.*?)\n\}", css, re.S)
+    assert any(re.search(r"\.modes\s*\{[^}]*grid-template-columns:\s*1fr 1fr", b) for b in phone)
+
+
+def test_header_buttons_do_not_wrap():
+    assert re.search(r"\.status button\s*\{[^}]*white-space:\s*nowrap", _all_css())

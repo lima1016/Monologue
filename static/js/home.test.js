@@ -77,6 +77,32 @@ test('resumeSession sets state.language from the session actually being resumed'
   assert.equal(state.language, 'en');
 });
 
+/* A resume does not go through startSession, which is what otherwise puts a
+   shadowing session's card and its hidden dock controls away. */
+test('resumeSession after a shadowing session puts the line card away and gives the dock back', async () => {
+  router.register('session', 'session');
+  state.language = 'ja';
+  state.sessionId = null;
+  await armResumeCard();
+  state.shadowing = true;
+  $('shadow-card').hidden = false;
+  for (const id of ['text-input', 'btn-send']) $(id).hidden = true;
+
+  stubFetch(async (url) => {
+    if (url === '/api/sessions/42') {
+      return jsonResponse({ session: { id: 42, language: 'ja' }, messages: [] });
+    }
+    return jsonResponse({});
+  });
+
+  await home.resumeSession();
+  assert.equal(state.shadowing, false);
+  assert.equal($('shadow-card').hidden, true);
+  assert.equal($('text-input').hidden, false);
+  assert.equal($('btn-send').hidden, false);
+  assert.equal($('btn-next').hidden, true);
+});
+
 /* GET /sessions/{id} hands back a cache-only audio_key per bot message (never
    freshly synthesised -- see _resumable_audio_key in app/api.py). Without
    this passthrough, every replayed bot bubble has no audio key at all, and
@@ -301,7 +327,10 @@ const PAYLOAD = (over = {}) => ({
     { theme_id: 'hotel', title: '호텔', category: 'travel', situations: ['체크인', '방 문제 알리기', '짐 맡기기', '체크아웃 연장'], reason: '아직 안 해본 테마예요', ready: { free: true, script: 3 } },
     { theme_id: 'meetings', title: '회의', category: 'business', situations: ['의견 말하기'], reason: '어제 연습했어요', ready: { free: false, script: 3 } },
   ],
-  recent_themes: [{ theme_id: 'cafe-restaurant', title: '카페·음식점 주문', mode: 'script' }],
+  // The real shape /stats/home sends (app/api.py's _recent_themes): mode is
+  // the server's session mode ("script" even for shadowing), and shadowing
+  // is its own field.
+  recent_themes: [{ theme_id: 'cafe-restaurant', title: '카페·음식점 주문', mode: 'script', shadowing: false }],
   library: { scripts: 312, target: 600 },
   ...over,
 });
@@ -656,6 +685,19 @@ test('recent themes render up to four and library progress shows only while inco
   homeRoutes(PAYLOAD({ library: { scripts: 600, target: 600 } }));
   await home.loadHome();
   assert.equal($('library-progress').hidden, true);
+});
+
+/* Task 4 fix round: a shadowing recent-theme card shows 쉐도잉, not the
+ * underlying script mode name (same rule as mypage.js's history rows), and
+ * carries data-mode="shadow" -- not the server's "script" -- since
+ * startThemeButton (main.js) hands this straight to startTheme(mode, …),
+ * which only recognises 'shadow' as its own mode (see pick.js's openPick). */
+test('a shadowing recent theme reads 쉐도잉, not 스크립트, and starts as shadowing', async () => {
+  homeRoutes(PAYLOAD({ recent_themes: [{ theme_id: 'cafe-restaurant', title: '카페·음식점 주문', mode: 'script', shadowing: true }] }));
+  await home.loadHome();
+  const card = $('recent-themes').children[0];
+  assert.equal(text(card), '카페·음식점 주문쉐도잉');
+  assert.equal(card.dataset.mode, 'shadow');
 });
 
 test('a stale response for another language is not painted', async () => {

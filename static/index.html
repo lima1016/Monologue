@@ -87,6 +87,9 @@
         <button type="button" data-mode="script" class="mode">
           <span class="n">스크립트</span><span class="d">대본을 따라 읽으며 연습</span>
         </button>
+        <button type="button" data-mode="shadow" class="mode">
+          <span class="n">쉐도잉</span><span class="d">원어민 소리를 듣고 바로 따라 말하기</span>
+        </button>
         <button type="button" data-mode="lesson" class="mode">
           <span class="n">수업</span><span class="d">선생님과 주제를 잡고</span>
         </button>
@@ -191,6 +194,32 @@
   <section id="session" hidden>
     <div class="session-grid">
       <div class="conversation-col">
+        <!-- Shadowing's one card: the current line, heard first and read after.
+             Each part holds its own height (components.css), so a stage
+             change never moves the dock. -->
+        <section id="shadow-card" class="shadow-card" hidden>
+          <p class="shadow-count" id="shadow-count"></p>
+          <p class="shadow-status" id="shadow-status" aria-live="polite"></p>
+          <div class="shadow-text fade is-invisible" id="shadow-text" aria-hidden="true"></div>
+          <div class="shadow-said fade is-invisible" id="shadow-said" aria-hidden="true">
+            <p id="shadow-mine"></p>
+            <p id="shadow-verdict"></p>
+            <span id="shadow-peeked" class="tag fade is-invisible">글자 보고 함</span>
+          </div>
+          <div class="shadow-actions" id="shadow-listen-actions">
+            <button type="button" class="btn-stable" data-shadow="replay">다시 듣기</button>
+            <button type="button" class="btn-stable" data-shadow="slow">천천히 듣기</button>
+            <button type="button" class="btn-stable" data-shadow="peek">글자 보기</button>
+          </div>
+          <!-- The two buttons shadow.js changes carry ids: it reaches them
+               directly rather than by selector. -->
+          <div class="shadow-actions" id="shadow-reveal-actions" hidden>
+            <button type="button" class="btn-stable" data-shadow="native">▶ 원어민</button>
+            <button type="button" class="btn-stable" id="shadow-play-mine" data-shadow="mine">▶ 내 발음</button>
+            <button type="button" class="btn-stable" data-shadow="retry">다시 하기</button>
+            <button type="button" class="btn-stable primary" id="shadow-next" data-shadow="next">다음 줄 →</button>
+          </div>
+        </section>
         <div id="conversation"></div>
         <div id="thinking" class="thinking fade is-invisible" aria-hidden="true"><i></i><i></i><i></i></div>
       </div>

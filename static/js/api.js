@@ -21,6 +21,8 @@ export const state = {
   sessionId: null,
   language: 'en',
   mode: 'free',
+  // A shadowing session is mode 'script' with this set (shadow.js has the card).
+  shadowing: false,
   scriptLines: [],
   scriptIndex: 0,
   recorder: null,

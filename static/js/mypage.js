@@ -22,6 +22,13 @@ import { startRespeak, renderReport, canDo, cancelTurn } from './session.js';
 
 const LEVEL_NAMES = { beginner: '초급', intermediate: '중급', advanced: '고급' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극', lesson: '수업' };
+
+// A shadowing session is stored as a flagged script session (server design:
+// docs/superpowers/specs/2026-09-19-monologue-shadowing-design.md), so
+// MODE_NAMES alone would call it 스크립트 -- item.shadowing always wins.
+function modeName(item) {
+  return item.shadowing ? '쉐도잉' : (MODE_NAMES[item.mode] || item.mode);
+}
 const LOADING = '불러오는 중...';
 const FAILED = '불러오지 못했어요';
 const PLAY_LABEL = '▶ 듣기';
@@ -254,11 +261,20 @@ function reviewCard(item) {
   // A space between label and sentence, so they never read as one word
   // (copied text, a screen reader, or a stylesheet that drops the margin).
   const said = el('p', 'said');
-  said.append(el('span', 'label', '내가 한 말'), document.createTextNode(' '), el('s', '', item.text));
   const fixed = el('p', 'fixed');
-  fixed.append(el('span', 'label', '고친 문장'), document.createTextNode(' '), el('b', '', item.fixed));
+  if (item.shadowing) {
+    // Nothing was "wrong" here -- 내 말 is just what the learner said back to
+    // the script, so it gets no strikethrough, and there is no grammar tag
+    // to show in the chip's spot, so it always reads 쉐도잉 instead.
+    said.append(el('span', 'label', '내 말'), document.createTextNode(' '), el('span', '', item.text));
+    fixed.append(el('span', 'label', '대본'), document.createTextNode(' '), el('b', '', item.fixed));
+  } else {
+    said.append(el('span', 'label', '내가 한 말'), document.createTextNode(' '), el('s', '', item.text));
+    fixed.append(el('span', 'label', '고친 문장'), document.createTextNode(' '), el('b', '', item.fixed));
+  }
   card.append(said, fixed);
-  if (item.tag) card.append(el('span', 'tag', item.tag));
+  if (item.shadowing) card.append(el('span', 'tag', '쉐도잉'));
+  else if (item.tag) card.append(el('span', 'tag', item.tag));
 
   if (item.correction) {
     const explain = button('explain', '▸ 설명');
@@ -548,7 +564,7 @@ function historyRow(item) {
   const head = button('history-head', '');
   head.setAttribute('aria-expanded', 'false');
   head.append(
-    el('span', 'main', `${date} · ${item.title} · ${MODE_NAMES[item.mode] || item.mode}`),
+    el('span', 'main', `${date} · ${item.title} · ${modeName(item)}`),
     el('span', 'sub', historySub(item)),
   );
   const row = el('div', 'history-buttons');
@@ -565,6 +581,7 @@ function historyRow(item) {
 /* A session none of whose turns was graded (an old one, or grading was down
    throughout) has no 고친 곳 to count: 0 would read as a flawless session. */
 function historySub(item) {
+  if (item.shadowing) return `따라 한 줄 ${item.turns} · 쉐도잉`;
   if (item.mode === 'script') return `말한 문장 ${item.turns} · 대본`;
   if (item.graded === 0) return `말한 문장 ${item.turns}`;
   return `말한 문장 ${item.turns} · 고친 곳 ${item.wrong}`;
