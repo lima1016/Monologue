@@ -1201,6 +1201,40 @@ test('leaving my page mid-listen throws the listen away and wakes the card', asy
   assert.equal(skip.disabled, false, 'a cancelled listen left the card busy');
 });
 
+/* The level line's 결과 보기, 다시 테스트 and 레벨 테스트 (7분) leave my page too:
+ * a review card's listen must not run on under the level test. */
+test("the level line's buttons throw a review listen away before leaving", async () => {
+  const lt = await import('./leveltest.js');
+  const TEST = { cefr: 'B1', step: '상위', ielts: '4.5–5.0', jf: null };
+  const LEVELS = [
+    ['결과 보기', { value: 'intermediate', test: TEST }],
+    ['다시 테스트', { value: 'intermediate', test: TEST }],
+    ['레벨 테스트 (7분)', { value: null, sessions: 0, utterances: 0, need_sessions: 3, need_utterances: 15, test: null }],
+  ];
+  for (const [label, level] of LEVELS) {
+    resetDom();
+    ['home', 'session', 'report', 'mypage', 'leveltest'].forEach((s) => router.register(s, s));
+    state.language = 'en';
+    stubFetch(async () => jsonResponse({ result: null }));
+    rec.calls = [];
+    mypage.renderReviewList([{ id: 11, text: 'I go', fixed: 'I went.', correction: '', tag: '' }], { due: 1, mastered: 0, total: 1 });
+    router.show('mypage');
+    mypage.renderLevel(level);
+    mypage.speakReview({ id: 11, fixed: 'I went.' }, $('review-list').children[0]);
+    rec.onstart();
+    assert.equal(session.canDo('cancel'), true);
+    const btn = Array.from($('level-body').children[0].children.find((c) => c.classList.contains('level-actions')).children)
+      .find((b) => b.textContent === label);
+    const pressed = btn.listeners.click[0]();
+    assert.ok(rec.calls.includes('abort'), `${label} did not abort the listen`);
+    rec.onend();
+    await pressed;
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(session.canDo('cancel'), false, `${label} left the listen running`);
+    lt.leaveLevelTest();
+  }
+});
+
 /* The report's numbers panel is one DOM for every kind. A 1분 말하기 report
  * counts round 1's sentences, not conversation turns, so the first stat is
  * labelled 문장 there -- and the next report of another kind, drawn into the

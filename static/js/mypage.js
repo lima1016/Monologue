@@ -281,9 +281,9 @@ export function renderLevel(level) {
     words.append(el('b', '', `레벨 ${levelName(test)}`));
     if (scale) words.append(document.createTextNode(` · ${scale}`));
     const show = button('level-show', LEVEL_TEXT.show);
-    show.addEventListener('click', () => showLevelResult(show));
+    show.addEventListener('click', () => { dropListen(); return showLevelResult(show); });
     const retake = button('level-retake', LEVEL_TEXT.retake);
-    retake.addEventListener('click', () => openLevelTest());
+    retake.addEventListener('click', () => { dropListen(); return openLevelTest(); });
     line.append(words, actions(show, retake));
     body.replaceChildren(line);
     return;
@@ -301,10 +301,16 @@ export function renderLevel(level) {
     words.textContent = `레벨 판정까지 세션 ${sessions}/${needSessions} · 발화 ${utterances}/${needUtterances}`;
   }
   const take = button('level-take', LEVEL_TEXT.take);
-  take.addEventListener('click', () => openLevelTest());
+  take.addEventListener('click', () => { dropListen(); return openLevelTest(); });
   const line = el('p', 'level-line');
   line.append(words, actions(take));
   body.replaceChildren(line);
+}
+
+/* The level line's buttons leave my page, as ← 홈 does: a review card's
+   listen still running would go on under the level test's own recording. */
+function dropListen() {
+  if (canDo('cancel')) cancelTurn();
 }
 
 function actions(...buttons) {
