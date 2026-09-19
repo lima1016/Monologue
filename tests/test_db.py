@@ -1041,7 +1041,7 @@ def test_v7_adds_shadowing_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "v7.db")
     from app import db as store
     store.init_db()
-    assert store.schema_version() == 7
+    assert store.schema_version() == 8
     sid = store.create_session("en", "script", scenario_id="x", shadowing=True)
     assert store.get_session(sid)["shadowing"] == 1
     assert store.get_session(store.create_session("en", "free"))["shadowing"] == 0
@@ -1066,3 +1066,31 @@ def test_save_shadow_line_keeps_one_row_per_index(tmp_path, monkeypatch):
     assert (r["speaker"], r["text"], r["fixed"], r["matched"]) == ("user", "i liked it", "I like it.", 0)
     assert r["peeked"] == 1, "a line once peeked stays peeked"
     assert r["ok"] is None and r["tag"] is None
+
+
+def test_v8_adds_coach_notes_and_round_trips(tmp_path, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
+    db.init_db()
+    assert db.schema_version() == 8
+    assert db.get_coach("en") is None
+    db.save_coach("en", "2026-09-19", [{"habit": "a", "tip": "b", "said": "x", "fixed": "y", "tag": "시제"}])
+    db.save_coach("en", "2026-09-20", [{"habit": "c", "tip": "d", "said": "x", "fixed": "y", "tag": None}])
+    assert db.get_coach("en") == {"day": "2026-09-20",
+                                  "items": [{"habit": "c", "tip": "d", "said": "x", "fixed": "y", "tag": None}]}
+    assert db.get_coach("ja") is None
+
+
+def test_v7_database_migrates_to_v8_keeping_rows(tmp_path, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
+    db.init_db()
+    sid = db.create_session("en", "free", scenario_id="airport-checkin-en")
+    db.add_message(sid, "user", "I go", correction="c", ok=0, fixed="I went.", tag="시제")
+    with db.connect() as conn:
+        conn.execute("DROP TABLE coach_notes")
+        conn.execute("PRAGMA user_version = 7")
+    db.init_db()
+    assert db.schema_version() == 8
+    assert db.get_coach("en") is None
+    assert db.wrong_tag_counts("en")[0]["n"] == 1

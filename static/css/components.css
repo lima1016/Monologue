@@ -933,11 +933,32 @@ button.meaning:hover { color: var(--accent-ink); }
 .mypage-error { color: var(--text-dim); font-size: var(--text-sm); margin: 0; }
 
 /* Level */
-/* :where keeps this at zero specificity, so .level-note's gap below wins. */
+/* The level is one line in the head, not a card: it is a fact to glance at,
+   and the room it took is what the tabs below need. */
+.level-strip { flex-basis: 100%; }
 :where(#level-body) > p { margin: 0; }
-.level-value { font-size: var(--text-xl); font-weight: 700; line-height: 1.3; color: var(--text); }
-.level-note { font-size: var(--text-sm); color: var(--text-dim); margin-top: var(--space-1); }
-.level-note.skeleton { width: 55%; }
+.level-line { font-size: var(--text-sm); color: var(--text-dim); }
+.level-line b { color: var(--text); font-weight: 700; }
+.level-line.skeleton { width: 40%; }
+
+/* Tabs: 복습 | 약점 | 기록 */
+.mypage-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--line); }
+.mypage-tabs [role="tab"] { background: none; border: 0; border-bottom: 2px solid transparent;
+  margin-bottom: -1px; padding: var(--space-2) var(--space-3); font-size: var(--text-base);
+  color: var(--text-dim); font-weight: 600; border-radius: 0; }
+.mypage-tabs [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.mypage-tabs [role="tab"]:focus-visible { outline-offset: -2px; }
+/* The count sits in a reserved box, so 복습 3 -> 복습 (none left) does not
+   move 약점 and 기록 sideways. */
+.tab-n { display: inline-block; min-width: 1.5em; margin-left: var(--space-1);
+  font-size: var(--text-sm); color: var(--accent); text-align: left; }
+
+/* One height for every tab: switching to a short one must not pull the page
+   up under the pointer. Opacity only (no transform -- R1). */
+.mypage-panels { min-height: min(70vh, 34rem); }
+.mypage-panels > [role="tabpanel"] { animation: tab-in var(--dur-fast) ease; }
+@keyframes tab-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mypage-panels > [role="tabpanel"] { animation: none; } }
 
 /* Today's review */
 .review-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
@@ -984,6 +1005,48 @@ button.meaning:hover { color: var(--accent-ink); }
 .tag-bar .fill { height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
 .tag-bar .n { font-size: var(--text-xs); color: var(--text-dim); }
 .tag-bar.is-skeleton .n { width: 2.5em; }
+
+/* 약점 -- the coach first: what to do next time, from the learner's own lines. */
+.coach { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-3);
+  margin-bottom: var(--space-4); background: var(--surface-sunken); }
+.coach-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.coach-head .label { margin: 0 0 var(--space-2); }
+#coach-day { font-size: var(--text-xs); }
+/* The wait is two skeleton items built from the real item's classes (habit
+   15px, tip 13px + its 4px margins, 내 말 and 고친 문장 13px, all at the
+   body's 1.55 line-height), with the wait words laid over the first. The
+   floor below is exactly that height, so neither a two-item answer, nor
+   too_few's one line, nor the failure row makes the block jump; only a
+   longer answer (a third item, a wrapped line) grows it, once, when it lands. */
+#coach-body { position: relative; display: flex; flex-direction: column; gap: var(--space-3);
+  min-height: calc(2 * (var(--text-base) * 1.55 + 3 * var(--text-sm) * 1.55 + 2 * var(--space-1)) + var(--space-3)); }
+#coach-body > .hint, .coach-fail { margin-block: auto; }
+.coach-habit { margin: 0; font-weight: 650; color: var(--text); }
+.coach-tip { margin: var(--space-1) 0; color: var(--suggest-ink); font-size: var(--text-sm); }
+.coach-fail { display: flex; align-items: center; gap: var(--space-2); }
+/* The coach sits on --surface-sunken, the skeleton's own colour. */
+.coach .skeleton { background: var(--line); }
+.coach-item.is-skeleton .coach-habit { width: 60%; }
+.coach-item.is-skeleton .coach-tip { width: 45%; }
+.coach-item.is-skeleton .tag-ex-mine { width: 70%; }
+.coach-item.is-skeleton .tag-ex-fixed { width: 55%; }
+
+/* A tag with sentences behind it is a button that folds them open. */
+.tag-item { display: flex; flex-direction: column; }
+button.tag-bar { width: 100%; background: none; border: 0; border-radius: var(--radius-sm);
+  padding: var(--space-1) 0; text-align: left; cursor: pointer; color: inherit; }
+button.tag-bar:hover .name { color: var(--accent-ink); }
+.tag-ex { border-left: 2px solid var(--line); padding: var(--space-1) 0 var(--space-1) var(--space-3); margin: var(--space-1) 0; }
+/* 내 말 is never struck through here (the report's .fix-row .said is): the
+   classes are this block's own, and say so. */
+.tag-ex-mine, .tag-ex-fixed { margin: 0; font-size: var(--text-sm); display: flex; gap: var(--space-2); }
+.tag-ex-mine .tag-ex-text { color: var(--text-dim); text-decoration: none; }
+.tag-ex-fixed .tag-ex-text { color: var(--text); font-weight: 600; }
+.tag-ex-label { flex: none; width: 4.5em; color: var(--text-faint); font-size: var(--text-xs); padding-top: 0.15em; }
+.tag-ex-why { background: none; border: 0; padding: 0; margin-top: var(--space-1); text-align: left;
+  font-size: var(--text-xs); color: var(--text-dim); cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tag-ex-why.is-open { -webkit-line-clamp: unset; display: block; }
 
 /* History */
 #history-list { list-style: none; margin: 0; padding: 0; }

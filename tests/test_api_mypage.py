@@ -59,7 +59,15 @@ def test_accuracy_tags_and_review_counts(client):
     body = client.get("/api/stats/mypage?language=en").json()
     assert body["accuracy"] == {"correct": 1, "graded": 4}
     # Most first, ties by name; 없음 (already correct) is never a weak spot.
-    assert body["tags"] == [{"tag": "시제", "n": 2}, {"tag": "단복수", "n": 1}, {"tag": "어순", "n": 1}]
+    assert body["tags"] == [
+        {"tag": "시제", "n": 2, "examples": [
+            {"text": "I goed", "fixed": "I went.", "correction": "설명"},
+            {"text": "I go", "fixed": "I went.", "correction": "설명"}]},
+        {"tag": "단복수", "n": 1, "examples": [
+            {"text": "She have", "fixed": "She has.", "correction": "설명"}]},
+        {"tag": "어순", "n": 1, "examples": [
+            {"text": "read", "fixed": "x.", "correction": "설명"}]},
+    ]
     assert body["review"] == {"due": 0, "mastered": 0, "total": 0}
 
 
@@ -200,3 +208,49 @@ def test_history_titles_fall_back_library_then_topic_then_default(client):
         db.end_session(sid, json.dumps({"summary": "s"}), "beginner")
     titles = [i["title"] for i in client.get("/api/sessions/history?language=en").json()["items"]]
     assert titles == ["자유 대화", "과거형 연습", "호텔 체크인 대본"]
+
+
+def test_tags_carry_their_three_newest_examples(client):
+    _finished(turns=[("I go 1", 0, "I went 1.", "시제"), ("I go 2", 0, "I went 2.", "시제"),
+                     ("I go 3", 0, "I went 3.", "시제"), ("I go 4", 0, "I went 4.", "시제"),
+                     ("She have", 0, "She has.", "단복수")])
+    tags = client.get("/api/stats/mypage?language=en").json()["tags"]
+    tense = next(t for t in tags if t["tag"] == "시제")
+    assert tense["n"] == 4
+    assert [e["text"] for e in tense["examples"]] == ["I go 4", "I go 3", "I go 2"]
+    assert tense["examples"][0] == {"text": "I go 4", "fixed": "I went 4.", "correction": "설명"}
+
+
+def test_coach_inputs_skip_script_graded_ok_and_old_rows(client, monkeypatch):
+    _finished(turns=[("I go", 0, "I went.", "시제"), ("fine", 1, None, "없음"), ("no fix", 0, None, "어휘")])
+    _finished(mode="script", scenario_id="standup-meeting-en", turns=[("read", 0, "x.", "어순")])
+    rows = db.coach_inputs("en", date(2026, 8, 20))
+    assert [r["text"] for r in rows] == ["I go"]
+    assert rows[0] == {"text": "I go", "fixed": "I went.", "tag": "시제", "correction": "설명", "reps": 1}
+    assert db.wrong_count_since("en", date(2026, 8, 20)) == 1
+    assert db.coach_inputs("en", date(2099, 1, 1)) == []
+
+
+def test_a_repeated_sentence_is_one_example_but_every_time_counts(client):
+    _finished(turns=[("I go", 0, "I went.", "시제"), ("I go 2", 0, "I went 2.", "시제"),
+                     ("I go", 0, "I went.", "시제"), ("I go", 0, "I went.", "시제")])
+    tense = client.get("/api/stats/mypage?language=en").json()["tags"][0]
+    assert tense["n"] == 4
+    assert [e["text"] for e in tense["examples"]] == ["I go", "I go 2"]
+    assert set(tense["examples"][0]) == {"text", "fixed", "correction"}
+
+
+def test_tag_examples_limit_counts_distinct_sentences(client):
+    _finished(turns=[("a", 0, "A.", "시제"), ("b", 0, "B.", "시제"), ("c", 0, "C.", "시제"),
+                     ("d", 0, "D.", "시제"), ("d", 0, "D.", "시제"), ("d", 0, "D.", "시제")])
+    tense = client.get("/api/stats/mypage?language=en").json()["tags"][0]
+    assert [e["text"] for e in tense["examples"]] == ["d", "c", "b"]
+
+
+def test_coach_inputs_group_a_repeated_sentence_and_keep_the_total(client):
+    _finished(turns=[("I go", 0, "I went.", "시제"), ("She have", 0, "She has.", "단복수"),
+                     ("I go", 0, "I went.", "시제"), ("I go", 0, "I went.", "시제"), ("x", 0, "X.", "어휘")])
+    rows = db.coach_inputs("en", date(2026, 8, 20))
+    assert [(r["text"], r["reps"]) for r in rows] == [("x", 1), ("I go", 3), ("She have", 1)]
+    assert [r["text"] for r in db.coach_inputs("en", date(2026, 8, 20), limit=2)] == ["x", "I go"]
+    assert db.wrong_count_since("en", date(2026, 8, 20)) == 5

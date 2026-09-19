@@ -53,9 +53,68 @@ let reviewLeft = 0;              // cards still on the list
 let reviewDone = 0;              // cards taken off the list this load
 let reportOut = false;           // a 리포트 보기 is waiting for its answer
 
+/* ---------- tabs ---------- */
+
+/* Three tabs, one visible at a time: the page no longer fit on one screen
+   with all of it stacked. The last one looked at is remembered (a private
+   window or blocked storage just starts on 복습 every time). */
+const TABS = ['review', 'weak', 'history'];
+const TAB_KEY = 'mypage-tab';
+const PANEL = { review: 'review-section', weak: 'weak-section', history: 'history-section' };
+
+// The tab on screen, for when storage cannot say: a language switch on 기록
+// reopens the page, and must not drop the learner back on 복습.
+let shownTab = null;
+
+function rememberedTab() {
+  try {
+    const t = globalThis.localStorage?.getItem(TAB_KEY);
+    if (TABS.includes(t)) return t;
+  } catch { /* blocked storage: fall through */ }
+  return shownTab || 'review';
+}
+
+export function selectTab(name, { focus = false } = {}) {
+  if (!TABS.includes(name)) name = 'review';
+  for (const t of TABS) {
+    const on = t === name;
+    const tab = $(`tab-${t}`);
+    tab.setAttribute('aria-selected', String(on));
+    tab.setAttribute('tabindex', on ? '0' : '-1');
+    $(PANEL[t]).hidden = !on;
+  }
+  shownTab = name;
+  if (focus) $(`tab-${name}`).focus();
+  try { globalThis.localStorage?.setItem(TAB_KEY, name); } catch { /* private window: fine */ }
+  if (name === 'weak') onWeakShown();
+}
+
+/* The coach is asked for only when 약점 is looked at -- it is the one slow
+   thing on the page (an LLM read, 10-20 s the first time each day). selectTab
+   runs after openMypage bumps loadToken, so this is keyed to the load on screen
+   and a reopen or a language switch on 약점 asks again, once. */
+function onWeakShown() { loadCoach(); }
+
+/* main.js's keydown on #mypage-tabs: the arrows move along the row (and wrap),
+   Home and End go to the ends; the tab moved to is selected and focused.
+   The tab is read off its id (tab-<name>), not data-tab: dom-shim builds
+   elements from ids alone, and the id is the same fact in a browser. */
+export function onTabKey(e) {
+  const current = String(e.target?.id || '').replace(/^tab-/, '');
+  const i = TABS.indexOf(current);
+  if (i < 0) return;
+  const next = { ArrowRight: (i + 1) % TABS.length, ArrowLeft: (i + TABS.length - 1) % TABS.length,
+                 Home: 0, End: TABS.length - 1 }[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  selectTab(TABS[next], { focus: true });
+}
+
 /* ---------- opening ---------- */
 
-export async function openMypage() {
+/* `tab` picks the tab to open on (home's 복습 card asks for review); without
+   it, the one looked at last. */
+export async function openMypage({ tab } = {}) {
   // The header button is a way out of a live session that does not reload the
   // page. A listen or a transcription left running on the hidden screen would
   // post a turn and play the reply over this one, so it is thrown away here
@@ -68,6 +127,9 @@ export async function openMypage() {
   // starts a newer load, and this one's answers must not paint over it.
   const lang = state.language;
   const token = ++loadToken;
+  // After the bump, not before: selecting 약점 starts its own load (Task 4's
+  // coach), keyed to this token -- selected earlier, it would be stale at once.
+  selectTab(tab || rememberedTab());
   const stale = () => token !== loadToken || state.language !== lang;
   const screen = $('mypage');
 
@@ -103,6 +165,8 @@ export async function openMypage() {
     () => {
       if (stale()) return;
       $('review-count').textContent = '오늘의 복습';
+      $('tab-review-n').textContent = '';
+      $('tab-review').setAttribute('aria-label', '복습');
       $('review-mastered').textContent = '';
       fail('review-section', $('review-list'));
     },
@@ -139,8 +203,7 @@ function fail(id, body) {
 function paintSkeletons() {
   for (const id of SECTIONS) $(id).setAttribute('aria-busy', 'true');
 
-  $('level-body').replaceChildren(loadingNote(),
-    skeletonLine('p', 'level-value'), skeletonLine('p', 'level-note'));
+  $('level-body').replaceChildren(loadingNote(), skeletonLine('p', 'level-line'));
 
   $('review-count').textContent = NBSP;
   $('review-mastered').textContent = '';
@@ -180,11 +243,11 @@ function skeletonLine(tag, cls) {
   return el(tag, `${cls} skeleton`, NBSP);
 }
 
-function loadingNote() {
+function loadingNote(words = LOADING) {
   const note = el('div', 'mypage-loading');
   const dots = el('div', 'thinking');
   dots.append(el('i'), el('i'), el('i'));
-  note.append(dots, el('span', '', LOADING));
+  note.append(dots, el('span', '', words));
   return note;
 }
 
@@ -193,10 +256,10 @@ function loadingNote() {
 export function renderLevel(level) {
   const body = $('level-body');
   if (level && level.value) {
-    body.replaceChildren(
-      el('p', 'level-value', `지금 레벨 ${LEVEL_NAMES[level.value] || level.value}`),
-      el('p', 'level-note', '최근 세션들에서 가장 많이 나온 판정이에요'),
-    );
+    const line = el('p', 'level-line');
+    line.append(el('b', '', `레벨 ${LEVEL_NAMES[level.value] || level.value}`),
+      document.createTextNode(' · 최근 세션 판정'));
+    body.replaceChildren(line);
     return;
   }
   // Stops at the target: 세션 5/3 next to 발화 9/15 reads as a typo.
@@ -204,10 +267,8 @@ export function renderLevel(level) {
   const needUtterances = level?.need_utterances ?? 15;
   const sessions = Math.min(level?.sessions ?? 0, needSessions);
   const utterances = Math.min(level?.utterances ?? 0, needUtterances);
-  body.replaceChildren(
-    el('p', 'level-value', '판정하기엔 아직 일러요'),
-    el('p', 'level-note', `세션 ${sessions}/${needSessions} · 발화 ${utterances}/${needUtterances}`),
-  );
+  body.replaceChildren(el('p', 'level-line',
+    `레벨 판정까지 세션 ${sessions}/${needSessions} · 발화 ${utterances}/${needUtterances}`));
 }
 
 /* ---------- today's review ---------- */
@@ -233,7 +294,12 @@ function reviewsLeft() {
 }
 
 function paintReviewHead() {
-  $('review-count').textContent = `오늘의 복습 ${reviewsLeft()}개`;
+  const left = reviewsLeft();
+  $('review-count').textContent = `오늘의 복습 ${left}개`;
+  // The tab says it too, so 복습 is worth a look from 약점 or 기록.
+  $('tab-review-n').textContent = left > 0 ? String(left) : '';
+  // Its name, said whole: a screen reader would read the badge as "복습2".
+  $('tab-review').setAttribute('aria-label', left > 0 ? `복습, 남은 문장 ${left}개` : '복습');
   const mastered = reviewCounts ? reviewCounts.mastered : 0;
   $('review-mastered').textContent = mastered > 0 ? `익힌 문장 ${mastered}개` : '';
 }
@@ -506,14 +572,122 @@ export function renderTags(tags, accuracy) {
   }
   const max = Math.max(...tags.map((t) => t.n));
   bars.replaceChildren(...tags.map((t) => {
-    const bar = el('div', 'tag-bar');
+    const item = el('div', 'tag-item');
+    const examples = t.examples || [];
+    // Only a bar with sentences behind it is a button: one with nothing to
+    // open would be a press that does nothing.
+    const bar = examples.length ? button('tag-bar', '') : el('div', 'tag-bar');
     const track = el('div', 'track');
     const fill = el('div', 'fill');
     fill.style.width = `${(t.n / max) * 100}%`;
     track.append(fill);
-    bar.append(el('span', 'name', t.tag), track, el('span', 'n', `${t.n}회`));
-    return bar;
+    bar.append(el('span', 'name', t.tag), track, el('span', 'n', `${t.n}회${examples.length ? ' ▸' : ''}`));
+    item.append(bar);
+    if (examples.length) {
+      bar.setAttribute('aria-expanded', 'false');
+      item.append(fold('tag-examples', ...examples.map(tagExample)));
+    }
+    return item;
   }));
+}
+
+/* 내 말 / 고친 문장 / why -- own class names: .said elsewhere (the report's
+   .fix-row) strikes its text through, and the learner's words are not wrong
+   to look at here. */
+function tagExample(e) {
+  const box = el('div', 'tag-ex');
+  box.append(labelled('tag-ex-mine', '내 말', e.text), labelled('tag-ex-fixed', '고친 문장', e.fixed || ''));
+  if (e.correction) box.append(button('tag-ex-why', e.correction));
+  return box;
+}
+
+/* A space between label and sentence, as on the review cards: copied text
+   and a screen reader must not run them into one word. */
+function labelled(cls, label, value) {
+  const p = el('p', cls);
+  p.append(el('span', 'tag-ex-label', label), document.createTextNode(' '), el('span', 'tag-ex-text', value));
+  return p;
+}
+
+export function toggleTagItem(item) {
+  const box = find(item, 'tag-examples');
+  const head = find(item, 'tag-bar');
+  if (!box) return;
+  const open = box.classList.toggle('is-collapsed') === false;
+  if (head) head.setAttribute('aria-expanded', String(open));
+  // ▸ closed, ▾ open: the same width, so the count does not shift.
+  const n = head && find(head, 'n');
+  if (n) n.textContent = n.textContent.replace(open ? '▸' : '▾', open ? '▾' : '▸');
+}
+
+/* main.js's delegated click on #tag-bars: a bar folds its sentences open, a
+   clipped why opens to its full length. */
+export function onTagClick(e) {
+  const why = e.target.closest('.tag-ex-why');
+  if (why) { why.classList.toggle('is-open'); return; }
+  const item = e.target.closest('.tag-item');
+  if (item && e.target.closest('.tag-bar')) toggleTagItem(item);
+}
+
+/* ---------- the coach ---------- */
+
+/* Not part of paintSkeletons/setRefreshing: it has its own wait, started only
+   when 약점 is shown. */
+const COACH_WAIT = '코치가 최근 문장을 읽는 중이에요 · 10~20초';
+let coachFor = '';     // `${loadToken}:${language}` the coach was asked for
+let coachCall = 0;     // the latest ask: a 다시 시도 outruns one still out
+
+export async function loadCoach({ force = false } = {}) {
+  const lang = state.language;
+  const token = loadToken;
+  const key = `${token}:${lang}`;
+  if (!force && coachFor === key) return;
+  coachFor = key;
+  const call = ++coachCall;
+  const stale = () => token !== loadToken || state.language !== lang || call !== coachCall;
+  const body = $('coach-body');
+  $('coach-day').textContent = '';
+  // Two skeleton items built from the real item's classes, the wait words
+  // over the first: the block is the height of a two-item answer throughout.
+  body.replaceChildren(loadingNote(COACH_WAIT), ...[0, 1].map(coachSkeleton));
+  body.setAttribute('aria-busy', 'true');
+  try {
+    const c = await getJSON(`/mypage/coach?language=${lang}`);
+    if (stale()) return;
+    if (c.status === 'too_few') {
+      body.replaceChildren(el('p', 'hint', `최근 30일 틀린 문장이 ${c.need}개 모이면 코치가 짚어 줘요 (지금 ${c.count}개)`));
+    } else {
+      body.replaceChildren(...(c.items || []).map(coachItem));
+      $('coach-day').textContent = '오늘 만듦';
+    }
+  } catch {
+    if (stale()) return;
+    coachFor = '';     // the next look at 약점 asks again
+    const row = el('div', 'coach-fail');
+    row.append(el('p', 'mypage-error', '코치 한마디를 만들지 못했어요'), button('coach-retry', '다시 시도'));
+    body.replaceChildren(row);
+  } finally {
+    if (!stale()) {
+      body.removeAttribute('aria-busy');
+      // 다시 시도 was pressed and is gone with what it replaced: focus goes to
+      // the answer (tabindex="-1"), not back to the page's start.
+      if (force) body.focus();
+    }
+  }
+}
+
+function coachItem(i) {
+  const box = el('div', 'coach-item');
+  box.append(el('p', 'coach-habit', i.habit), el('p', 'coach-tip', `→ ${i.tip}`),
+             labelled('tag-ex-mine', '내 말', i.said), labelled('tag-ex-fixed', '고친 문장', i.fixed));
+  return box;
+}
+
+function coachSkeleton() {
+  const box = el('div', 'coach-item is-skeleton');
+  box.append(skeletonLine('p', 'coach-habit'), skeletonLine('p', 'coach-tip'),
+             skeletonLine('p', 'tag-ex-mine'), skeletonLine('p', 'tag-ex-fixed'));
+  return box;
 }
 
 /* ---------- history ---------- */

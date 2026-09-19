@@ -760,3 +760,78 @@ def build_suggest_messages(language, bot_last, *, level="beginner", scenario_tit
         {"role": "assistant", "content": json.dumps({"replies": example_replies}, ensure_ascii=False)},
         {"role": "user", "content": _suggest_request(bot_last)},
     ]
+
+
+# Editing this string? Run `pytest tests/test_coach_quality.py -m engine`
+# against the real model afterward, and look at the table it prints.
+COACH_SYSTEM = """당신은 한국인 학생의 {lang} 말하기를 지도하는 한국어 원어민 코치입니다.
+설명은 한국어로만 씁니다.
+
+아래는 학생이 최근 말하기 연습에서 틀린 문장들입니다. 번호마다 학생이 한 말, 고친 문장,
+교사의 설명이 있습니다. 학생이 한 말과 고친 문장을
+직접 비교해서 여러 문장에 되풀이되는 습관을 찾으세요.
+
+습관을 2~3개 주세요. 가장 자주 되풀이되는 것부터.
+- habit: 학생이 실제로 하는 일을 구체적으로 한 문장(40자 이내). "문법이 약해요"처럼 막연하면 안 됩니다
+- tip: 다음에 말할 때 바로 해 볼 수 있는 행동 한 문장(40자 이내). {lang} 표현을 넣을 때는 따옴표로 감쌉니다
+- example_no: 이 습관이 가장 잘 보이는 문장의 번호 하나
+
+마크다운과 이모지는 쓰지 않습니다."""
+
+# Synthetic on purpose: none of these is a real learner's sentence, and their
+# error families (third-person -s, a missing "a", question word order) are
+# kept apart from the habits real learners here show most (run-on sentences,
+# past tense, dropped prepositions) -- a few-shot built from real rows taught
+# the model to copy its habits onto unrelated rows. Rows keep a "tag" key for
+# shape (rows from the real data have one too), but the prompt never shows it
+# to the model -- see _coach_input.
+COACH_EXAMPLE_INPUT = [
+    {"text": "She like coffee in the morning", "fixed": "She likes coffee in the morning.", "tag": "단복수", "correction": "주어가 she이면 likes를 써야 합니다."},
+    {"text": "I have question about the menu", "fixed": "I have a question about the menu.", "tag": "어휘", "correction": "question 앞에 a를 넣어야 합니다."},
+    {"text": "Where you are going after work?", "fixed": "Where are you going after work?", "tag": "어순", "correction": "are를 you 앞에 둬야 합니다."},
+    {"text": "My brother work at a bank", "fixed": "My brother works at a bank.", "tag": "어순", "correction": "주어가 한 사람이면 works입니다."},
+    {"text": "Can you give me pen?", "fixed": "Can you give me a pen?", "tag": "관사", "correction": "pen 앞에 a가 필요합니다."},
+    {"text": "What time the store opens?", "fixed": "What time does the store open?", "tag": "어순", "correction": "does를 넣고 주어 앞에 둬야 합니다."},
+]
+COACH_EXAMPLE_OUTPUT = {"items": [
+    {"habit": "한 사람이 주어일 때 동사 끝의 -s를 빠뜨려요",
+     "tip": "she, he, 한 사람 뒤에는 \"likes\"처럼 -s를 붙여요", "example_no": 1},
+    {"habit": "셀 수 있는 물건 하나를 말할 때 a를 빠뜨려요",
+     "tip": "물건 하나는 \"a pen\"처럼 a부터 붙여 말해요", "example_no": 2},
+    {"habit": "물어볼 때 주어를 동사보다 먼저 말해요",
+     "tip": "Where, What 뒤에는 \"are you\"처럼 동사부터 둬요", "example_no": 3},
+]}
+
+_COACH_CORRECTION_CHARS = 80
+
+
+def _coach_input(rows) -> str:
+    lines = []
+    for i, r in enumerate(rows, 1):
+        why = (r.get("correction") or "").replace("\n", " ")[:_COACH_CORRECTION_CHARS]
+        again = f" ({r['reps']}번 반복)" if (r.get("reps") or 1) > 1 else ""
+        lines.append(f"{i}. 학생: {r['text']} / 고친 문장: {r['fixed']} / 설명: {why}{again}")
+    return "틀린 문장들:\n" + "\n".join(lines) + "\n\n되풀이되는 습관을 2~3개 주세요."
+
+
+def coach_schema() -> dict:
+    return {"type": "object", "properties": {"items": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"habit": {"type": "string"}, "tip": {"type": "string"},
+                       "example_no": {"type": "integer"}},
+        "required": ["habit", "tip", "example_no"]}}},
+        "required": ["items"]}
+
+
+def build_coach_messages(language, rows) -> list[dict]:
+    """Few-shot, not rules alone: this file's feedback prompt learned that
+    this model does not follow rules it has not been shown. The example is in
+    English for both languages -- it teaches the shape (habits, not tags), and
+    the query turn carries the learner's own language."""
+    system = COACH_SYSTEM.format(lang=KOREAN_LANGUAGE_NAMES[language])
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": _coach_input(COACH_EXAMPLE_INPUT)},
+        {"role": "assistant", "content": json.dumps(COACH_EXAMPLE_OUTPUT, ensure_ascii=False)},
+        {"role": "user", "content": _coach_input(rows)},
+    ]

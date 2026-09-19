@@ -86,12 +86,14 @@ def test_the_panel_label_rule_reaches_only_direct_children():
     assert "display: inline" in inline and "var(--space-2)" in inline
 
 
-def test_the_level_note_keeps_its_gap():
-    """`#level-body > p { margin: 0 }` outranked `.level-note`'s margin-top."""
+def test_the_level_line_resets_margin_at_zero_specificity():
+    """`#level-body > p { margin: 0 }` once outranked the level's own classes;
+    the level is one line now (.level-line), and the reset stays :where'd."""
     css = _all_css()
     assert "#level-body > p" not in css
     assert "margin: 0" in _rule_body(css, ":where(#level-body) > p {")
-    assert "margin-top: var(--space-1)" in _rule_body(css, ".level-note {")
+    assert "font-size: var(--text-sm)" in _rule_body(css, ".level-line {")
+    assert ".level-note" not in css and ".level-value" not in css
 
 
 def test_the_accuracy_line_keeps_its_gap_below():
@@ -103,3 +105,27 @@ def test_the_accuracy_line_keeps_its_gap_below():
     assert "margin: 0 0 var(--space-2)" in _rule_body(css, "#accuracy-line {")
     # Same specificity now, so the later rule has to be #accuracy-line's.
     assert css.index("#mypage :where(.hint) {") < css.index("#accuracy-line {")
+
+
+def test_tab_panels_share_one_height_and_fade_without_transform():
+    css = _all_css()
+    assert re.search(r"\.mypage-panels\s*\{[^}]*min-height", css)
+    block = re.search(r"@keyframes tab-in\s*\{(.*?)\}\s*\}", css, re.S).group(1)
+    assert "opacity" in block and "transform" not in block
+
+
+def test_tab_count_reserves_its_width():
+    assert re.search(r"\.tab-n\s*\{[^}]*min-width", _all_css())
+
+
+def test_the_learners_words_are_never_struck_through_on_my_page():
+    """내 말 on a tag's sentences and in the coach is not a mistake to cross out."""
+    css = _all_css()
+    for sel in (r"\.tag-ex-mine[^{]*", r"\.tag-ex-text[^{]*"):
+        for block in re.findall(sel + r"\{([^}]*)\}", css):
+            assert "line-through" not in block
+
+
+def test_the_coach_body_keeps_its_height_while_loading():
+    """The 10-20 s wait holds the answer's room (two items), so it does not jump."""
+    assert re.search(r"#coach-body\s*\{[^}]*min-height", _all_css())
