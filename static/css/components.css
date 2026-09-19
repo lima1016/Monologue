@@ -1336,7 +1336,11 @@ button.tag-bar:hover .name { color: var(--accent-ink); }
 }
 #growth-body { position: relative; }
 #growth-body:focus { outline: none; }
-.growth-lines { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3); }
+/* The skeleton reserves three lines (streak, accuracy, 1분 말하기), but a
+   fresh card may only ever draw the streak -- floor the box at three lines'
+   worth (plus the gaps between them) so the answer landing doesn't shrink it. */
+.growth-lines { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3);
+  min-height: calc(3 * var(--text-sm) * 1.55 + 2 * var(--space-1)); }
 .growth-line { margin: 0; font-size: var(--text-sm); color: var(--text-dim); min-height: calc(var(--text-sm) * 1.55); }
 .growth-line.growth-streak { color: var(--text); font-weight: 600; }
 .growth-summary-box.is-skeleton .growth-line { width: 50%; }

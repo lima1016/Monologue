@@ -1,5 +1,6 @@
 import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import './dom-shim.js';
 import { resetDom } from './dom-shim.js';
 import { renderSummary, renderDetails, heatLevels, summarySkeleton, layout } from './growth.js';
@@ -277,4 +278,50 @@ test('charts are SVG in the SVG namespace, sized by viewBox to the width given',
   assert.equal(svg.namespaceURI, 'http://www.w3.org/2000/svg');
   assert.equal(svg.getAttribute('viewBox'), '0 0 600 170');
   assert.equal(one(cal, 'growth-chart').children[0].getAttribute('tabindex'), '0');
+});
+
+/* .fold-inner (the 자세히 보기 fold) clips anything outside it -- needed for
+   its 0fr->1fr height animation -- so a tooltip that spills past its own
+   chart's wrapper is a tooltip nobody can read. Both hits below sit near an
+   edge of the chart's own coordinate space; the wrapper and the tip are
+   sized (via the dom-shim's settable offset/client properties) so that the
+   flip-only placement would spill past the wrapper's far side, forcing the
+   pixel clamp to pull it back in. */
+test('a tip near either edge of the chart is clamped fully inside its wrapper', () => {
+  const acc = byLabel(blocks(growthBody()), '정확도 변화');
+  const wrap = one(acc, 'growth-chart');
+  const tip = one(acc, 'growth-tip');
+  wrap.clientWidth = 240;
+  wrap.clientHeight = 130;
+  tip.offsetWidth = 230;
+  tip.offsetHeight = 30;
+  const hits = all(acc, 'hit');
+
+  hover(hits[0]); // near the left edge: flip alone would run the tip past the right side
+  assert.equal(tip.style.left, '10px');
+  assert.equal(tip.style.right, '');
+
+  hover(hits[hits.length - 1]); // near the right edge and near the top: flip alone would run past the left and the top
+  assert.equal(tip.style.left, '0px');
+  assert.equal(tip.style.right, '');
+  assert.equal(tip.style.bottom, '100px');
+});
+
+/* ---------- CSS ---------- */
+
+// Line endings normalised: a Windows checkout with core.autocrlf turns the
+// file CRLF, and the block search below looks for the matching '}'.
+const css = readFileSync(new URL('../css/components.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+function ruleBody(selector) {
+  const start = css.indexOf(`${selector} {`);
+  assert.ok(start >= 0, `${selector} has a rule`);
+  return css.slice(start, css.indexOf('}', start));
+}
+
+/* The skeleton always reserves three lines under the calendar, but a fresh
+   card may draw only the streak line -- the container needs its own floor
+   (three lines plus the gaps between them), not just a floor on each line,
+   or the card shrinks the moment the answer replaces the skeleton. */
+test('the summary lines sit on a three-line floor, so the card does not shrink when the answer lands', () => {
+  assert.match(ruleBody('.growth-lines'), /min-height:\s*calc\(3 \* var\(--text-sm\) \* 1\.55 \+ 2 \* var\(--space-1\)\)/);
 });

@@ -379,9 +379,12 @@ function lineChart({ width, height, values, yMax, ticks, fmt, title, xLabel, tip
 
 /* ---------- tooltip and keys ---------- */
 
-/* One tooltip per chart, placed by the point's own viewBox position as a
-   percentage of the wrapper -- no measuring, no transform. Hover or focus
-   shows it; the arrow keys walk the points while the chart has focus. */
+/* One tooltip per chart, first placed by the point's own viewBox position as
+   a percentage of the wrapper -- no transform. The fold's `.fold-inner`
+   clips anything outside it (needed for the fold's 0fr->1fr animation), so
+   once the tip has its real text, it is measured and pulled back inside the
+   wrapper's actual box; a clipped tip is a tip nobody can read. Hover or
+   focus shows it; the arrow keys walk the points while the chart has focus. */
 function chartWrap(root, width, height, targets, keys) {
   const wrap = el('div', 'growth-chart');
   wrap.style.maxWidth = `${width}px`;
@@ -397,10 +400,37 @@ function chartWrap(root, width, height, targets, keys) {
     t.node.classList.add('is-active');
     tip.textContent = t.text;
     const left = (t.x / width) * 100;
+    // Anchor away from the point first -- the tip grows toward the chart's
+    // centre, which usually keeps it clear of both edges on its own.
     if (left <= 50) { tip.style.left = `${left.toFixed(2)}%`; tip.style.right = ''; }
     else { tip.style.right = `${(100 - left).toFixed(2)}%`; tip.style.left = ''; }
     tip.style.bottom = `calc(${(100 - (t.y / height) * 100).toFixed(2)}% + 10px)`;
     tip.classList.add('is-shown');
+    clampTip(t);
+  };
+
+  // The percentage anchor above assumes the wrapper renders at exactly
+  // `width`x`height`; when it doesn't (or the tip is simply wide), pull the
+  // tip back inside the wrapper's real, measured box in pixels.
+  const clampTip = (t) => {
+    const wrapW = wrap.clientWidth;
+    const tipW = tip.offsetWidth;
+    if (wrapW && tipW) {
+      const point = (t.x / width) * wrapW;
+      // Same anchor the percentages above chose: grown rightward from the
+      // point on the left half, leftward from it on the right half.
+      const raw = (t.x / width) * 100 <= 50 ? point : point - tipW;
+      const clamped = Math.max(0, Math.min(raw, wrapW - tipW));
+      tip.style.left = `${clamped}px`;
+      tip.style.right = '';
+    }
+    const wrapH = wrap.clientHeight;
+    const tipH = tip.offsetHeight;
+    if (wrapH && tipH) {
+      const rawBottom = wrapH - (t.y / height) * wrapH + 10;
+      const clampedBottom = Math.max(0, Math.min(rawBottom, wrapH - tipH));
+      tip.style.bottom = `${clampedBottom}px`;
+    }
   };
   const hide = () => {
     tip.classList.remove('is-shown');

@@ -63,6 +63,13 @@ class El {
     // A plain bag, not a CSSStyleDeclaration: the app only writes single
     // properties (the week bar's width) and tests read them back.
     this.style = {};
+    // No layout engine, so these stay 0 unless a test sets them -- growth.js's
+    // tooltip clamp reads offsetWidth/offsetHeight (the tip) and
+    // clientWidth/clientHeight (its wrapper) to keep itself inside the box.
+    this.offsetWidth = 0;
+    this.offsetHeight = 0;
+    this.clientWidth = 0;
+    this.clientHeight = 0;
     this.attributes = {};
     this.listeners = {};
     this.childNodes = [];
