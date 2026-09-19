@@ -129,3 +129,56 @@ def test_the_learners_words_are_never_struck_through_on_my_page():
 def test_the_coach_body_keeps_its_height_while_loading():
     """The 10-20 s wait holds the answer's room (two items), so it does not jump."""
     assert re.search(r"#coach-body\s*\{[^}]*min-height", _all_css())
+
+
+def _growth_rules():
+    """Every rule of the 성장 tab (growth.js) -- selector and body -- read
+    with Windows line endings folded away and comments dropped."""
+    css = re.sub(r"/\*.*?\*/", "", _all_css().replace("\r\n", "\n"), flags=re.S)
+    return [(m.group(1).strip(), m.group(2)) for m in re.finditer(r"([^{}]*)\{([^{}]*)\}", css)
+            if re.search(r"growth|cal-cell|heat-", m.group(1))]
+
+
+def test_the_growth_tab_never_transforms():
+    """R1: opacity only -- the tooltip shows by opacity and is placed by
+    left/right/bottom, not moved by a transform."""
+    rules = _growth_rules()
+    assert len(rules) > 20
+    for selector, body in rules:
+        assert not re.search(r"transform:(?!\s*none\s*;)", body), selector
+    tip = dict(rules)[".growth-tip.is-shown"]
+    assert "opacity: 1" in tip
+
+
+def test_the_calendar_is_one_hue_mixed_from_theme_tokens():
+    """Sequential, one hue: nothing is the sunken surface, then four steps of
+    --accent mixed into --surface, rising -- so it follows every theme and
+    dark mode. The cells and the key read the same four steps."""
+    rules = dict(_growth_rules())
+    heat = rules["#growth-section"]
+    steps = re.findall(r"--heat-(\d): color-mix\(in oklab, var\(--accent\) (\d+)%, var\(--surface\)\);", heat)
+    assert [s for s, _ in steps] == ["1", "2", "3", "4"]
+    percents = [int(p) for _, p in steps]
+    assert percents == sorted(percents) and len(set(percents)) == 4 and percents[-1] == 100
+    assert "var(--surface-sunken)" in rules[".cal-cell.lv0"]
+    for n in range(1, 5):
+        assert f"var(--heat-{n})" in rules[f".cal-cell.lv{n}"]
+        assert f"var(--heat-{n})" in rules[f".heat-swatch.lv{n}"]
+
+
+def test_the_growth_tab_names_no_colour_of_its_own():
+    """Tokens only: a hex, rgb() or named colour here would not follow the theme."""
+    for selector, body in _growth_rules():
+        assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|(?<![\w-])(white|black)(?![\w-])", body), selector
+
+
+def test_growth_marks_wear_the_accent_and_its_text_wears_text_tokens():
+    rules = dict(_growth_rules())
+    assert "stroke: var(--accent)" in rules[".growth-chart .series-line"]
+    assert "stroke-width: 2" in rules[".growth-chart .series-line"]
+    dot = rules[".growth-chart .series-dot"]
+    assert "fill: var(--accent)" in dot and "stroke: var(--surface)" in dot and "stroke-width: 2" in dot
+    assert "stroke: var(--line)" in rules[".growth-chart .grid"]
+    for sel in (".growth-chart .axis", ".growth-chart .end-label"):
+        assert re.search(r"fill: var\(--text(-faint|-dim)?\)", rules[sel]), sel
+        assert "accent" not in rules[sel], sel

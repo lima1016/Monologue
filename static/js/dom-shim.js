@@ -136,6 +136,17 @@ class El {
   close() { this.open = false; }
 }
 
+/* An SVG element (the 성장 tab's charts). In a browser its className is an
+   SVGAnimatedString, so the app writes classes with setAttribute('class');
+   here that also feeds classList, as it does in a browser. */
+class SvgEl extends El {
+  constructor(ns, tag) { super(tag); this.namespaceURI = ns; }
+  setAttribute(name, value) {
+    super.setAttribute(name, value);
+    if (name === 'class') this.className = String(value);
+  }
+}
+
 class TextNode {
   constructor(text) { this.textContent = String(text); this.parentNode = null; }
 }
@@ -152,6 +163,7 @@ export const document = {
     return elements.get(id);
   },
   createElement(tag) { return new El(tag); },
+  createElementNS(ns, tag) { return new SvgEl(ns, tag); },
   createTextNode(text) { return new TextNode(text); },
   addEventListener() {},
   querySelector() { return null; },

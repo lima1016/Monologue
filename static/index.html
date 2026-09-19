@@ -219,6 +219,7 @@
       <button type="button" role="tab" id="tab-review" data-tab="review" aria-controls="review-section" aria-selected="true" tabindex="0">복습<span id="tab-review-n" class="tab-n"></span></button>
       <button type="button" role="tab" id="tab-weak" data-tab="weak" aria-controls="weak-section" aria-selected="false" tabindex="-1">약점</button>
       <button type="button" role="tab" id="tab-history" data-tab="history" aria-controls="history-section" aria-selected="false" tabindex="-1">기록</button>
+      <button type="button" role="tab" id="tab-growth" data-tab="growth" aria-controls="growth-section" aria-selected="false" tabindex="-1">성장</button>
     </div>
     <div class="mypage-panels">
       <div id="review-section" class="panel" role="tabpanel" aria-labelledby="tab-review">
@@ -239,6 +240,10 @@
         <p class="label">지난 기록</p>
         <ul id="history-list"></ul>
         <button id="btn-history-more" class="ghost btn-stable is-invisible" type="button" aria-hidden="true">더 보기</button>
+      </div>
+      <div id="growth-section" class="panel" role="tabpanel" aria-labelledby="tab-growth" hidden>
+        <!-- 성장: mypage.js draws it the first time the tab is shown per load. -->
+        <div id="growth-body" tabindex="-1"></div>
       </div>
     </div>
   </section>

@@ -20,6 +20,7 @@ import { play } from './audio.js';
 import * as router from './router.js';
 import { startRespeak, renderReport, canDo, cancelTurn } from './session.js';
 import { openLevelTest, renderLevelResult, levelName } from './leveltest.js';
+import { GROWTH_TEXT, growthSkeleton, renderGrowth } from './growth.js';
 
 const LEVEL_NAMES = { beginner: '초급', intermediate: '중급', advanced: '고급' };
 const MODE_NAMES = { script: '스크립트', free: '자유 상황극', lesson: '수업', timed: '1분 말하기' };
@@ -59,12 +60,13 @@ let reportOut = false;           // a 리포트 보기 is waiting for its answer
 
 /* ---------- tabs ---------- */
 
-/* Three tabs, one visible at a time: the page no longer fit on one screen
+/* Four tabs, one visible at a time: the page no longer fit on one screen
    with all of it stacked. The last one looked at is remembered (a private
    window or blocked storage just starts on 복습 every time). */
-const TABS = ['review', 'weak', 'history'];
+const TABS = ['review', 'weak', 'history', 'growth'];
 const TAB_KEY = 'mypage-tab';
-const PANEL = { review: 'review-section', weak: 'weak-section', history: 'history-section' };
+const PANEL = { review: 'review-section', weak: 'weak-section', history: 'history-section',
+                growth: 'growth-section' };
 
 // The tab on screen, for when storage cannot say: a language switch on 기록
 // reopens the page, and must not drop the learner back on 복습.
@@ -91,6 +93,7 @@ export function selectTab(name, { focus = false } = {}) {
   if (focus) $(`tab-${name}`).focus();
   try { globalThis.localStorage?.setItem(TAB_KEY, name); } catch { /* private window: fine */ }
   if (name === 'weak') onWeakShown();
+  if (name === 'growth') onGrowthShown();
 }
 
 /* The coach is asked for only when 약점 is looked at -- it is the one slow
@@ -98,6 +101,10 @@ export function selectTab(name, { focus = false } = {}) {
    runs after openMypage bumps loadToken, so this is keyed to the load on screen
    and a reopen or a language switch on 약점 asks again, once. */
 function onWeakShown() { loadCoach(); }
+
+/* 성장 the same way: drawn the first time it is looked at per load and
+   language, not with the rest of the page. */
+function onGrowthShown() { loadGrowth(); }
 
 /* main.js's keydown on #mypage-tabs: the arrows move along the row (and wrap),
    Home and End go to the ends; the tab moved to is selected and focused.
@@ -796,6 +803,52 @@ function coachSkeleton() {
   box.append(skeletonLine('p', 'coach-habit'), skeletonLine('p', 'coach-tip'),
              skeletonLine('p', 'tag-ex-mine'), skeletonLine('p', 'tag-ex-fixed'));
   return box;
+}
+
+/* ---------- 성장 ---------- */
+
+/* Like the coach: its own wait, started only when 성장 is shown, once per
+   load and language. The skeleton is each block's own height (growth.js
+   builds both from one layout), so the answer lands without a jump; the
+   panel keeps the tabs' shared min-height throughout. */
+let growthFor = '';    // `${loadToken}:${language}` the numbers were asked for
+let growthCall = 0;    // the latest ask: a 다시 시도 outruns one still out
+
+/* The width the charts are drawn at: the panel's own, read when the tab is
+   on screen. dom-shim (and a hidden panel) has none, so a sensible default. */
+function growthWidth() {
+  const w = Number($('growth-body').clientWidth) || 0;
+  return w > 0 ? w : 560;
+}
+
+export async function loadGrowth({ force = false } = {}) {
+  const lang = state.language;
+  const token = loadToken;
+  const key = `${token}:${lang}`;
+  if (!force && growthFor === key) return;
+  growthFor = key;
+  const call = ++growthCall;
+  const stale = () => token !== loadToken || state.language !== lang || call !== growthCall;
+  const body = $('growth-body');
+  const width = growthWidth();
+  body.replaceChildren(loadingNote(GROWTH_TEXT.wait), ...growthSkeleton(width));
+  body.setAttribute('aria-busy', 'true');
+  try {
+    const g = await getJSON(`/stats/growth?language=${lang}`);
+    if (stale()) return;
+    body.replaceChildren(...renderGrowth(g, width));
+  } catch {
+    if (stale()) return;
+    growthFor = '';    // the next look at 성장 asks again
+    const row = el('div', 'growth-fail');
+    row.append(el('p', 'mypage-error', FAILED), button('growth-retry', '다시 시도'));
+    body.replaceChildren(row);
+  } finally {
+    if (!stale()) {
+      body.removeAttribute('aria-busy');
+      if (force) body.focus();
+    }
+  }
 }
 
 /* ---------- history ---------- */

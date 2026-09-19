@@ -34,6 +34,22 @@ const COACH = {
     { habit: '여러 말을 끊지 않고 이어 말해요', tip: '한 문장 말하고 숨을 한 번 쉬어요', said: 'Yes water please And', fixed: 'Yes, water please.', tag: '어순' },
     { habit: '장소 앞 전치사를 빠뜨려요', tip: '"by the"를 먼저 붙여요', said: 'sit the window', fixed: 'sit by the window.', tag: '어순' },
   ] };
+/* /stats/growth: 16 weeks of days from Monday 2026-06-01 with one day spoken
+   on, one graded week, one 1분 말하기, one level test. growth.test.js covers
+   the drawing; these cover when it loads. */
+const GROWTH = (over = {}) => ({
+  today: '2026-09-16', streak: 1, longest: 4, minutes: 30,
+  calendar: Array.from({ length: 112 }, (_, i) => {
+    const d = new Date(2026, 5, 1 + i);
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { day, turns: i === 107 ? 6 : 0 };
+  }),
+  accuracy: Array.from({ length: 12 }, (_, i) => ({ week: `w${i}`, correct: i === 11 ? 3 : 0, graded: i === 11 ? 4 : 0 })),
+  timed: [{ session_id: 9, day: '2026-09-12', wpm: 100, long_pauses: 2, words: 100 }],
+  level_tests: [{ finished_at: '2026-09-10T03:00:00+00:00', cefr: 'B1', step: '상위', ielts: '4.5–5.0',
+                  toefl: { band: '3.5', old: '18–19' }, jf: null }],
+  ...over,
+});
 const HISTORY = (n, more = false) => ({ items: Array.from({ length: n }, (_, i) => ({
   id: 100 + i, ended_at: '2026-09-13T05:00:00+00:00', title: `상황 ${i}`, mode: i === 0 ? 'script' : 'free', turns: 8, wrong: 2 })), more });
 
@@ -55,6 +71,7 @@ function routes(extra = {}) {
       { speaker: 'bot', text: 'Hi.' }, { speaker: 'user', text: 'I go', ok: 0, fixed: 'I went.' }] });
     if (url.startsWith('/api/stats/home')) return jsonResponse({ top_tags: [] });
     if (url.startsWith('/api/mypage/coach')) { seen.coach = (seen.coach || 0) + 1; return extra.coach ? extra.coach(url) : jsonResponse(COACH); }
+    if (url.startsWith('/api/stats/growth')) { (seen.growth ||= []).push(url); return extra.growth ? extra.growth(url) : jsonResponse(GROWTH()); }
     return jsonResponse({});
   });
   return seen;
@@ -837,13 +854,20 @@ test('arrow keys move between tabs and wrap', async () => {
   assert.equal(document.activeElement, $('tab-weak'));
   key('ArrowLeft', 'tab-weak');
   key('ArrowLeft', 'tab-review');
+  // 성장 is last in the row, so it is where ← from the first tab wraps to.
+  assert.equal($('tab-growth').getAttribute('aria-selected'), 'true');
+  key('ArrowLeft', 'tab-growth');
   assert.equal($('tab-history').getAttribute('aria-selected'), 'true');
+  key('ArrowRight', 'tab-history');
+  assert.equal($('tab-growth').getAttribute('aria-selected'), 'true');
+  key('ArrowRight', 'tab-growth');
+  assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
   key('Home', 'tab-history');
   assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
   assert.equal(key('End', 'tab-review'), true);
-  assert.equal($('tab-history').getAttribute('aria-selected'), 'true');
-  assert.equal(document.activeElement, $('tab-history'));
-  assert.equal(key('a', 'tab-history'), false);
+  assert.equal($('tab-growth').getAttribute('aria-selected'), 'true');
+  assert.equal(document.activeElement, $('tab-growth'));
+  assert.equal(key('a', 'tab-growth'), false);
 });
 
 test('the review tab carries the count of reviews left', async () => {
@@ -1193,3 +1217,115 @@ test('다시 테스트 and 레벨 테스트 (7분) open the test at its intro', 
   assert.equal(lt.levelTestState().step, 'intro');
   lt.leaveLevelTest();
 });
+
+
+/* ---------- 성장 ---------- */
+
+test('성장 is the fourth tab: selected, remembered, and reopened on', async () => {
+  routes();
+  const store = stubStorage();
+  await mypage.openMypage();
+  assert.equal($('growth-section').hidden, true);
+  mypage.selectTab('growth');
+  assert.equal(store['mypage-tab'], 'growth');
+  assert.equal($('growth-section').hidden, false);
+  assert.equal($('tab-growth').getAttribute('aria-selected'), 'true');
+  assert.equal($('tab-growth').getAttribute('tabindex'), '0');
+  for (const t of ['review', 'weak', 'history']) assert.equal($(`tab-${t}`).getAttribute('aria-selected'), 'false');
+  await mypage.openMypage();
+  assert.equal($('tab-growth').getAttribute('aria-selected'), 'true');
+  assert.equal($('growth-section').hidden, false);
+});
+
+test('the growth tab and panel name each other in index.html', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /<button type="button" role="tab" id="tab-growth" data-tab="growth" aria-controls="growth-section"[^>]*>성장<\/button>/);
+  assert.match(html, /<div id="growth-section" class="panel" role="tabpanel" aria-labelledby="tab-growth" hidden>/);
+  assert.match(html, /<div id="growth-body"[^>]*\stabindex="-1"/);
+});
+
+test('성장 is asked for only when it is shown, once per load and language', async () => {
+  const seen = routes();
+  stubStorage();
+  await mypage.openMypage();
+  assert.equal(seen.growth, undefined, 'loaded with the rest of the page');
+  mypage.selectTab('growth');
+  mypage.selectTab('review');
+  mypage.selectTab('growth');
+  await settleAll();
+  assert.deepEqual(seen.growth, ['/api/stats/growth?language=en']);
+  assert.match(text($('growth-body')), /연속 1일 · 최장 4일 · 총 30분/);
+  await mypage.openMypage();          // a reload on 성장 asks again, once
+  await settleAll();
+  assert.equal(seen.growth.length, 2);
+  state.language = 'ja';
+  await mypage.openMypage();
+  await settleAll();
+  assert.deepEqual(seen.growth.slice(2), ['/api/stats/growth?language=ja']);
+});
+
+test("while 성장 loads it holds each block's place and says so", async () => {
+  let release;
+  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH())); }) });
+  stubStorage({ 'mypage-tab': 'growth' });
+  await mypage.openMypage();
+  const body = $('growth-body');
+  assert.match(text(body), /기록을 모으는 중이에요/);
+  assert.equal(body.getAttribute('aria-busy'), 'true');
+  const skeletons = byCls(body, 'growth-chart').filter((c) => c.classList.contains('skeleton'));
+  assert.equal(skeletons.length, 4, 'calendar, accuracy and the two 1분 말하기 charts');
+  assert.ok(skeletons.every((c) => /^\d+px$/.test(c.style.height)), 'a placeholder without a height');
+  assert.equal(byCls(body, 'growth-block').length, 4);
+  await settleAll();
+  release();
+  await settleAll();
+  assert.doesNotMatch(text(body), /모으는 중/);
+  assert.equal(body.getAttribute('aria-busy'), null);
+  assert.equal(byCls(body, 'cal-cell').length, 112);
+});
+
+test('성장 that fails says so with 다시 시도, and trying again draws it and takes focus', async () => {
+  let fail = true;
+  const seen = routes({ growth: () => (fail ? jsonResponse({ detail: 'x' }, { ok: false, status: 500 }) : jsonResponse(GROWTH())) });
+  stubStorage({ 'mypage-tab': 'growth' });
+  await mypage.openMypage();
+  await settleAll();
+  assert.match(text($('growth-body')), /불러오지 못했어요/);
+  assert.equal(byCls($('growth-body'), 'growth-retry')[0].textContent, '다시 시도');
+  assert.equal($('growth-body').getAttribute('aria-busy'), null);
+  fail = false;
+  await mypage.loadGrowth({ force: true });
+  assert.equal(seen.growth.length, 2);
+  assert.equal(byCls($('growth-body'), 'cal-cell').length, 112);
+  assert.equal(document.activeElement, $('growth-body'));
+});
+
+test('a failed 성장 is asked for again the next time the tab is shown', async () => {
+  const seen = routes({ growth: () => jsonResponse({ detail: 'x' }, { ok: false, status: 500 }) });
+  stubStorage();
+  await mypage.openMypage();
+  mypage.selectTab('growth');
+  await settleAll();
+  mypage.selectTab('review');
+  mypage.selectTab('growth');
+  await settleAll();
+  assert.equal(seen.growth.length, 2);
+});
+
+test('a 성장 answer from an older load or language is not painted', async () => {
+  let release;
+  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH({ streak: 9 }))); }) });
+  stubStorage({ 'mypage-tab': 'growth' });
+  await mypage.openMypage();
+  state.language = 'ja';
+  routes({ growth: () => jsonResponse(GROWTH({ streak: 2, level_tests: [] })) });
+  await mypage.openMypage();
+  await settleAll();
+  release();
+  await settleAll();
+  assert.match(text($('growth-body')), /연속 2일/);
+  assert.doesNotMatch(text($('growth-body')), /연속 9일/);
+  assert.match(text($('growth-body')), /레벨 테스트를 보면 기록이 쌓여요/);
+});
+
