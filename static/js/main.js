@@ -2,7 +2,8 @@ import { $, postJSON, notify, state } from './api.js';
 import { play, stopPlayback, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
 import { refreshHealth, startHealthPoll, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
-import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome } from './home.js';
+import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome, playTargetHome,
+         showLevelResultHome } from './home.js';
 import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
          startFromPick, startTheme, syncLanguageButtons,
          selectQuestion, retryQuestions, onOwnInput } from './pick.js';
@@ -117,6 +118,8 @@ $('week-more').addEventListener('click', () => openMypage({ tab: 'history' }));
    home.js must not import mypage.js (cycle), so this is wired here. */
 $('review-home-play').addEventListener('click', playReviewHome);
 $('review-home-go').addEventListener('click', () => openMypage({ tab: 'review' }));
+// 오늘의 목표 문장's ▶ 들어 보기: the review card's path, for the target's sentence.
+$('home-target-play').addEventListener('click', playTargetHome);
 
 $('notice-close').addEventListener('click', () => notify(''));
 
@@ -167,8 +170,9 @@ $('lt-result-back').addEventListener('click', () => {
     loadHome();
   }
 });
-/* Home's 레벨 테스트 card. */
+/* Home's 레벨 테스트 card: 시작 / 다시 테스트, and 결과 보기 once there is a result. */
 $('leveltest-home-start').addEventListener('click', () => openLevelTest());
+$('leveltest-home-show').addEventListener('click', () => showLevelResultHome());
 
 $('category-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-category]');

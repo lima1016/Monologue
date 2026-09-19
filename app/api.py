@@ -1701,7 +1701,7 @@ def resumable(language: Language):
 _WEEKDAY_LABELS = "월화수목금토일"
 _WEEKLY_GOAL_KEY = "weekly_goal"
 _WEEKLY_GOAL_DEFAULT = 5
-_RECENT_THEMES = 4
+_RECENT_THEMES = 6   # the home grid: two rows of three
 
 
 def _today() -> date:

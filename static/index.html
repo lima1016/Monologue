@@ -60,75 +60,82 @@
   </div>
 
   <section id="home">
+    <p class="home-date" id="home-date"></p>
+    <div class="home-head">
+      <h2 id="home-greeting">오늘은 뭘 연습할까요?</h2>
+      <span class="seg" id="language-seg">
+        <button type="button" data-language="en" class="on">English</button>
+        <button type="button" data-language="ja">日本語</button>
+      </span>
+    </div>
+
+    <!-- 히어로: 오늘의 추천(왼쪽)과 오늘의 목표 문장(오른쪽). The hero is only the
+         frame; each card in it dims and hides on its own (home.js). Under 900px
+         the frame dissolves and its cards stack in the phone order. -->
+    <div id="home-hero" class="home-hero">
+      <div class="hero-main">
+        <!-- Filled by home.js renderToday: the theme, why, and one start button per mode. -->
+        <div id="today-card" class="today-card">
+          <p class="label">오늘의 추천</p>
+          <div id="today-body" class="fade"></div>
+        </div>
+        <p id="today-alt" class="today-alt is-invisible" aria-hidden="true"></p>
+      </div>
+
+      <!-- 오늘의 목표 문장: the newest sentence under the tag the learner trips
+           on most (/stats/home `target`). No target, no panel: the
+           recommendation then has the whole hero. -->
+      <div id="home-target" class="home-target" hidden>
+        <div class="target-head">
+          <p class="label">오늘의 목표 문장</p>
+          <span id="home-target-tag" class="hint"></span>
+        </div>
+        <p id="home-target-fixed" class="target-fixed"></p>
+        <div class="target-actions">
+          <button id="home-target-play" class="ghost btn-stable" type="button">▶ 들어 보기</button>
+        </div>
+      </div>
+    </div>
+
     <div class="home-main">
-      <p class="home-date" id="home-date"></p>
-      <div class="home-head">
-        <h2 id="home-greeting">오늘은 뭘 연습할까요?</h2>
-        <span class="seg" id="language-seg">
-          <button type="button" data-language="en" class="on">English</button>
-          <button type="button" data-language="ja">日本語</button>
-        </span>
-      </div>
-
-      <!-- Filled by home.js renderToday: the theme, why, and one start button per mode. -->
-      <div id="today-card" class="today-card">
-        <p class="label">오늘의 추천</p>
-        <div id="today-body" class="fade"></div>
-      </div>
-      <p id="today-alt" class="today-alt is-invisible" aria-hidden="true"></p>
-
-      <!-- 오늘 복습: exists only when there is a due count. Collapses by class
-           like #resume-card below (see home.js setReviewHomeShown), not
-           `hidden` -- a due count that comes and goes with a language switch
-           must not pop the recommend line and mode cards below it. -->
-      <div id="review-home" class="is-collapsed" aria-hidden="true" inert>
-        <div class="review-home-clip">
-          <div class="review-home-box panel">
-            <p id="review-home-count" class="label"></p>
-            <p id="review-home-first" class="review-home-first"></p>
-            <div class="review-home-actions">
-              <button id="review-home-play" class="ghost btn-stable" type="button">▶ 듣기</button>
-              <button id="review-home-go" class="ghost" type="button">복습하러 가기 →</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 레벨 테스트: only while this language has no finished test (home.js
-           renderLevelTestHome). Collapses by class like #review-home above,
-           for the same reason: a language switch opens and shuts it. -->
-      <div id="leveltest-home" class="is-collapsed" aria-hidden="true" inert>
-        <div class="leveltest-home-clip">
-          <div class="leveltest-home-box panel">
-            <p id="leveltest-home-text" class="leveltest-home-text"><b>레벨 테스트</b> · 7분이면 내 수준과 IELTS·TOEFL 예상 점수를 알 수 있어요</p>
-            <button id="leveltest-home-start" class="primary" type="button">시작</button>
-          </div>
-        </div>
-      </div>
-
       <p id="recommend" class="recommend" hidden></p>
 
-      <!-- Each card goes to #pick for that mode; none of them is "selected" here. -->
-      <div class="modes" id="modes">
-        <button type="button" data-mode="free" class="mode">
-          <span class="n">자유 상황극</span><span class="d">상황을 정하고 자유롭게 대화</span>
-        </button>
-        <button type="button" data-mode="script" class="mode">
-          <span class="n">스크립트</span><span class="d">대본을 따라 읽으며 연습</span>
-        </button>
-        <button type="button" data-mode="shadow" class="mode">
-          <span class="n">쉐도잉</span><span class="d">원어민 소리를 듣고 바로 따라 말하기</span>
-        </button>
-        <button type="button" data-mode="lesson" class="mode">
-          <span class="n">수업</span><span class="d">선생님과 주제를 잡고</span>
-        </button>
-        <button type="button" data-mode="timed" class="mode">
-          <span class="n">1분 말하기</span><span class="d">질문 하나에 1분 동안 말하고 다시 말해 비교</span>
-        </button>
+      <div class="modes-wrap">
+        <p class="label section-label">연습 방법</p>
+        <!-- Each tile goes to #pick for that mode; none of them is "selected"
+             here. The last line of each is the latest theme practised in that
+             mode (home.js renderModeRecents), held one line tall when empty. -->
+        <div class="modes" id="modes">
+          <button type="button" data-mode="free" class="mode wide">
+            <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h15a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 4v-4H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><path d="M24 12h4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1v4l-5-4h-6a2 2 0 0 1-2-2v-1"/></svg></span>
+            <span class="n">자유 상황극</span><span class="d">상황을 정하고 자유롭게 대화</span>
+            <span id="mode-recent-free" class="m"></span>
+          </button>
+          <button type="button" data-mode="script" class="mode wide">
+            <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h12l6 6v18a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M20 3v6h6"/><path d="M11 15h10M11 19h10M11 23h6"/></svg></span>
+            <span class="n">스크립트</span><span class="d">대본을 따라 읽으며 연습</span>
+            <span id="mode-recent-script" class="m"></span>
+          </button>
+          <button type="button" data-mode="shadow" class="mode">
+            <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 12v4M8 9v10M12 11v6M16 7v14"/><path d="M20 12v4M24 9v10M28 11v6" opacity=".5"/></svg></span>
+            <span class="n">쉐도잉</span><span class="d">원어민 소리를 듣고 바로 따라 말하기</span>
+            <span id="mode-recent-shadow" class="m"></span>
+          </button>
+          <button type="button" data-mode="lesson" class="mode">
+            <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="26" height="16" rx="2"/><path d="M9 11h8M9 15h12"/><path d="M12 21l-3 7M20 21l3 7"/></svg></span>
+            <span class="n">수업</span><span class="d">선생님과 주제를 잡고</span>
+            <span id="mode-recent-lesson" class="m"></span>
+          </button>
+          <button type="button" data-mode="timed" class="mode">
+            <span class="ic"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="16" cy="18" r="10"/><path d="M16 18V12M13 3h6M16 3v5M25 8l2-2"/></svg></span>
+            <span class="n">1분 말하기</span><span class="d">질문 하나에 1분 동안 말하고 다시 말해 비교</span>
+            <span id="mode-recent-timed" class="m"></span>
+          </button>
+        </div>
       </div>
 
       <div id="recent-themes-wrap" hidden>
-        <p class="label">최근 테마</p>
+        <p class="label section-label">최근 테마</p>
         <div id="recent-themes" class="recent-themes"></div>
       </div>
       <p id="library-progress" class="hint is-invisible" aria-hidden="true"></p>
@@ -152,18 +159,67 @@
         </div>
       </div>
 
+      <!-- 내 상태: this week's goal as a ring, the level, the days, and two
+           numbers (연속, 정확도). Painted by home.js paintWeek/paintLevel. -->
       <div class="panel" id="week-card" hidden>
-        <p class="label">이번 주</p>
+        <p class="label">내 상태</p>
+        <div class="state-top">
+          <svg id="week-ring" class="ring" viewBox="0 0 84 84" role="img" aria-label="이번 주 목표">
+            <circle class="ring-track" cx="42" cy="42" r="34"/>
+            <!-- A static shape, rotated so the arc starts at 12 o'clock. Never animated. -->
+            <circle id="week-ring-fill" class="ring-fill is-empty" cx="42" cy="42" r="34" stroke-dasharray="0 213.63" transform="rotate(-90 42 42)"/>
+            <text id="week-ring-num" class="ring-num" x="42" y="45" text-anchor="middle"></text>
+            <text id="week-ring-sub" class="ring-sub" x="42" y="59" text-anchor="middle">이번 주</text>
+          </svg>
+          <div class="state-level">
+            <span class="hint">현재 레벨</span>
+            <p id="home-level" class="state-level-name"></p>
+            <p id="home-level-scale" class="state-level-scale"></p>
+          </div>
+        </div>
         <div id="week-days" class="week-days"></div>
-        <p id="week-streak" class="hint" hidden></p>
-        <p id="week-progress"></p>
-        <div class="week-bar"><div id="week-bar"></div></div>
+        <div class="state-nums">
+          <div><span class="k">연속</span><span id="week-streak" class="v"></span></div>
+          <div><span class="k">정확도 · 30일</span><span id="home-accuracy" class="v"></span></div>
+        </div>
         <div class="goal">
           <button id="goal-minus" type="button" class="ghost" aria-label="목표 줄이기">−</button>
-          <span>목표 <b id="goal-value"></b> 세션</span>
+          <span>이번 주 목표 <b id="goal-value"></b> 세션</span>
           <button id="goal-plus" type="button" class="ghost" aria-label="목표 늘리기">+</button>
         </div>
         <button id="week-more" class="ghost link" type="button">기록 더 보기 →</button>
+      </div>
+
+      <!-- 오늘 복습: exists only when there is a due count. Collapses by class
+           like #resume-card above (see home.js setReviewHomeShown), not
+           `hidden`: a due count that comes and goes with a language switch
+           must not pop the cards below it. -->
+      <div id="review-home" class="is-collapsed" aria-hidden="true" inert>
+        <div class="review-home-clip">
+          <div class="review-home-box panel">
+            <p id="review-home-count" class="label"></p>
+            <p id="review-home-first" class="review-home-first"></p>
+            <div class="review-home-actions">
+              <button id="review-home-play" class="ghost btn-stable" type="button">▶ 듣기</button>
+              <button id="review-home-go" class="ghost" type="button">복습하러 가기 →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 레벨 테스트: an offer while this language has no finished test, the
+           last one's date and level once it has (home.js renderLevelTestHome).
+           Collapses by class like #review-home above, for the same reason. -->
+      <div id="leveltest-home" class="is-collapsed" aria-hidden="true" inert>
+        <div class="leveltest-home-clip">
+          <div class="leveltest-home-box panel">
+            <p id="leveltest-home-text" class="leveltest-home-text"><b>레벨 테스트</b> · 7분이면 내 수준과 IELTS·TOEFL 예상 점수를 알 수 있어요</p>
+            <div class="leveltest-home-actions">
+              <button id="leveltest-home-show" class="ghost" type="button" hidden>결과 보기</button>
+              <button id="leveltest-home-start" class="primary" type="button">시작</button>
+            </div>
+          </div>
+        </div>
       </div>
     </aside>
   </section>
