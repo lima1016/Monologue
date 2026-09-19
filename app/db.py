@@ -606,18 +606,22 @@ def active_minutes(session_id, pause_cap_seconds=300) -> int:
     is also clamped to be non-negative before the cap is applied, so a
     clock oddity can't subtract from the total.
     """
-    rows = get_messages(session_id)
-    if len(rows) < 2:
-        return 0
+    stamps = [m["created_at"] for m in get_messages(session_id)]
+    return int(_active_seconds(stamps, pause_cap_seconds) // 60)
+
+
+def _active_seconds(stamps, pause_cap_seconds=300) -> float:
+    """active_minutes' sum of capped gaps, in seconds, over one session's
+    created_at stamps in turn order. 0 when there is no gap or any stamp does
+    not parse (see active_minutes)."""
     total_seconds = 0.0
     try:
-        for prev, cur in zip(rows, rows[1:]):
-            gap = (datetime.fromisoformat(cur["created_at"])
-                   - datetime.fromisoformat(prev["created_at"])).total_seconds()
+        for prev, cur in zip(stamps, stamps[1:]):
+            gap = (datetime.fromisoformat(cur) - datetime.fromisoformat(prev)).total_seconds()
             total_seconds += max(0, min(gap, pause_cap_seconds))
     except (ValueError, TypeError):
-        return 0
-    return int(total_seconds // 60)
+        return 0.0
+    return total_seconds
 
 
 def session_stats(session_id) -> dict:
@@ -779,32 +783,62 @@ def home_stats(language) -> dict:
             " GROUP BY m.tag HAVING n >= 3 ORDER BY n DESC, m.tag LIMIT 3",
             (language,),
         ).fetchall()
-        days = [r[0] for r in conn.execute(
-            "SELECT DISTINCT substr(datetime(m.created_at, 'localtime'), 1, 10) d"
-            " FROM messages m JOIN sessions s ON s.id = m.session_id"
-            " WHERE s.language = ? AND m.speaker = 'user'"
-            " ORDER BY d DESC", (language,))]
+        days = _practice_day_list(conn, language)
 
     top_tags = [{"tag": r["tag"], "n": r["n"]} for r in tag_rows]
-
-    streak = 0
-    if days:
-        today = datetime.now().date()
-        if days[0] == today.isoformat():
-            day = today
-        elif days[0] == (today - timedelta(days=1)).isoformat():
-            day = today - timedelta(days=1)
-        else:
-            day = None
-        if day is not None:
-            for stamp in days:
-                if stamp != day.isoformat():
-                    break
-                streak += 1
-                day -= timedelta(days=1)
+    streak = streak_from(days, datetime.now().date())
 
     return {"streak": streak, "week_turns": week_turns,
             "fixed_total": fixed_total, "top_tags": top_tags}
+
+
+def _practice_day_list(conn, language) -> list[str]:
+    """Every local date (YYYY-MM-DD) the learner spoke on, newest first --
+    local for the reasons in home_stats' docstring."""
+    return [r[0] for r in conn.execute(
+        "SELECT DISTINCT substr(datetime(m.created_at, 'localtime'), 1, 10) d"
+        " FROM messages m JOIN sessions s ON s.id = m.session_id"
+        " WHERE s.language = ? AND m.speaker = 'user'"
+        " ORDER BY d DESC", (language,))]
+
+
+def practice_day_list(language) -> list[str]:
+    with connect() as conn:
+        return _practice_day_list(conn, language)
+
+
+def streak_from(days, today) -> int:
+    """home_stats' streak over `days` (newest first): the walk starts at
+    yesterday when today has nothing yet, and forgives only that one day
+    (see home_stats' docstring)."""
+    if not days:
+        return 0
+    if days[0] == today.isoformat():
+        day = today
+    elif days[0] == (today - timedelta(days=1)).isoformat():
+        day = today - timedelta(days=1)
+    else:
+        return 0
+    streak = 0
+    for stamp in days:
+        if stamp != day.isoformat():
+            break
+        streak += 1
+        day -= timedelta(days=1)
+    return streak
+
+
+def longest_streak(days) -> int:
+    """The longest run of consecutive dates in `days` (distinct, any order).
+    A NULL day (see home_stats' docstring on unparseable created_at) is skipped."""
+    ordinals = sorted(datetime.fromisoformat(d).toordinal() for d in days if d)
+    best = run = 0
+    prev = None
+    for o in ordinals:
+        run = run + 1 if prev is not None and o == prev + 1 else 1
+        best = max(best, run)
+        prev = o
+    return best
 
 
 def list_sessions(limit=20) -> list[dict]:
@@ -1134,13 +1168,63 @@ def accuracy_since(language, since) -> dict:
     results are unchanged."""
     with connect() as conn:
         row = conn.execute(
-            "SELECT COALESCE(SUM(m.ok = 1), 0) correct, COUNT(*) graded"
-            " FROM messages m JOIN sessions s ON s.id = m.session_id"
-            " WHERE s.language = ? AND s.mode <> 'script' AND m.speaker = 'user' AND m.ok IS NOT NULL"
-            "   AND m.created_at >= ?"
-            "   AND substr(datetime(m.created_at, 'localtime'), 1, 10) >= ?",
+            "SELECT COALESCE(SUM(m.ok = 1), 0) correct, COUNT(*) graded" + _GRADED_WHERE,
             (language, _local_cutoff(since), since.isoformat())).fetchone()
     return {"correct": row["correct"], "graded": row["graded"]}
+
+
+# accuracy_since's filter and prefilter, shared so the weekly chart on the
+# 성장 tab can never count a turn the 30-day figure does not.
+_GRADED_WHERE = (
+    " FROM messages m JOIN sessions s ON s.id = m.session_id"
+    " WHERE s.language = ? AND s.mode <> 'script' AND m.speaker = 'user' AND m.ok IS NOT NULL"
+    "   AND m.created_at >= ?"
+    "   AND substr(datetime(m.created_at, 'localtime'), 1, 10) >= ?"
+)
+
+
+def accuracy_by_day(language, since) -> dict:
+    """local date -> (correct, graded) over the same turns as accuracy_since."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT substr(datetime(m.created_at, 'localtime'), 1, 10) d,"
+            " COALESCE(SUM(m.ok = 1), 0) correct, COUNT(*) graded" + _GRADED_WHERE + " GROUP BY d",
+            (language, _local_cutoff(since), since.isoformat())).fetchall()
+    return {r["d"]: (r["correct"], r["graded"]) for r in rows}
+
+
+def turns_by_day(language, start, end) -> dict:
+    """local date -> the learner's spoken turns that day, within [start, end].
+    The same rows home_stats' streak counts (every learner message -- round
+    2+ and level tests never become one), with practice_days' prefilter."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT substr(datetime(m.created_at, 'localtime'), 1, 10) d, COUNT(*) n"
+            " FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND m.speaker = 'user' AND m.created_at >= ?"
+            "   AND substr(datetime(m.created_at, 'localtime'), 1, 10) BETWEEN ? AND ?"
+            " GROUP BY d", (language, _local_cutoff(start), start.isoformat(), end.isoformat())).fetchall()
+    return {r["d"]: r["n"] for r in rows}
+
+
+def practice_seconds(language) -> float:
+    """All practice time in this language: active_minutes' capped gaps for
+    every non-timed session, plus every timed round's own seconds -- a timed
+    session's messages are written while grading, not while speaking, and
+    round 2+ never become messages, which is why _timed_report sums round
+    seconds too."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT m.session_id, m.created_at FROM messages m JOIN sessions s ON s.id = m.session_id"
+            " WHERE s.language = ? AND s.mode <> 'timed' ORDER BY m.session_id, m.turn",
+            (language,)).fetchall()
+        timed = conn.execute(
+            "SELECT COALESCE(SUM(r.seconds), 0) FROM timed_rounds r JOIN sessions s ON s.id = r.session_id"
+            " WHERE s.language = ? AND s.mode = 'timed'", (language,)).fetchone()[0]
+    per_session: dict = {}
+    for r in rows:
+        per_session.setdefault(r["session_id"], []).append(r["created_at"])
+    return sum(_active_seconds(stamps) for stamps in per_session.values()) + float(timed)
 
 
 _TAG_EXAMPLES = 3
@@ -1392,3 +1476,27 @@ def latest_level_test(language) -> dict | None:
             "SELECT * FROM level_tests WHERE language = ? AND finished_at IS NOT NULL"
             " ORDER BY finished_at DESC, id DESC LIMIT 1", (language,)).fetchone()
     return _level_test(row) if row else None
+
+
+def finished_level_tests(language) -> list[dict]:
+    """Every finished test's stored result, newest first -- the same order
+    latest_level_test picks its one from."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT result_json FROM level_tests WHERE language = ? AND finished_at IS NOT NULL"
+            " AND result_json IS NOT NULL ORDER BY finished_at DESC, id DESC", (language,)).fetchall()
+    return [json.loads(r["result_json"]) for r in rows]
+
+
+def timed_first_rounds(language, limit=20) -> list[dict]:
+    """Round 1 of the newest `limit` finished timed sessions, oldest first.
+    Round 1 only: it is the unrehearsed telling, the one that compares
+    across sessions -- round 2+ retell the same story."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT s.id session_id, substr(datetime(s.ended_at, 'localtime'), 1, 10) day,"
+            " r.seconds, r.words, r.long_pauses"
+            " FROM sessions s JOIN timed_rounds r ON r.session_id = s.id AND r.round = 1"
+            " WHERE s.language = ? AND s.mode = 'timed' AND s.report IS NOT NULL AND s.ended_at IS NOT NULL"
+            " ORDER BY s.ended_at DESC, s.id DESC LIMIT ?", (language, limit)).fetchall()
+    return [dict(r) for r in reversed(rows)]

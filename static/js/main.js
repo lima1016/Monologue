@@ -1,16 +1,17 @@
 import { $, postJSON, notify, state } from './api.js';
 import { play, stopPlayback, recognition, BCP47, startRecording, discardRecording, setRespeakHandler, beginListening } from './audio.js';
-import { refreshHealth, sendTurn, nextScriptLine, endSession, undoLastTurn,
+import { refreshHealth, startHealthPoll, sendTurn, nextScriptLine, endSession, undoLastTurn,
          setTurnState, canDo, cancelTurn, escapeCancels } from './session.js';
 import { loadHome, resumeSession, swapToday, changeGoal, playReviewHome } from './home.js';
 import { openPick, loadThemes, selectCategory, selectTheme, selectScenario,
          startFromPick, startTheme, syncLanguageButtons,
          selectQuestion, retryQuestions, onOwnInput } from './pick.js';
-import { renderVoiceList, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections, initScreenPrefs } from './settings.js';
+import { renderVoiceList, renderVoiceLists, previewVoice, loadReadingPrefs, saveReadingPrefs, syncLanguageSections, initScreenPrefs } from './settings.js';
 import { toggleMeaning } from './reading.js';
 import { suggestForLatest } from './suggest.js';
 import { openMypage, leaveMypage, onReviewClick, onHistoryClick, loadHistory,
-         selectTab, onTabKey, onTagClick, loadCoach, showMoreReviews } from './mypage.js';
+         selectTab, onTabKey, onTagClick, loadCoach, loadGrowth, toggleGrowthDetails,
+         showMoreReviews } from './mypage.js';
 import { replay, replaySlow, peek, mine, retry, nextLine, shadowState } from './shadow.js';
 import { leaveTimed, startNow, stopNow, retryTranscribe, backToPrep, again, endTimed, playMine,
          playNative, retryNative } from './timed.js';
@@ -83,6 +84,8 @@ $('btn-review-more').addEventListener('click', () => showMoreReviews());
 $('history-list').addEventListener('click', onHistoryClick);
 $('tag-bars').addEventListener('click', onTagClick);
 $('coach-body').addEventListener('click', (e) => { if (e.target.closest('.coach-retry')) loadCoach({ force: true }); });
+$('growth-body').addEventListener('click', (e) => { if (e.target.closest('.growth-retry')) loadGrowth({ force: true }); });
+$('btn-growth-more').addEventListener('click', () => toggleGrowthDetails());
 $('btn-history-more').addEventListener('click', () => loadHistory({ append: true }));
 $('btn-report-back').addEventListener('click', () => {
   router.show('mypage');
@@ -330,6 +333,9 @@ $('panel-body').addEventListener('click', (e) => {
 });
 
 refreshHealth();
+// Re-polls every 30s so the bar reacts to a service recovering, or one going
+// down mid-session, without a reload -- started once, here, at load.
+startHealthPoll();
 loadHome();
 loadReadingPrefs();
 
@@ -340,29 +346,32 @@ initScreenPrefs();
 $('btn-settings').addEventListener('click', async () => {
   $('settings-language').value = state.language;
   syncLanguageSections();
-  await renderVoiceList();
+  await renderVoiceLists();
   await loadReadingPrefs();
   $('settings').showModal();
 });
 $('settings-language').addEventListener('change', () => {
   syncLanguageSections();
-  renderVoiceList();
+  renderVoiceList($('settings-language').value);
 });
 $('btn-close-settings').addEventListener('click', () => $('settings').close());
-$('voice-list').addEventListener('click', (e) => {
+$('lang-sections').addEventListener('click', (e) => {
   const preview = e.target.dataset.preview;
   if (preview) previewVoice(preview);
 });
 $('reading-prefs').addEventListener('change', saveReadingPrefs);
-$('voice-list').addEventListener('change', async (e) => {
-  if (e.target.name !== 'voice') return;
+$('lang-sections').addEventListener('change', async (e) => {
+  // settings.js names each list's radios voice-${language} now (not one
+  // shared "voice" group across both lists -- see its own comment); the
+  // language rides in the name itself, not $('settings-language').value,
+  // which only ever names the *reachable* section (syncLanguageSections),
+  // not necessarily the one this particular change came from.
+  if (!/^voice-/.test(e.target.name || '')) return;
+  const language = e.target.name.slice('voice-'.length);
   try {
-    await postJSON('/voices', {
-      language: $('settings-language').value,
-      voice: e.target.value,
-    });
+    await postJSON('/voices', { language, voice: e.target.value });
   } catch (err) {
     notify(`음성 설정을 저장할 수 없습니다: ${err.message}`);
-    await renderVoiceList();
+    await renderVoiceList(language);
   }
 });

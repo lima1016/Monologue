@@ -337,3 +337,41 @@ def test_the_question_list_holds_three_cards_and_never_transforms():
 
 def test_header_buttons_do_not_wrap():
     assert re.search(r"\.status button\s*\{[^}]*white-space:\s*nowrap", _all_css())
+
+
+def test_lang_sections_share_one_grid_cell():
+    """Switching 언어 (settings.js: syncLanguageSections) must never resize the
+    dialog -- both languages' sections sit in the same grid cell so it is
+    always the taller one's height, and only .is-inactive changes which one
+    is reachable."""
+    css = _all_css()
+    assert "display: grid" in _rule_body(css, ".lang-sections {")
+    assert "grid-area: 1 / 1" in _rule_body(css, ".lang-sections > .lang-section {")
+    inactive = _rule_body(css, ".lang-section.is-inactive {")
+    assert "visibility: hidden" in inactive
+    assert "display: none" not in inactive
+
+
+def test_health_notice_fades_without_transform():
+    """#health-notice (session.js: refreshHealth) replaces the old status
+    dots. It overlays the header rather than pushing the page below it, and
+    fades by opacity alone -- a transform here would read as the bar sliding
+    in rather than the plain appear/disappear the header calls for.
+
+    The fade is driven by a class (.is-shown), not the `hidden` attribute:
+    base.css's `[hidden] { display: none !important }` always wins over a
+    `.health-notice[hidden] { opacity: 0 }` rule, so that never actually
+    faded -- it just snapped. It also carries no controls of its own, so
+    pointer-events stays off in both states, or a shown-but-borderline bar
+    could eat a click meant for the header underneath it."""
+    css = _all_css()
+    body = _rule_body(css, ".health-notice {")
+    assert "position: absolute" in body or "position: sticky" in body
+    assert "opacity" in body
+    assert "transition" in body
+    assert "transform" not in body
+    assert "pointer-events: none" in body
+    shown = _rule_body(css, ".health-notice.is-shown {")
+    assert "opacity: 1" in shown
+    assert "transform" not in shown
+    assert ".health-notice[hidden] {" not in css

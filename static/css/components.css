@@ -1,4 +1,5 @@
 header {
+  position: relative;
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--space-4) 0; border-bottom: 1px solid var(--line);
   margin-bottom: var(--space-5);
@@ -16,8 +17,28 @@ header {
   .brand { flex-shrink: 0; }
 }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); }
-.dot.up { background: #2a9d5c; }
-.dot.down { background: #c0392b; }
+
+/* Sits over whatever is below the header rather than pushing it down --
+   `header` is its containing block (position: relative below). Empty and
+   faded to nothing while every service answers; refreshHealth (session.js)
+   writes the text and adds .is-shown the moment one doesn't. A class drives
+   the fade, not the `hidden` attribute -- base.css's blanket `[hidden]` rule
+   (display: none, !important) always beat an opacity rule keyed on that same
+   attribute here, so it never actually faded, it just snapped away. Opacity only, no
+   transform: nothing here needs to survive being a containing block for a
+   fixed/sticky descendant, but a translate would still read as the bar
+   sliding in, and this is meant to read as a plain appear/disappear. It
+   carries no controls of its own, so pointer-events stays off in both states
+   -- shown or not, it must never eat a click meant for the header below it. */
+.health-notice {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 15;
+  padding: var(--space-2) var(--space-3); text-align: center;
+  background: var(--warn-bg); color: var(--warn-ink); font-size: var(--text-sm);
+  opacity: 0; transition: opacity var(--dur-fast) ease;
+  pointer-events: none;
+}
+.health-notice.is-shown { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .health-notice { transition: none; } }
 
 .row { display: flex; gap: var(--space-4); }
 label { display: block; margin-bottom: var(--space-3); font-size: var(--text-sm); }
@@ -324,6 +345,18 @@ dialog {
 dialog::backdrop { background: rgba(20, 21, 28, .45); }
 .voice { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) 0; }
 .voice label { margin: 0; flex: 1; }
+
+/* 설정 > 언어: English and 日本語's voice list (and, for 日本語, the reading
+   aids fieldset) both live here at once rather than being swapped in and out,
+   so switching the language never resizes the dialog. Both sections share one
+   grid cell (`grid-area: 1 / 1` stacks them instead of the grid sizing a
+   column or row per child), which makes the cell as tall as whichever
+   section is taller. settings.js's syncLanguageSections toggles which one is
+   .is-inactive -- visibility, not display or [hidden], so the shorter section
+   still holds its share of that height while out of view. */
+.lang-sections { display: grid; }
+.lang-sections > .lang-section { grid-area: 1 / 1; }
+.lang-section.is-inactive { visibility: hidden; }
 
 /* 설정 > 화면. Each swatch paints its own theme (light --bg and --accent,
    set inline in index.html) whatever theme is showing, so the six can be
@@ -1137,7 +1170,7 @@ button.meaning:hover { color: var(--accent-ink); }
 
 /* Same easing both ways as home's refreshed cards: the delay on .is-refreshing
    only dims a slow reload, and un-dimming eases back. */
-:where(#level-card, #review-section, #weak-section, #history-section) {
+:where(#level-card, #growth-card, #review-section, #weak-section, #history-section) {
   transition: opacity var(--dur-fast) ease;
 }
 
@@ -1288,6 +1321,123 @@ button.tag-bar:hover .name { color: var(--accent-ink); }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tag-ex-why.is-open { -webkit-line-clamp: unset; display: block; }
 
+/* 성장: the summary card above the tabs, and the charts under its
+   자세히 보기 fold (growth.js). Opacity only, no transform (R1).
+   Marks wear the theme's --accent through these classes; text wears text
+   tokens, never the series colour. The calendar is one hue, sequential:
+   nothing is the sunken surface, then four steps of --accent mixed into
+   --surface, so the ramp follows every theme and flips with dark mode (the
+   mix runs toward the surface, whichever way the surface lies). */
+#growth-card {
+  --heat-1: color-mix(in oklab, var(--accent) 25%, var(--surface));
+  --heat-2: color-mix(in oklab, var(--accent) 45%, var(--surface));
+  --heat-3: color-mix(in oklab, var(--accent) 70%, var(--surface));
+  --heat-4: color-mix(in oklab, var(--accent) 100%, var(--surface));
+}
+#growth-body { position: relative; }
+#growth-body:focus { outline: none; }
+/* The skeleton reserves three lines (streak, accuracy, 1분 말하기), but a
+   fresh card may only ever draw the streak -- floor the box at three lines'
+   worth (plus the gaps between them) so the answer landing doesn't shrink it. */
+.growth-lines { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3);
+  min-height: calc(3 * var(--text-sm) * 1.55 + 2 * var(--space-1)); }
+.growth-line { margin: 0; font-size: var(--text-sm); color: var(--text-dim); min-height: calc(var(--text-sm) * 1.55); }
+.growth-line.growth-streak { color: var(--text); font-weight: 600; }
+.growth-summary-box.is-skeleton .growth-line { width: 50%; }
+/* No practice at all: one line saying what will fill the card, and the card
+   keeps a modest floor instead of shrinking to that one line. */
+.growth-guide { display: flex; align-items: center; min-height: calc(4 * var(--text-sm) * 1.55); }
+/* 자세히 보기 ▾ / 접기 ▴: one width for both labels, so the toggle never
+   changes size under the pointer. */
+.growth-more { margin-top: var(--space-3); font-size: var(--text-sm);
+  min-width: calc(6.5em + var(--space-3) * 2 + 2px); }
+/* The fold's own inner box is clipped while shut, so the room above the
+   first block is a margin on it, not padding the collapsed row would keep. */
+#growth-details-body { display: flex; flex-direction: column; gap: var(--space-5); }
+#growth-details-body > :first-child { margin-top: var(--space-4); }
+.growth-block > .label { margin: 0 0 var(--space-2); }
+.growth-block > p { margin: 0; }
+/* A brand-new learner sees this instead of a chart on every block -- without
+   a floor, four one-line hints in a row read as the tab collapsing, not as
+   "practise a bit and this fills in". Modest on purpose: still far short of
+   a loaded chart's own height (ACC_H/SMALL_H in growth.js), just enough that
+   the page doesn't visibly shrink. */
+.growth-empty { padding: var(--space-2) 0; min-height: calc(3 * var(--text-sm) * 1.55); }
+.growth-block > .growth-summary { margin-top: var(--space-2); font-size: var(--text-sm); color: var(--text-dim);
+  min-height: calc(var(--text-sm) * 1.55); }
+.growth-block.is-skeleton .growth-summary { width: 45%; }
+.growth-test.skeleton { width: 70%; margin: var(--space-1) 0; }
+.growth-sub { margin: 0 0 var(--space-1); font-size: var(--text-sm); color: var(--text-dim); font-weight: 600; }
+.growth-fail { display: flex; align-items: center; gap: var(--space-2); }
+
+/* A chart is its own SVG at the container's width; the wrapper holds the
+   tooltip over it. */
+.growth-chart { position: relative; width: 100%; }
+.growth-chart.skeleton { border-radius: var(--radius-sm); }
+.growth-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.growth-chart svg:focus { outline: none; }
+.growth-chart svg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+.growth-chart .axis { fill: var(--text-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.growth-chart .end-label { fill: var(--text-dim); font-size: 11px; font-weight: 600; }
+.growth-chart .grid { stroke: var(--line); stroke-width: 1; }
+.growth-chart .series-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.growth-chart .series-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.growth-chart .hit { fill: transparent; cursor: default; }
+.growth-chart .hit.is-active { fill: var(--line); fill-opacity: 0.35; }
+.growth-cal .hit.is-active { fill: none; stroke: var(--text-dim); stroke-width: 1.5; }
+
+.cal-cell.lv0 { fill: var(--surface-sunken); }
+.cal-cell.lv1 { fill: var(--heat-1); }
+.cal-cell.lv2 { fill: var(--heat-2); }
+.cal-cell.lv3 { fill: var(--heat-3); }
+.cal-cell.lv4 { fill: var(--heat-4); }
+.cal-cell.is-future { fill: none; }
+.cal-cell.is-today { stroke: var(--text-dim); stroke-width: 1.5; }
+
+.heat-key { display: flex; align-items: center; gap: 3px; margin-top: var(--space-2);
+  font-size: var(--text-xs); color: var(--text-faint); }
+.heat-key > span:first-child { margin-right: var(--space-1); }
+.heat-key > span:last-child { margin-left: var(--space-1); }
+.heat-swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; }
+.heat-swatch.lv1 { background: var(--heat-1); }
+.heat-swatch.lv2 { background: var(--heat-2); }
+.heat-swatch.lv3 { background: var(--heat-3); }
+.heat-swatch.lv4 { background: var(--heat-4); }
+
+/* Placed by growth.js from the point's own position (left or right, and
+   bottom); shown and hidden by opacity. */
+.growth-tip { position: absolute; z-index: 2; pointer-events: none; white-space: nowrap;
+  padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm);
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+  color: var(--text); font-size: var(--text-xs); font-weight: 600;
+  opacity: 0; transition: opacity var(--dur-fast) ease; }
+.growth-tip.is-shown { opacity: 1; }
+
+.growth-pair { display: grid; grid-template-columns: 1fr; gap: var(--space-4); }
+.growth-pair.is-split { grid-template-columns: 1fr 1fr; gap: 16px; }
+
+.growth-table { margin-top: var(--space-2); font-size: var(--text-sm); }
+.growth-table summary { cursor: pointer; color: var(--text-dim); font-size: var(--text-xs); width: fit-content; }
+.growth-table summary:hover { color: var(--accent-ink); }
+.growth-table table { border-collapse: collapse; margin-top: var(--space-2); font-variant-numeric: tabular-nums; }
+.growth-table th, .growth-table td { text-align: left; padding: 2px var(--space-3) 2px 0; border-bottom: 1px solid var(--line); }
+.growth-table th { color: var(--text-dim); font-weight: 600; font-size: var(--text-xs); }
+
+.growth-tests { list-style: none; margin: 0; padding: 0; }
+.growth-test { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-3);
+  padding: var(--space-2) 0; border-bottom: 1px solid var(--line); font-size: var(--text-sm); }
+.growth-test:last-child { border-bottom: 0; }
+.growth-test-date { color: var(--text-dim); min-width: 5em; }
+.growth-test-level { color: var(--text); font-weight: 700; }
+.growth-test-scale { color: var(--text-dim); }
+.growth-delta { color: var(--text-faint); font-size: var(--text-xs); }
+.growth-delta.up { color: var(--suggest-ink); }
+.growth-delta.down { color: var(--correct-ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .growth-tip { transition: none; }
+}
+
 /* History */
 #history-list { list-style: none; margin: 0; padding: 0; }
 .history-row { border-bottom: 1px solid var(--line); }
@@ -1323,5 +1473,5 @@ button.history-head:hover { background: var(--surface-sunken); }
 
 @media (prefers-reduced-motion: reduce) {
   .fold, .fold-inner { transition: none; }
-  :where(#level-card, #review-section, #weak-section, #history-section) { transition: none; }
+  :where(#level-card, #growth-card, #review-section, #weak-section, #history-section) { transition: none; }
 }

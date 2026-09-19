@@ -1,25 +1,47 @@
 import { $, api, getJSON, notify, postJSON } from './api.js';
 import { setPrefs } from './reading.js';
+import { paintFavicon } from './favicon.js';
 
 let currentPreviewAudio = null;
 let currentPreviewUrl = null;
 
-/* Only the dialog's chosen language's settings are shown. The voice list
-   follows the select by being re-fetched; the reading aids are Japanese-only,
-   so they are hidden rather than re-rendered. Hiding changes nothing stored --
-   the prefs still apply to every Japanese session. */
+/* Both languages' sections (#lang-section-en, #lang-section-ja) stay in the
+   dialog at once -- see the .lang-sections grid cell in components.css --
+   so only *which one is reachable* changes here, never what's rendered.
+   .is-inactive drives the CSS (visibility: hidden, not hidden/display:none,
+   so the inactive section keeps holding its height); `inert` and
+   aria-hidden keep its radios/checkboxes out of focus, click and
+   assistive-tech reach the same way `hidden` used to. Hiding/inerting
+   changes nothing stored -- the prefs still apply to every Japanese
+   session. */
 export function syncLanguageSections() {
-  $('reading-prefs').hidden = $('settings-language').value !== 'ja';
+  const active = $('settings-language').value;
+  for (const lang of ['en', 'ja']) {
+    const section = $(`lang-section-${lang}`);
+    const isActive = lang === active;
+    section.classList.toggle('is-inactive', !isActive);
+    section.inert = !isActive;
+    section.setAttribute('aria-hidden', String(!isActive));
+  }
 }
 
-export async function renderVoiceList() {
-  const language = $('settings-language').value;
+/* Renders one language's voice list into its own container so the other
+   language's list (and its height) is left untouched.
+
+   The radio group is named voice-${language}, not a bare "voice" -- both
+   lists sit in the dialog's DOM at once (see the header comment above), and
+   a plain `name="voice"` on both makes every one of these radios, across
+   both languages, one native radio group: the browser itself unchecks
+   whichever list's selection rendered first the moment the other list draws
+   its own `checked` radio. Naming each list's group after its own language
+   keeps the two groups apart the same way the containers already are. */
+export async function renderVoiceList(language) {
   try {
     const { voices, selected } = await getJSON(`/voices?language=${language}`);
-    $('voice-list').innerHTML = voices
+    $(`voice-list-${language}`).innerHTML = voices
       .map(
         (v) => `<div class="voice">
-          <input type="radio" name="voice" id="v-${v.id}" value="${v.id}" ${v.id === selected ? 'checked' : ''}>
+          <input type="radio" name="voice-${language}" id="v-${v.id}" value="${v.id}" ${v.id === selected ? 'checked' : ''}>
           <label for="v-${v.id}">${v.label} <span class="hint">${v.gender === 'male' ? '남성' : '여성'}</span></label>
           <button data-preview="${v.id}">▶ 미리듣기</button>
         </div>`
@@ -27,8 +49,15 @@ export async function renderVoiceList() {
       .join('');
   } catch (err) {
     notify(`음성 목록을 불러올 수 없습니다: ${err.message}`);
-    $('voice-list').innerHTML = '';
+    $(`voice-list-${language}`).innerHTML = '';
   }
+}
+
+/* Both languages' lists are fetched up front, when the dialog opens, so the
+   grid cell already knows the taller one's height before the learner ever
+   touches the language select. */
+export async function renderVoiceLists() {
+  await Promise.all(['en', 'ja'].map(renderVoiceList));
 }
 
 export async function previewVoice(voice) {
@@ -140,6 +169,7 @@ export function applyTheme(theme, mode) {
     globalThis.localStorage?.setItem(THEME_KEY, t);
     globalThis.localStorage?.setItem(MODE_KEY, m);
   } catch { /* not saved; still applied */ }
+  paintFavicon();
   return { theme: t, mode: m };
 }
 
@@ -158,7 +188,29 @@ export function initScreenPrefs() {
       applyTheme(readCurrentTheme(), m);
     });
   }
+  paintFavicon();
+  watchSystemScheme();
   return current;
+}
+
+/* 자동 brightness follows the OS scheme (tokens.css's dark block is guarded
+   by `:not([data-mode="light"])`, i.e. it also applies under "auto"); when
+   the OS flips while the learner is on 자동, --accent's *computed* value
+   changes even though data-theme/data-mode do not, so nothing else here
+   would repaint the tab icon. Guarded for environments without matchMedia
+   (the node test harness, a stripped-down webview) -- no listener, no
+   throw, and the tab icon just keeps whatever it last had. */
+export function watchSystemScheme() {
+  let mq;
+  try {
+    mq = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
+  } catch {
+    return;
+  }
+  if (!mq || typeof mq.addEventListener !== 'function') return;
+  mq.addEventListener('change', () => {
+    if (readCurrentMode() === 'auto') paintFavicon();
+  });
 }
 
 /* What is on <html> right now -- the source of truth once the page is up,

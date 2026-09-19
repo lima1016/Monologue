@@ -63,6 +63,13 @@ class El {
     // A plain bag, not a CSSStyleDeclaration: the app only writes single
     // properties (the week bar's width) and tests read them back.
     this.style = {};
+    // No layout engine, so these stay 0 unless a test sets them -- growth.js's
+    // tooltip clamp reads offsetWidth/offsetHeight (the tip) and
+    // clientWidth/clientHeight (its wrapper) to keep itself inside the box.
+    this.offsetWidth = 0;
+    this.offsetHeight = 0;
+    this.clientWidth = 0;
+    this.clientHeight = 0;
     this.attributes = {};
     this.listeners = {};
     this.childNodes = [];
@@ -136,6 +143,17 @@ class El {
   close() { this.open = false; }
 }
 
+/* An SVG element (the 성장 tab's charts). In a browser its className is an
+   SVGAnimatedString, so the app writes classes with setAttribute('class');
+   here that also feeds classList, as it does in a browser. */
+class SvgEl extends El {
+  constructor(ns, tag) { super(tag); this.namespaceURI = ns; }
+  setAttribute(name, value) {
+    super.setAttribute(name, value);
+    if (name === 'class') this.className = String(value);
+  }
+}
+
 class TextNode {
   constructor(text) { this.textContent = String(text); this.parentNode = null; }
 }
@@ -152,6 +170,7 @@ export const document = {
     return elements.get(id);
   },
   createElement(tag) { return new El(tag); },
+  createElementNS(ns, tag) { return new SvgEl(ns, tag); },
   createTextNode(text) { return new TextNode(text); },
   addEventListener() {},
   querySelector() { return null; },

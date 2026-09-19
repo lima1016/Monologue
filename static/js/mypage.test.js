@@ -34,6 +34,22 @@ const COACH = {
     { habit: '여러 말을 끊지 않고 이어 말해요', tip: '한 문장 말하고 숨을 한 번 쉬어요', said: 'Yes water please And', fixed: 'Yes, water please.', tag: '어순' },
     { habit: '장소 앞 전치사를 빠뜨려요', tip: '"by the"를 먼저 붙여요', said: 'sit the window', fixed: 'sit by the window.', tag: '어순' },
   ] };
+/* /stats/growth: 16 weeks of days from Monday 2026-06-01 with one day spoken
+   on, one graded week, one 1분 말하기, one level test. growth.test.js covers
+   the drawing; these cover when it loads. */
+const GROWTH = (over = {}) => ({
+  today: '2026-09-16', streak: 1, longest: 4, minutes: 30,
+  calendar: Array.from({ length: 112 }, (_, i) => {
+    const d = new Date(2026, 5, 1 + i);
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { day, turns: i === 107 ? 6 : 0 };
+  }),
+  accuracy: Array.from({ length: 12 }, (_, i) => ({ week: `w${i}`, correct: i === 11 ? 3 : 0, graded: i === 11 ? 4 : 0 })),
+  timed: [{ session_id: 9, day: '2026-09-12', wpm: 100, long_pauses: 2, words: 100 }],
+  level_tests: [{ finished_at: '2026-09-10T03:00:00+00:00', cefr: 'B1', step: '상위', ielts: '4.5–5.0',
+                  toefl: { band: '3.5', old: '18–19' }, jf: null }],
+  ...over,
+});
 const HISTORY = (n, more = false) => ({ items: Array.from({ length: n }, (_, i) => ({
   id: 100 + i, ended_at: '2026-09-13T05:00:00+00:00', title: `상황 ${i}`, mode: i === 0 ? 'script' : 'free', turns: 8, wrong: 2 })), more });
 
@@ -55,6 +71,7 @@ function routes(extra = {}) {
       { speaker: 'bot', text: 'Hi.' }, { speaker: 'user', text: 'I go', ok: 0, fixed: 'I went.' }] });
     if (url.startsWith('/api/stats/home')) return jsonResponse({ top_tags: [] });
     if (url.startsWith('/api/mypage/coach')) { seen.coach = (seen.coach || 0) + 1; return extra.coach ? extra.coach(url) : jsonResponse(COACH); }
+    if (url.startsWith('/api/stats/growth')) { (seen.growth ||= []).push(url); return extra.growth ? extra.growth(url) : jsonResponse(GROWTH()); }
     return jsonResponse({});
   });
   return seen;
@@ -837,7 +854,10 @@ test('arrow keys move between tabs and wrap', async () => {
   assert.equal(document.activeElement, $('tab-weak'));
   key('ArrowLeft', 'tab-weak');
   key('ArrowLeft', 'tab-review');
+  // 기록 is last in the row, so it is where ← from the first tab wraps to.
   assert.equal($('tab-history').getAttribute('aria-selected'), 'true');
+  key('ArrowRight', 'tab-history');
+  assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
   key('Home', 'tab-history');
   assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
   assert.equal(key('End', 'tab-review'), true);
@@ -1192,4 +1212,195 @@ test('다시 테스트 and 레벨 테스트 (7분) open the test at its intro', 
   assert.equal(router.current(), 'leveltest');
   assert.equal(lt.levelTestState().step, 'intro');
   lt.leaveLevelTest();
+});
+
+
+/* ---------- 성장: the summary card above the tabs ---------- */
+
+const card = () => $('growth-body');
+const more = () => $('btn-growth-more');
+const details = () => $('growth-details-body');
+
+test('성장 is no longer a tab: three tabs in index.html, and the card sits between the level line and the tabs', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /id="tab-growth"|id="growth-section"/);
+  assert.equal((html.match(/role="tab" /g) || []).length, 3);
+  const level = html.indexOf('id="level-card"');
+  const cardAt = html.indexOf('<section id="growth-card"');
+  const tabs = html.indexOf('id="mypage-tabs"');
+  assert.ok(level > 0 && level < cardAt && cardAt < tabs);
+  assert.match(html, /<div id="growth-body"[^>]*\stabindex="-1"/);
+  assert.match(html, /id="btn-growth-more"[^>]*aria-expanded="false"[^>]*aria-controls="growth-details"/);
+  assert.match(html, /<div id="growth-details" class="fold is-collapsed"><div id="growth-details-body" class="fold-inner">/);
+});
+
+test("a remembered 'growth' tab opens on 복습", async () => {
+  routes();
+  stubStorage({ 'mypage-tab': 'growth' });
+  await mypage.openMypage();
+  assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
+  assert.equal($('review-section').hidden, false);
+  // Even when another tab was on screen last: the stored value is no tab.
+  mypage.selectTab('history');
+  globalThis.localStorage.setItem('mypage-tab', 'growth');
+  await mypage.openMypage();
+  assert.equal($('tab-review').getAttribute('aria-selected'), 'true');
+  assert.equal($('history-section').hidden, true);
+});
+
+test('the card loads with the rest of the page, whatever tab is on: calendar, streak, accuracy and 1분 말하기', async () => {
+  const seen = routes();
+  stubStorage({ 'mypage-tab': 'history' });
+  await mypage.openMypage();
+  await settleAll();
+  assert.deepEqual(seen.growth, ['/api/stats/growth?language=en']);
+  assert.equal(byCls(card(), 'cal-cell').length, 112);
+  assert.equal(byCls(card(), 'heat-key').length, 1);
+  assert.equal(byCls(card(), 'growth-streak')[0].textContent, '연속 1일 · 총 30분');
+  assert.match(text(byCls(card(), 'growth-acc')[0]), /^이번 주 정확도 75%/);
+  assert.match(text(byCls(card(), 'growth-timed')[0]), /^1분 말하기 분당 100단어[\s\S]*· 긴 멈춤 2번/);
+  assert.equal(more().classList.contains('is-invisible'), false);
+  assert.equal(more().hidden, false);
+  assert.equal($('growth-card').getAttribute('aria-busy'), null);
+});
+
+test('the card shows ▲ and ▼ from the data, and falls back to the latest week with grading', async () => {
+  const accuracy = GROWTH().accuracy.map((w, i) => (i === 9 ? { ...w, correct: 9, graded: 10 }
+    : i === 10 ? { ...w, correct: 4, graded: 5 } : { ...w, correct: 0, graded: 0 }));
+  const timed = [{ session_id: 8, day: '2026-09-05', wpm: 90, long_pauses: 3, words: 90 },
+                 { session_id: 9, day: '2026-09-12', wpm: 104, long_pauses: 1, words: 104 }];
+  routes({ growth: () => jsonResponse(GROWTH({ accuracy, timed })) });
+  await mypage.openMypage();
+  await settleAll();
+  const acc = byCls(card(), 'growth-acc')[0];
+  assert.match(text(acc), /^지난 주 정확도 80%/);
+  assert.equal(byCls(acc, 'growth-delta')[0].textContent, '▼');
+  const t = byCls(card(), 'growth-timed')[0];
+  assert.match(text(t), /분당 104단어/);
+  assert.equal(byCls(t, 'growth-delta')[0].textContent, '▲');
+  assert.match(text(t), /긴 멈춤 1번/);
+});
+
+test('with no practice at all the card is one guidance line and no 자세히 보기', async () => {
+  routes({ growth: () => jsonResponse(GROWTH({
+    calendar: GROWTH().calendar.map((c) => ({ ...c, turns: 0 })), streak: 0, longest: 0, minutes: 0,
+    accuracy: GROWTH().accuracy.map((w) => ({ ...w, correct: 0, graded: 0 })), timed: [], level_tests: [] })) });
+  await mypage.openMypage();
+  await settleAll();
+  assert.equal(card().children.length, 1);
+  assert.equal(card().children[0].textContent, '연습하면 여기에 쌓여요');
+  assert.equal(byCls(card(), 'growth-chart').length, 0);
+  assert.equal(more().hidden, true);
+  assert.equal(more().getAttribute('aria-expanded'), 'false');
+});
+
+test('자세히 보기 folds the charts open, drawn the first time, and 접기 folds them away', async () => {
+  routes();
+  await mypage.openMypage();
+  await settleAll();
+  assert.equal(more().textContent, '자세히 보기 ▾');
+  assert.equal(more().getAttribute('aria-expanded'), 'false');
+  assert.ok($('growth-details').classList.contains('is-collapsed'));
+  assert.equal(details().children.length, 0, 'charts drawn before the fold was opened');
+  mypage.toggleGrowthDetails();
+  assert.equal(more().getAttribute('aria-expanded'), 'true');
+  assert.equal(more().textContent, '접기 ▴');
+  assert.equal($('growth-details').classList.contains('is-collapsed'), false);
+  assert.deepEqual(byCls(details(), 'growth-block').map((b) => byCls(b, 'label')[0].textContent),
+    ['연습한 날', '정확도 변화', '1분 말하기', '레벨 테스트 기록']);
+  assert.equal(byCls(details(), 'growth-table').length, 4, '표로 보기 under the days, accuracy and both 1분 말하기 charts');
+  assert.match(text(details()), /최장 연속 4일/);
+  const drawn = details().children[0];
+  mypage.toggleGrowthDetails();
+  assert.equal(more().getAttribute('aria-expanded'), 'false');
+  assert.equal(more().textContent, '자세히 보기 ▾');
+  assert.ok($('growth-details').classList.contains('is-collapsed'));
+  mypage.toggleGrowthDetails();
+  assert.equal(details().children[0], drawn, 'opened again, the same answer is not drawn twice');
+});
+
+test('a reload with the fold open draws the new answer under it at once', async () => {
+  routes();
+  await mypage.openMypage();
+  await settleAll();
+  mypage.toggleGrowthDetails();
+  routes({ growth: () => jsonResponse(GROWTH({ longest: 11 })) });
+  await mypage.openMypage();
+  await settleAll();
+  assert.equal(more().getAttribute('aria-expanded'), 'true');
+  assert.match(text(details()), /최장 연속 11일/);
+});
+
+test("while the card loads it holds the calendar's box and its lines, and says so", async () => {
+  let release;
+  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH())); }) });
+  const opening = mypage.openMypage();
+  await settleAll();
+  assert.match(text(card()), /기록을 모으는 중이에요/);
+  assert.equal($('growth-card').getAttribute('aria-busy'), 'true');
+  const box = byCls(card(), 'growth-chart');
+  assert.equal(box.length, 1);
+  assert.ok(box[0].classList.contains('skeleton'));
+  assert.match(box[0].style.height, /^\d+px$/);
+  assert.equal(byCls(card(), 'growth-line').filter((l) => l.classList.contains('skeleton')).length, 3);
+  assert.equal(more().classList.contains('is-invisible'), true, 'the toggle holds its row, unseen');
+  release();
+  await opening;
+  assert.doesNotMatch(text(card()), /모으는 중/);
+  assert.equal($('growth-card').getAttribute('aria-busy'), null);
+  assert.equal(byCls(card(), 'cal-cell').length, 112);
+});
+
+test('a reload dims the painted card in place instead of a skeleton, and wakes it on the answer', async () => {
+  routes();
+  await mypage.openMypage();
+  await settleAll();
+  let release;
+  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH({ streak: 5 }))); }) });
+  const reloading = mypage.openMypage();
+  await settleAll();
+  assert.ok($('growth-card').classList.contains('is-refreshing'));
+  assert.equal($('growth-card').inert, true);
+  assert.equal(byCls(card(), 'skeleton').length, 0, 'a reload drew a skeleton over the painted card');
+  assert.equal(byCls(card(), 'growth-streak')[0].textContent, '연속 1일 · 총 30분');
+  release();
+  await reloading;
+  assert.equal($('growth-card').classList.contains('is-refreshing'), false);
+  assert.equal($('growth-card').inert, false);
+  assert.equal(byCls(card(), 'growth-streak')[0].textContent, '연속 5일 · 총 30분');
+});
+
+test('a card answer from an older load or language is not painted', async () => {
+  let release;
+  routes({ growth: () => new Promise((r) => { release = () => r(jsonResponse(GROWTH({ streak: 9 }))); }) });
+  mypage.openMypage();
+  await settleAll();
+  state.language = 'ja';
+  const seen = routes({ growth: () => jsonResponse(GROWTH({ streak: 2 })) });
+  await mypage.openMypage();
+  await settleAll();
+  release();
+  await settleAll();
+  assert.deepEqual(seen.growth, ['/api/stats/growth?language=ja']);
+  assert.equal(byCls(card(), 'growth-streak')[0].textContent, '연속 2일 · 총 30분');
+});
+
+test('a card that fails says so with 다시 시도, and trying again draws it and takes focus', async () => {
+  let fail = true;
+  const seen = routes({ growth: () => (fail ? jsonResponse({ detail: 'x' }, { ok: false, status: 500 }) : jsonResponse(GROWTH())) });
+  await mypage.openMypage();
+  await settleAll();
+  assert.match(text(card()), /불러오지 못했어요/);
+  assert.equal(byCls(card(), 'growth-retry')[0].textContent, '다시 시도');
+  assert.equal(more().hidden, true);
+  assert.equal($('growth-card').getAttribute('aria-busy'), null);
+  // The rest of the page is not held up by it.
+  assert.equal($('review-count').textContent, '오늘의 복습 2개');
+  fail = false;
+  await mypage.loadGrowth({ force: true });
+  assert.equal(seen.growth.length, 2);
+  assert.equal(byCls(card(), 'cal-cell').length, 112);
+  assert.equal(more().hidden, false);
+  assert.equal(document.activeElement, card());
 });

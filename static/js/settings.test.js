@@ -16,15 +16,45 @@ beforeEach(() => resetDom());
 test('an English dialog hides the Japanese reading aids', () => {
   $('settings-language').value = 'en';
   syncLanguageSections();
-  assert.equal($('reading-prefs').hidden, true);
+  assert.equal($('lang-section-ja').classList.contains('is-inactive'), true);
+  assert.equal($('lang-section-ja').inert, true);
+  assert.equal($('lang-section-ja').getAttribute('aria-hidden'), 'true');
+  assert.equal($('lang-section-en').classList.contains('is-inactive'), false);
+  assert.equal($('lang-section-en').inert, false);
+  assert.equal($('lang-section-en').getAttribute('aria-hidden'), 'false');
+  // Not removed, not display:none/[hidden] -- still in the tree, holding its
+  // height in the shared grid cell (components.css: .lang-sections).
+  assert.equal($('reading-prefs').hidden, false);
 });
 
-test('switching the dialog to Japanese shows them again', () => {
+test('switching the dialog to Japanese shows them again, and the English section is left in place, only inert', () => {
   $('settings-language').value = 'en';
   syncLanguageSections();
   $('settings-language').value = 'ja';
   syncLanguageSections();
-  assert.equal($('reading-prefs').hidden, false);
+  assert.equal($('lang-section-ja').classList.contains('is-inactive'), false);
+  assert.equal($('lang-section-ja').inert, false);
+  assert.equal($('lang-section-ja').getAttribute('aria-hidden'), 'false');
+  assert.equal($('lang-section-en').classList.contains('is-inactive'), true);
+  assert.equal($('lang-section-en').inert, true);
+  assert.equal($('lang-section-en').getAttribute('aria-hidden'), 'true');
+});
+
+test('both languages\' voice lists are rendered at once, into their own containers', async () => {
+  const { renderVoiceLists } = await import('./settings.js');
+  const { stubFetch, jsonResponse } = await import('./dom-shim.js');
+  stubFetch(async (url) => {
+    const language = new URL(url, 'http://x').searchParams.get('language');
+    const voices = language === 'en'
+      ? [{ id: 'a', label: 'A', gender: 'female' }]
+      : [{ id: 'b', label: 'B', gender: 'male' }, { id: 'c', label: 'C', gender: 'female' }];
+    return jsonResponse({ voices, selected: voices[0].id });
+  });
+  await renderVoiceLists();
+  assert.match($('voice-list-en').innerHTML, /id="v-a"/);
+  assert.doesNotMatch($('voice-list-en').innerHTML, /id="v-b"/);
+  assert.match($('voice-list-ja').innerHTML, /id="v-b"/);
+  assert.match($('voice-list-ja').innerHTML, /id="v-c"/);
 });
 
 test('the pronunciation script choice is saved with the other reading prefs', async () => {
@@ -50,7 +80,7 @@ test('the pronunciation script choice is saved with the other reading prefs', as
 
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { THEMES, MODES, applyTheme, initScreenPrefs, readScreenPrefs } from './settings.js';
+import { THEMES, MODES, applyTheme, initScreenPrefs, readScreenPrefs, watchSystemScheme } from './settings.js';
 
 const html = () => document.documentElement;
 
@@ -168,4 +198,70 @@ test('the head script falls back to 기본/자동 on junk, empty or throwing sto
   assert.deepEqual(runHeadScript(throwingStorage), fallback);
   // No localStorage global at all: the ReferenceError is caught too.
   assert.deepEqual(runHeadScript(null), fallback);
+});
+
+/* ---------- the tab icon follows 자동 across an OS scheme flip ----------
+   The colour math itself (favicon.svg's shapes, the data: URL, the "leave
+   it alone" cases) is favicon.test.js's job; this is only about *when*
+   settings.js asks for a repaint. */
+
+const realGetComputedStyle = globalThis.getComputedStyle;
+const realMatchMedia = globalThis.matchMedia;
+function stubAccent(color) {
+  globalThis.getComputedStyle = () => ({
+    getPropertyValue: (prop) => (prop === '--accent' ? color : ''),
+  });
+}
+function restoreGlobals() {
+  if (realGetComputedStyle === undefined) delete globalThis.getComputedStyle;
+  else globalThis.getComputedStyle = realGetComputedStyle;
+  if (realMatchMedia === undefined) delete globalThis.matchMedia;
+  else globalThis.matchMedia = realMatchMedia;
+}
+
+test('no matchMedia at all: watchSystemScheme does not throw', () => {
+  delete globalThis.matchMedia;
+  try {
+    assert.doesNotThrow(() => watchSystemScheme());
+  } finally {
+    restoreGlobals();
+  }
+});
+
+test('the OS scheme flipping while brightness is 자동 repaints the tab icon', () => {
+  try {
+    stubAccent('#a85a3c');
+    withStorage(memoryStorage(), () => applyTheme('default', 'auto'));
+    const before = $('favicon-link').getAttribute('href');
+
+    let onChange;
+    globalThis.matchMedia = () => ({ addEventListener: (type, fn) => { if (type === 'change') onChange = fn; } });
+    watchSystemScheme();
+    stubAccent('#d98b64');
+    onChange();
+
+    const after = $('favicon-link').getAttribute('href');
+    assert.notEqual(after, before);
+    assert.match(decodeURIComponent(after), /fill="#d98b64"/);
+  } finally {
+    restoreGlobals();
+  }
+});
+
+test('the OS scheme flipping while brightness is fixed (밝게/어둡게) leaves the tab icon alone', () => {
+  try {
+    stubAccent('#a85a3c');
+    withStorage(memoryStorage(), () => applyTheme('default', 'light'));
+    const before = $('favicon-link').getAttribute('href');
+
+    let onChange;
+    globalThis.matchMedia = () => ({ addEventListener: (type, fn) => { if (type === 'change') onChange = fn; } });
+    watchSystemScheme();
+    stubAccent('#d98b64');
+    onChange();
+
+    assert.equal($('favicon-link').getAttribute('href'), before);
+  } finally {
+    restoreGlobals();
+  }
 });

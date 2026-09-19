@@ -1927,6 +1927,56 @@ def mypage_stats(language: Language):
     }
 
 
+_GROWTH_WEEKS = 16      # 연습 잔디: 16 columns of Mon..Sun, today in the last
+_ACCURACY_WEEKS = 12
+_TIMED_KEEP = 20
+
+
+@router.get("/stats/growth")
+def growth_stats(language: Language):
+    """성장 tab: am I getting better? Every number is counted from what is
+    already stored -- no model call. Local dates throughout (db.home_stats'
+    docstring says why); the streak is home_stats' own rule."""
+    today = _today()
+    # The grid ends on today's weekday row, in the last column: 15 whole
+    # weeks before this one, from their Monday, through today -- then padded
+    # to 112 cells so the days after today in this week read as future (0).
+    this_monday = today - timedelta(days=today.weekday())
+    start = this_monday - timedelta(weeks=_GROWTH_WEEKS - 1)
+    turns = db.turns_by_day(language, start, today)
+    calendar = [{"day": (start + timedelta(days=i)).isoformat(),
+                 "turns": turns.get((start + timedelta(days=i)).isoformat(), 0)}
+                for i in range(_GROWTH_WEEKS * 7)]
+    days = db.practice_day_list(language)
+
+    first_week = this_monday - timedelta(weeks=_ACCURACY_WEEKS - 1)
+    weeks = {(first_week + timedelta(weeks=i)).isoformat(): [0, 0] for i in range(_ACCURACY_WEEKS)}
+    for day, (correct, graded) in db.accuracy_by_day(language, first_week).items():
+        d = date.fromisoformat(day)
+        bucket = weeks.get((d - timedelta(days=d.weekday())).isoformat())
+        if bucket is not None:
+            bucket[0] += correct
+            bucket[1] += graded
+
+    timed_rows = [{"session_id": r["session_id"], "day": r["day"], "words": r["words"],
+                   # app/timed.py's round_stats formula, as _timed_report recomputes it.
+                   "wpm": round(r["words"] / (max(r["seconds"], 1) / 60)),
+                   "long_pauses": r["long_pauses"]}
+                  for r in db.timed_first_rounds(language, _TIMED_KEEP)]
+    tests = [{k: t.get(k) for k in ("finished_at", "cefr", "step", "ielts", "toefl", "jf")}
+             for t in db.finished_level_tests(language)]
+    return {
+        "today": today.isoformat(),
+        "calendar": calendar,
+        "streak": db.streak_from(days, today),
+        "longest": db.longest_streak(days),
+        "minutes": int(db.practice_seconds(language) // 60),
+        "accuracy": [{"week": w, "correct": c, "graded": g} for w, (c, g) in weeks.items()],
+        "timed": timed_rows,
+        "level_tests": tests,
+    }
+
+
 @router.get("/review")
 def review_items(language: Language):
     items = db.due_reviews(language, _today())

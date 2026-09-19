@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Monologue</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" id="favicon-link" href="/favicon.svg" type="image/svg+xml">
 <!-- 설정 > 화면. Runs before the stylesheets below so a saved theme is on
      <html> before first paint -- no flash of the default palette. Mirrors
      applyTheme/readScreenPrefs in js/settings.js (same keys, same theme list;
@@ -47,11 +47,10 @@
     </a>
   </h1>
   <div class="status">
-    <span id="status-ollama" class="dot" title="Ollama"></span>
-    <span id="status-voicevox" class="dot" title="VOICEVOX"></span>
     <button id="btn-mypage" class="ghost" type="button">마이페이지</button>
     <button id="btn-settings" class="ghost">설정</button>
   </div>
+  <div id="health-notice" class="health-notice" role="status" aria-live="polite" aria-hidden="true"></div>
 </header>
 
 <main>
@@ -216,6 +215,14 @@
         <div id="level-body"></div>
       </div>
     </div>
+    <!-- How practice is going, loaded with the rest of the page: the
+         calendar and a few lines, with every chart one tap away under
+         자세히 보기 (mypage.js draws them when the fold first opens). -->
+    <section id="growth-card" class="panel growth-card" aria-label="연습 요약">
+      <div id="growth-body" tabindex="-1"></div>
+      <button id="btn-growth-more" class="ghost growth-more is-invisible" type="button" aria-hidden="true" aria-expanded="false" aria-controls="growth-details">자세히 보기 ▾</button>
+      <div id="growth-details" class="fold is-collapsed"><div id="growth-details-body" class="fold-inner"></div></div>
+    </section>
     <div id="mypage-tabs" class="mypage-tabs" role="tablist" aria-label="마이페이지">
       <button type="button" role="tab" id="tab-review" data-tab="review" aria-controls="review-section" aria-selected="true" tabindex="0">복습<span id="tab-review-n" class="tab-n"></span></button>
       <button type="button" role="tab" id="tab-weak" data-tab="weak" aria-controls="weak-section" aria-selected="false" tabindex="-1">약점</button>
@@ -485,17 +492,30 @@
       <option value="ja">日本語</option>
     </select>
   </label>
-  <div id="voice-list"></div>
-  <fieldset id="reading-prefs">
-    <legend>일본어 읽기 보조</legend>
-    <label><input type="checkbox" id="pref-furigana" checked> 후리가나 (한자 위 히라가나)</label>
-    <label><input type="checkbox" id="pref-romaji" checked> 발음</label>
-    <div class="pron-script" role="radiogroup" aria-label="발음 표기">
-      <label><input type="radio" name="pron-script" id="pref-pron-hangul" value="hangul" checked> 한글 (아리가토오)</label>
-      <label><input type="radio" name="pron-script" id="pref-pron-romaji" value="romaji"> 로마자 (arigatou)</label>
+  <!-- Both languages' settings live here at once, stacked in the same grid
+       cell (components.css: .lang-sections), so the cell is always as tall as
+       the taller one and picking a language never resizes the dialog. Only
+       the chosen language is visible/reachable -- the other keeps
+       .is-inactive (visibility: hidden) plus inert so it can't be focused,
+       clicked or read by assistive tech, instead of being removed. -->
+  <div id="lang-sections" class="lang-sections">
+    <div id="lang-section-en" class="lang-section">
+      <div id="voice-list-en"></div>
     </div>
-    <p class="hint">일본어 세션에만 적용됩니다. 가나를 읽을 수 있게 되면 발음부터 끄세요.</p>
-  </fieldset>
+    <div id="lang-section-ja" class="lang-section">
+      <div id="voice-list-ja"></div>
+      <fieldset id="reading-prefs">
+        <legend>일본어 읽기 보조</legend>
+        <label><input type="checkbox" id="pref-furigana" checked> 후리가나 (한자 위 히라가나)</label>
+        <label><input type="checkbox" id="pref-romaji" checked> 발음</label>
+        <div class="pron-script" role="radiogroup" aria-label="발음 표기">
+          <label><input type="radio" name="pron-script" id="pref-pron-hangul" value="hangul" checked> 한글 (아리가토오)</label>
+          <label><input type="radio" name="pron-script" id="pref-pron-romaji" value="romaji"> 로마자 (arigatou)</label>
+        </div>
+        <p class="hint">일본어 세션에만 적용됩니다. 가나를 읽을 수 있게 되면 발음부터 끄세요.</p>
+      </fieldset>
+    </div>
+  </div>
   <button id="btn-close-settings">닫기</button>
 </dialog>
 
