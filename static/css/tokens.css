@@ -20,11 +20,14 @@
   --bg: #faf5ef;
   --surface: #fffdfa;
   /* Must stay visibly distinct from --bg, not merely different from it. The
-     old cool palette sat at 1.04:1 here and .msg.bot rendered as bare text on
-     the page; 1.12:1 was the value that fixed it. This warm pair is 1.13:1 --
-     the same argument, recomputed for the new hues. (Measured with WCAG
-     relative luminance, which tests/test_themes_css.py uses, the pair comes
-     out at 1.07:1; the added themes are held to 1.08:1 or more.) */
+     old cool palette sat at 1.04:1 here (a simple sRGB-average measure, not
+     WCAG) and .msg.bot rendered as bare text on the page; 1.12:1 by that same
+     measure was the value that fixed it. This warm pair scores 1.13:1 on that
+     non-WCAG measure -- the same argument, recomputed for the new hues.
+     Measured with WCAG relative luminance instead, which
+     tests/test_themes_css.py actually uses, the pair comes out at 1.07:1
+     (~1.068); the added themes are held to 1.08:1 or more by that same WCAG
+     measure. */
   --surface-sunken: #f0e7da;
   --line: #e8ded0;
   --text: #2b2520;          /* 14.0:1 on --bg */

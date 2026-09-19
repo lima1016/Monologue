@@ -329,7 +329,11 @@ dialog::backdrop { background: rgba(20, 21, 28, .45); }
    set inline in index.html) whatever theme is showing, so the six can be
    compared side by side. The pressed one gets an inset ring rather than a
    thicker border, so choosing never shifts the grid. */
-#screen-prefs { margin: 0 0 var(--space-4); }
+#screen-prefs { border: 0; padding: 0; margin: 0 0 var(--space-4); min-width: 0; }
+/* legend keeps the fieldset's grouping semantics but reads like the dialog's
+   other section labels (the plain `label` rule above 언어 sets these same
+   two values). */
+#screen-prefs legend { padding: 0; margin: 0 0 var(--space-3); font-size: var(--text-sm); }
 .swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2);
             margin-bottom: var(--space-3); }
 .swatch { --sw-bg: var(--bg); --sw-accent: var(--accent); /* overridden inline per theme */
