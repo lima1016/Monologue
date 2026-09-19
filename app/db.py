@@ -1260,7 +1260,11 @@ def set_round_native(session_id, round, native, level) -> None:
 def history(language, offset, limit) -> list[dict]:
     """Finished sessions, newest first. A script session reads fixed lines, so
     none of its turns is wrong or graded; `graded` lets a row that was never
-    graded (an old session, or every grading call failed) skip 고친 곳 0."""
+    graded (an old session, or every grading call failed) skip 고친 곳 0.
+    `rounds` is only meaningful for a timed session -- how many times it was
+    told the whole way through -- and is 0 for every other mode; timed's own
+    `wrong`/`graded` stay the general (non-script) computation above since
+    only round 1's sentences ever become messages rows."""
     with connect() as conn:
         rows = conn.execute(
             "SELECT s.id, s.scenario_id, s.topic, s.mode, s.ended_at, s.shadowing,"
@@ -1270,7 +1274,10 @@ def history(language, offset, limit) -> list[dict]:
             "  END wrong,"
             "  CASE WHEN s.mode = 'script' THEN 0 ELSE"
             "  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.speaker = 'user' AND m.ok IS NOT NULL)"
-            "  END graded"
+            "  END graded,"
+            "  CASE WHEN s.mode = 'timed' THEN"
+            "  (SELECT COUNT(*) FROM timed_rounds tr WHERE tr.session_id = s.id) ELSE 0"
+            "  END rounds"
             " FROM sessions s WHERE s.language = ? AND s.report IS NOT NULL"
             " ORDER BY s.ended_at DESC, s.id DESC LIMIT ? OFFSET ?", (language, limit, offset)).fetchall()
     return [dict(r) for r in rows]

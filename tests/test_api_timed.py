@@ -624,3 +624,68 @@ def test_upload_takes_a_real_length_up_to_the_cap(client, monkeypatch, seconds):
     Stt(monkeypatch)
     sid = _timed()
     assert _upload(client, sid, seconds=seconds).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# ending a timed session: a report of every round, the level from round 1,
+# recordings swept; GET /report rebuilds the same shape later
+# ---------------------------------------------------------------------------
+
+def test_end_timed_session_reports_every_round_level_from_round_one_and_sweeps_recordings(client, monkeypatch):
+    Stt(monkeypatch)
+    sid = _timed()
+    _upload(client, sid)
+    Model(monkeypatch, WRONG)
+    client.post(f"/api/sessions/{sid}/timed/rounds/1/grade/0")
+    Model(monkeypatch, RIGHT)
+    client.post(f"/api/sessions/{sid}/timed/rounds/1/grade/1")
+    Model(monkeypatch, NATIVE)
+    client.post(f"/api/sessions/{sid}/timed/rounds/1/native")
+
+    _upload(client, sid)
+    Model(monkeypatch, WRONG)
+    client.post(f"/api/sessions/{sid}/timed/rounds/2/grade/0")
+    Model(monkeypatch, {"native": "Round two native answer here.", "level": "advanced"})
+    client.post(f"/api/sessions/{sid}/timed/rounds/2/native")
+
+    body = client.post(f"/api/sessions/{sid}/end").json()
+    assert body["kind"] == "timed"
+    assert body["topic"] == "What did you do last weekend?"
+    assert body["level"] == "intermediate"          # round 1's level, not round 2's
+    assert [r["round"] for r in body["rounds"]] == [1, 2]
+    r1, r2 = body["rounds"]
+    assert r1["fixed"] == 1 and r1["graded"] == 2 and r1["native"] == NATIVE["native"]
+    assert r2["fixed"] == 1 and r2["graded"] == 1 and r2["native"] == "Round two native answer here."
+    assert body["stats"] == {"turns": 2, "wrong": 1, "minutes": 1}
+    assert body["summary"] == "" and body["weak_points"] == [] and body["expressions"] == []
+
+    assert not (config.AUDIO_DIR / f"s{sid}_r1.webm").exists()
+    assert not (config.AUDIO_DIR / f"s{sid}_r2.webm").exists()
+    assert all(r["audio_path"] is None for r in db.get_rounds(sid))
+
+    again = client.get(f"/api/sessions/{sid}/report").json()
+    assert again["kind"] == "timed" and again["rounds"] == body["rounds"]
+    assert again["level"] == "intermediate"
+    assert again["mode"] == "timed" and again["graded"] is True
+
+
+def test_end_timed_session_with_no_rounds_has_empty_report_and_no_error(client):
+    sid = _timed()
+    body = client.post(f"/api/sessions/{sid}/end").json()
+    assert body["kind"] == "timed" and body["rounds"] == [] and body["level"] is None
+    assert body["stats"] == {"turns": 0, "wrong": 0, "minutes": 0}
+
+
+def test_history_row_shows_round_count_for_timed_and_zero_for_other_modes(client, monkeypatch):
+    Stt(monkeypatch)
+    tsid = _timed()
+    _upload(client, tsid)
+    _upload(client, tsid)
+    client.post(f"/api/sessions/{tsid}/end")
+    other = db.create_session("en", "free", scenario_id="airport-checkin-en")
+    db.add_message(other, "user", "hi", ok=1)
+    db.end_session(other, json.dumps({"summary": "s"}), "beginner")
+    items = client.get("/api/sessions/history?language=en").json()["items"]
+    by_id = {i["id"]: i for i in items}
+    assert by_id[tsid]["mode"] == "timed" and by_id[tsid]["rounds"] == 2
+    assert by_id[other]["rounds"] == 0

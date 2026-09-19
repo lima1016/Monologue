@@ -1540,6 +1540,47 @@ def _shadow_report(session: dict) -> dict:
             "level": None, "stats": stats, "shadow": summary}
 
 
+def _timed_report(session: dict) -> dict:
+    """1분 말하기's report: every round exactly as it was graded live, plus the
+    level round 1 settled on. No model call, like _shadow_report -- a timed
+    session is graded sentence by sentence as it happens, so by the time it
+    ends there is nothing left to ask the model for.
+
+    wpm is recomputed here rather than read back from storage (round rows
+    don't carry it): round(words / (max(seconds, 1) / 60)), same formula as
+    app/timed.py's round_stats so a round's number never drifts from what the
+    learner saw while recording it.
+
+    `stats` mirrors what the free/lesson report shows, but built from round 1
+    alone: `turns` is every sentence round 1 produced (whether graded or
+    not), `wrong` is how many of them came back marked wrong, and `minutes`
+    sums every round's own seconds -- round 2+ took real time even though
+    only round 1 becomes messages rows.
+    """
+    rounds = db.get_rounds(session["id"])
+    round_reports = [{
+        "round": r["round"],
+        "seconds": r["seconds"],
+        "words": r["words"],
+        "wpm": round(r["words"] / (max(r["seconds"], 1) / 60)),
+        "long_pauses": r["long_pauses"],
+        "fixed": sum(1 for s in r["sentences"] if s["ok"] is False),
+        "graded": sum(1 for s in r["sentences"] if s["graded"] and not s.get("filler")),
+        "sentences": r["sentences"],
+        "native": r["native"],
+    } for r in rounds]
+    first_sentences = rounds[0]["sentences"] if rounds else []
+    return {
+        "kind": "timed", "topic": session["topic"], "level": rounds[0]["level"] if rounds else None,
+        "rounds": round_reports, "summary": "", "weak_points": [], "expressions": [], "next_focus": "",
+        "stats": {
+            "turns": len(first_sentences),
+            "wrong": sum(1 for s in first_sentences if s["ok"] is False),
+            "minutes": round(sum(r["seconds"] for r in rounds) / 60),
+        },
+    }
+
+
 @router.post("/sessions/{session_id}/end")
 def finish_session(session_id: int):
     session = db.get_session(session_id)
@@ -1554,6 +1595,12 @@ def finish_session(session_id: int):
         tomorrow = _today() + timedelta(days=1)
         for h in result["shadow"]["hard"]:
             db.enqueue_review(h["message_id"], session["language"], tomorrow)
+        _sweep_recordings(session_id)
+        return result
+
+    if session["mode"] == "timed":
+        result = _timed_report(session)
+        db.end_session(session_id, json.dumps({"kind": "timed"}), result["level"])
         _sweep_recordings(session_id)
         return result
 
@@ -1900,7 +1947,8 @@ def session_history_page(language: Language, offset: int = Query(default=0, ge=0
         titled = _recent_row({**row, "fixed": row["wrong"]})
         items.append({"id": row["id"], "ended_at": row["ended_at"], "title": titled["title"],
                       "mode": row["mode"], "turns": row["turns"], "wrong": row["wrong"],
-                      "graded": row["graded"], "shadowing": bool(row.get("shadowing"))})
+                      "graded": row["graded"], "shadowing": bool(row.get("shadowing")),
+                      "rounds": row["rounds"]})
     return {"items": items, "more": len(rows) > _HISTORY_PAGE}
 
 
@@ -1921,6 +1969,8 @@ def session_report(session_id: int):
         graded = False
     if session["shadowing"]:
         return {**_shadow_report(session), "mode": session["mode"], "shadowing": True, "graded": True}
+    if report.get("kind") == "timed":
+        return {**_timed_report(session), "mode": session["mode"], "graded": True}
     stats = db.session_stats(session_id)
     stats["minutes"] = db.active_minutes(session_id)
     return {"summary": report.get("summary") or "", "weak_points": report.get("weak_points") or [],
