@@ -576,7 +576,12 @@ button.danger:hover:not(:disabled) { border-color: var(--correct-ink); }
                border: 1px solid var(--line); border-radius: var(--radius);
                background: var(--surface); }
 .shadow-card p { margin: 0; }
+/* The counter and whose line it is share the top row: the speaker belongs on
+   a card that shows no words yet, and this row already has its height. */
+.shadow-head { display: flex; align-items: baseline; justify-content: space-between;
+               gap: var(--space-3); }
 .shadow-count { color: var(--text-dim); font-size: var(--text-sm); }
+.shadow-who { color: var(--text-dim); font-size: var(--text-sm); font-weight: 600; }
 .shadow-status { min-height: 1.55em; color: var(--text-dim); }
 .shadow-text { font-size: var(--text-xl); line-height: 1.6; min-height: calc(2 * 1.6em); }
 .shadow-text[data-lang="ja"] { line-height: 2.1;
@@ -588,6 +593,15 @@ button.danger:hover:not(:disabled) { border-color: var(--correct-ink); }
    whole sentence), the verdict, and 글자 보고 함. */
 .shadow-said { min-height: calc(4 * 1.55em + 2 * var(--space-1)); display: grid;
                align-content: start; justify-items: start; gap: var(--space-1); }
+/* The listen stage's instruction stands in that same cell rather than in a row
+   of its own: the answer's four lines are already reserved and are meaningless
+   until something has been said, so the guidance costs no height and the card
+   is one size from 듣기 to 공개. A row of its own would make the listen stage
+   the taller of the two and move the dock at every line. */
+.shadow-answer { display: grid; }
+.shadow-answer > * { grid-area: 1 / 1; }
+.shadow-hint { align-self: center; justify-self: center; text-align: center;
+               color: var(--text-dim); line-height: 1.55; white-space: pre-line; }
 #shadow-verdict.good { color: var(--suggest-ink); }
 #shadow-verdict.bad { color: var(--correct-ink); }
 .shadow-card .tag { font-size: var(--text-xs); font-weight: 600; padding: 2px var(--space-2);

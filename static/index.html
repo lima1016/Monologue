@@ -322,13 +322,22 @@
              Each part holds its own height (components.css), so a stage
              change never moves the dock. -->
         <section id="shadow-card" class="shadow-card" hidden>
-          <p class="shadow-count" id="shadow-count"></p>
+          <p class="shadow-head">
+            <span class="shadow-count" id="shadow-count"></span>
+            <span class="shadow-who" id="shadow-who"></span>
+          </p>
           <p class="shadow-status" id="shadow-status" aria-live="polite"></p>
           <div class="shadow-text fade is-invisible" id="shadow-text" aria-hidden="true"></div>
-          <div class="shadow-said fade is-invisible" id="shadow-said" aria-hidden="true">
-            <p id="shadow-mine"></p>
-            <p id="shadow-verdict"></p>
-            <span id="shadow-peeked" class="tag fade is-invisible">글자 보고 함</span>
+          <!-- The instruction and the answer share one cell (components.css):
+               before the learner speaks the reserved room says what to do
+               instead of sitting blank, and the card never changes height. -->
+          <div class="shadow-answer">
+            <div class="shadow-said fade is-invisible" id="shadow-said" aria-hidden="true">
+              <p id="shadow-mine"></p>
+              <p id="shadow-verdict"></p>
+              <span id="shadow-peeked" class="tag fade is-invisible">글자 보고 함</span>
+            </div>
+            <p class="shadow-hint fade" id="shadow-hint"></p>
           </div>
           <div class="shadow-actions" id="shadow-listen-actions">
             <button type="button" class="btn-stable" data-shadow="replay">다시 듣기</button>

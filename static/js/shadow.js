@@ -14,6 +14,14 @@ import { setShadowHooks, endSession, uploadRecordingFor, setTurnState, canDo, se
 
 const SLOW = 0.75;
 const HIDDEN_TEXT = '●●●●●';
+/* The line is held back until it has been said, so the listen stage has no
+   words of its own. This is what stands in the room the answer will take --
+   without it the stage is a counter, three buttons and six blank lines. */
+const HINT = `들리는 대로 따라 말해 보세요
+아래 🎤 를 누르고 말하세요`;
+/* Distinct from the mic's own 듣는 중... (that one is the app listening to the
+   learner); both write the same row. */
+const PLAYING = '♪ 들려주는 중...';
 let lines = [];
 let items = [];           // the side panel's text span per line, in order
 let index = 0;
@@ -70,7 +78,9 @@ function showLine() {
   lastMessageId = null;
   recorded = false;
   $('shadow-count').textContent = `${index + 1} / ${lines.length}`;
-  $('shadow-status').textContent = '';
+  $('shadow-who').textContent = line.speaker === 'bot' ? '봇' : '나';
+  $('shadow-hint').textContent = HINT;
+  setShown($('shadow-hint'), true);
   // A fresh span per line: annotate() writes whenever /reading answers, and an
   // answer for the line before lands on that line's span, detached by now --
   // never on this one. Annotated here, while the text is still invisible, so
@@ -86,7 +96,22 @@ function showLine() {
   setShown($('shadow-said'), false);
   setShown($('shadow-peeked'), false);
   items.forEach((el, i) => el.parentNode.classList.toggle('current', i === index));
-  play(line.audio_key, line.text);
+  speakLine(line);
+}
+
+/* Plays a line and says so in the status row. The clip is stopped before the
+   row is claimed -- play() would otherwise stop it afterwards and the
+   'stopped' that follows would blank the message just written. Whatever ends
+   the clip (its end, an error, the next play, the browser's voice standing in)
+   clears the row, but only if it is still the one this call wrote: the mic
+   writes there too and its word is the later one. */
+function speakLine(line, options) {
+  const status = $('shadow-status');
+  stopPlayback();
+  status.textContent = PLAYING;
+  play(line.audio_key, line.text, () => {
+    if (status.textContent === PLAYING) status.textContent = '';
+  }, options);
 }
 
 /* The card's own copy of the line. Its reading aids were asked for in
@@ -100,7 +125,7 @@ function showText() {
 function playLine(options) {
   const line = lines[index];
   if (!line || canDo('stop')) return;
-  play(line.audio_key, line.text, null, options);
+  speakLine(line, options);
 }
 
 export function replay() {
@@ -177,6 +202,7 @@ export async function heard(transcript) {
 function reveal(matched) {
   const line = lines[index];
   setStage('reveal');
+  setShown($('shadow-hint'), false);
   const verdict = $('shadow-verdict');
   verdict.textContent = matched ? '✓ 대본과 같아요' : '✗ 조금 달라요';
   verdict.classList.toggle('good', Boolean(matched));
@@ -210,6 +236,7 @@ export function retry() {
   setStage('listen');
   $('shadow-status').textContent = '';
   setShown($('shadow-said'), false);
+  setShown($('shadow-hint'), true);
   showText();
 }
 
@@ -238,7 +265,7 @@ export function onTurn(t) {
   const status = $('shadow-status');
   if (t === 'listening') status.textContent = '듣는 중...';
   else if (t === 'transcribing') status.textContent = '받아쓰는 중...';
-  else if (!saving) status.textContent = '';
+  else if (!saving && status.textContent !== PLAYING) status.textContent = '';
 }
 
 setShadowHooks({ start: startShadow, heard, turn: onTurn });

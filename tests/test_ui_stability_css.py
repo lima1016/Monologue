@@ -311,6 +311,17 @@ def test_the_shadowing_card_holds_its_height_and_never_transforms():
     assert "min-height:" in _rule_body(css, ".shadow-said {")
 
 
+def test_the_listen_stages_guidance_borrows_the_answers_room():
+    """The instruction shown before the learner speaks sits in the very cell
+    the answer will fill, so the card is the same height in both stages. A row
+    of its own would make the listen stage taller than the reveal and move the
+    dock at every line."""
+    css = _all_css()
+    answer = _rule_body(css, ".shadow-answer {")
+    assert "display: grid" in answer
+    assert "grid-area: 1 / 1" in _rule_body(css, ".shadow-answer > * {")
+
+
 def test_four_modes_go_two_by_two_on_a_phone():
     css = _all_css()
     phone = re.findall(r"@media \(max-width: 480px\)\s*\{(.*?)\n\}", css, re.S)

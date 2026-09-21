@@ -31,10 +31,12 @@ window.webkitSpeechRecognition = FakeRecognition;
  * can see which line was played and at what speed. */
 const clips = [];
 globalThis.Audio = class Audio {
-  constructor(src) { this.src = src; this.paused = false; clips.push(this); }
-  addEventListener() {}
+  constructor(src) { this.src = src; this.paused = false; this.on = {}; clips.push(this); }
+  addEventListener(name, fn) { (this.on[name] ||= []).push(fn); }
   play() { return Promise.resolve(); }
   pause() { this.paused = true; }
+  // The card says it is playing; a test needs the clip to be able to stop.
+  end() { (this.on.ended || []).forEach((fn) => fn()); }
 };
 const lastClip = () => clips[clips.length - 1];
 
@@ -446,4 +448,86 @@ test('a second attempt made during the first one\'s upload keeps the card: only 
   await settle();
   assert.equal(shadow.shadowState().saving, false);
   assert.equal($('shadow-verdict').textContent, '✓ 대본과 같아요');
+});
+
+/* --- the listen stage: what a learner sees before they have said anything ---
+ *
+ * The line is deliberately hidden until it has been said (소리 먼저, 글자
+ * 나중), and both slots that will hold it keep their room so the card does not
+ * grow at the reveal. That left the stage with a line counter and three
+ * buttons over six blank lines and nothing saying what to do. These pin what
+ * fills it: whose line this is, that a clip is playing, and the instruction --
+ * all in room that is already reserved, so the card is one height throughout.
+ */
+
+test('듣기 단계는 이번 줄이 누구 말인지와 무엇을 할지 알려 준다', async () => {
+  await begin();
+  assert.equal($('shadow-who').textContent, '봇');
+  assert.equal($('shadow-hint').classList.contains('is-invisible'), false);
+  assert.match($('shadow-hint').textContent, /따라 말해 보세요/);
+  assert.match($('shadow-hint').textContent, /🎤/);
+});
+
+test('화자 표시는 그 줄을 따라간다', async () => {
+  await begin();
+  await say('morning');
+  shadow.nextLine();
+  assert.equal($('shadow-who').textContent, '나');
+});
+
+test('공개되면 안내가 물러나고 그 자리를 내 말이 받는다', async () => {
+  await begin();
+  await say('morning');
+  assert.equal($('shadow-hint').classList.contains('is-invisible'), true);
+  assert.equal($('shadow-said').classList.contains('is-invisible'), false);
+});
+
+test('다시 하기는 안내를 되돌린다', async () => {
+  await begin();
+  await say('morning');
+  shadow.retry();
+  assert.equal($('shadow-hint').classList.contains('is-invisible'), false);
+});
+
+test('줄이 나오는 동안 들려주는 중이라 말하고, 끝나면 그 자리를 비운다', async () => {
+  clips.length = 0;
+  await begin();
+  assert.equal($('shadow-status').textContent, '♪ 들려주는 중...');
+  lastClip().end();
+  assert.equal($('shadow-status').textContent, '');
+});
+
+test('다시 듣기도 들려주는 중을 띄우고, 두 번 눌러도 한 번만 걸린다', async () => {
+  await begin();
+  lastClip().end();
+  shadow.replay();
+  assert.equal($('shadow-status').textContent, '♪ 들려주는 중...');
+  shadow.replay();
+  assert.equal($('shadow-status').textContent, '♪ 들려주는 중...', 'the stopped clip must not blank the new one');
+  lastClip().end();
+  assert.equal($('shadow-status').textContent, '');
+});
+
+test('재생이 끝나도 마이크가 쓴 상태 표시는 지우지 않는다', async () => {
+  await begin();
+  const clip = lastClip();
+  shadow.onTurn('listening');
+  assert.equal($('shadow-status').textContent, '듣는 중...');
+  clip.end();
+  assert.equal($('shadow-status').textContent, '듣는 중...');
+});
+
+test('마이크가 쉬어도 재생 중이라는 표시는 지우지 않는다', async () => {
+  await begin();
+  shadow.onTurn('idle');
+  assert.equal($('shadow-status').textContent, '♪ 들려주는 중...');
+});
+
+test('줄이 바뀌면 안내가 돌아오고 재생 표시가 다시 걸린다', async () => {
+  await begin();
+  await say('morning');
+  assert.equal($('shadow-hint').classList.contains('is-invisible'), true);
+  shadow.nextLine();
+  assert.equal($('shadow-hint').classList.contains('is-invisible'), false);
+  assert.equal($('shadow-status').textContent, '♪ 들려주는 중...');
 });
