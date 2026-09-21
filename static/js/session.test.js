@@ -1415,3 +1415,71 @@ test('startHealthPoll re-polls every 30s so a recovered/failed service updates w
     session.healthClock.cancel = realCancel;
   }
 });
+
+/* The bot's line plays the moment it becomes current, and the learner answers
+ * it -- they do not press 다음 first. nextScriptLine's bot branch only moved
+ * the index on, so what the mic heard was left in #text-input for whatever
+ * pressed 다음 next to pick up and send as some other line's answer. */
+test('answering the bot line that just played sends what was said', async () => {
+  resetDom();
+  router.register('session', 'session');
+  state.language = 'en';
+  const posts = [];
+  stubFetch(async (url, options) => {
+    if (url === '/api/sessions') {
+      return jsonResponse({
+        session_id: 9,
+        mode: 'script',
+        lines: [
+          { speaker: 'bot', text: 'Any suggestions?', audio_key: 'b0' },
+          { speaker: 'user', text: 'Somewhere quiet.', audio_key: 'u1' },
+        ],
+      });
+    }
+    if (url === '/api/script-turn') { posts.push(JSON.parse(options.body)); return jsonResponse({ turn: 1 }); }
+    return jsonResponse({});
+  });
+
+  await startSession({ language: 'en', mode: 'script', scenarioId: 'x' });
+  session.setTurnState('MIC');
+  await session.handleHeard('somewhere quiet', null);
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.deepEqual(posts.map((p) => p.text), ['somewhere quiet']);
+  assert.equal($('text-input').value, '', 'nothing is left for a later 다음 to send');
+});
+
+/* The step past a heard line is only ever one line. Two bot lines in a row
+ * means the second has not been played yet, and skipping it to land the
+ * transcript would take a line away from the learner -- so the answer waits
+ * rather than jumping the queue. (Every script in the library alternates, so
+ * this pins the choice rather than a case in daily use.) */
+test('a second bot line still to be heard is not skipped to land what was said', async () => {
+  resetDom();
+  router.register('session', 'session');
+  state.language = 'en';
+  const posts = [];
+  stubFetch(async (url, options) => {
+    if (url === '/api/sessions') {
+      return jsonResponse({
+        session_id: 11,
+        mode: 'script',
+        lines: [
+          { speaker: 'bot', text: 'Any suggestions?', audio_key: 'b0' },
+          { speaker: 'bot', text: 'A park, maybe?', audio_key: 'b1' },
+          { speaker: 'user', text: 'Somewhere quiet.', audio_key: 'u2' },
+        ],
+      });
+    }
+    if (url === '/api/script-turn') { posts.push(JSON.parse(options.body)); return jsonResponse({ turn: 1 }); }
+    return jsonResponse({});
+  });
+
+  await startSession({ language: 'en', mode: 'script', scenarioId: 'x' });
+  session.setTurnState('MIC');
+  await session.handleHeard('somewhere quiet', null);
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.deepEqual(posts, [], 'nothing is sent over a line the learner has not heard');
+  assert.equal(state.scriptIndex, 1, 'the heard line is still stepped past');
+});

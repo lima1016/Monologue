@@ -276,6 +276,19 @@ function sendHeard(transcript) {
   if (state.mode === 'script') {
     $('text-input').value = transcript;
     setTurnState('HEARD_NOTHING'); // release the turn; nextScriptLine runs its own cycle
+    // A bot line plays the instant it becomes current, and the learner answers
+    // it there -- they do not press 다음 first, and every script in the library
+    // opens on one. nextScriptLine's bot branch only moves the index on, so
+    // without this step the transcript sat in #text-input until something else
+    // pressed 다음, which then sent it as that line's answer. Stepping past a
+    // line that has already been heard puts it on the learner's own line
+    // instead. Only when the next line is theirs: a second bot line is still
+    // to be heard, and skipping it silently would be worse than the wait.
+    const current = state.scriptLines[state.scriptIndex];
+    const following = state.scriptLines[state.scriptIndex + 1];
+    if (current && current.speaker === 'bot' && following && following.speaker === 'user') {
+      nextScriptLine();
+    }
     nextScriptLine();
     return;
   }
